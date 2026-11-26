@@ -872,10 +872,10 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 }
 
 /*******************************************************************************************************************
- *  Additional Values Loader Result Processor
+ *  Yielded Values Loader Result Processor
  *
  * It takes results from upstream (should be Index iterator or close; before any RP that need these field),
- * and add their additional value to the right score field before sending them downstream.
+ * and writes the values their iterators yielded into the row, under each value's key.
  *******************************************************************************************************************/
 
 typedef struct {
@@ -890,7 +890,8 @@ static int rpYieldedValuesLoaderNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  YieldedValuesSlice slice = YieldedValues_AsSlice(&SearchResult_GetIndexResult(res)->yieldedValues);
+  YieldedValuesSlice slice =
+      YieldedValues_AsSlice(&SearchResult_GetIndexResult(res)->yieldedValues);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }

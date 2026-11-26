@@ -122,7 +122,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// [`with_max_doc_id`](Self::with_max_doc_id).
     max_doc_id: DocId,
 
-    /// Score key for this iterator's metric output. The metrics loader writes
+    /// Score key for this iterator's yielded value. The yielded values loader writes
     /// through the address returned by [`interop::own_key_ref`]. Boxed so that
     /// address stays stable across iterator moves (e.g. the rebox performed
     /// during `FT.PROFILE`), keeping the key handle valid. Holds a null pointer
@@ -513,7 +513,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
         // The child reuses one storage slot across yields, so an entry from a
         // previous yield may already exist for our key. Update in place when
-        // present; push otherwise. Any non-matching metrics from the child's
+        // present; push otherwise. Any non-matching yielded values from the child's
         // own subtree are left untouched.
         if let Some(entry) = result.yielded_values.find_by_key_mut(key) {
             entry.set_value(score);
@@ -525,7 +525,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn yields_child_record(&self) -> bool {
         // A hybrid query scores relevance from the child's term records, so the
         // child's result is what must reach the scorer; the vector distance
-        // rides along as a metric entry.
+        // rides along as a yielded value.
         true
     }
 

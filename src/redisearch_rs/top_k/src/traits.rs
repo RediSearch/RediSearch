@@ -272,12 +272,12 @@ pub trait ScoreSource {
     where
         Self: 'r;
 
-    /// Attach this source's score to the child's result as a metric entry.
+    /// Attach this source's score to the child's result as a yielded value.
     ///
     /// Called by [`TopKIterator`] in the filtered yield path: the child's
     /// `RSIndexResult` is what the relevance scorer will see (so BM25/TFIDF
     /// can recurse into the term records), and the source's score (e.g. a
-    /// vector distance) is exposed via the metrics channel for output fields
+    /// vector distance) is exposed as a yielded value for output fields
     /// like `__v_score`.
     ///
     /// Implementations that maintain a stable score key should overwrite an

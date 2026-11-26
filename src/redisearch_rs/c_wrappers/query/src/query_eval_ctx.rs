@@ -284,7 +284,7 @@ impl QueryEvalContext {
     /// ever grows the array past the existing entries.
     ///
     /// `is_internal` is recorded as [`YieldRequest::is_internal`], which keeps
-    /// the metric out of the query response.
+    /// the value out of the query response.
     ///
     /// # Safety
     ///
@@ -346,7 +346,7 @@ impl QueryEvalContext {
     /// [`is_valid`](RLookupKeyHandle::is_valid) set. The latter is what
     /// pipeline construction gates the key write on, and the owning iterator
     /// clears it when freed — leaving it at whatever the allocator returned
-    /// would drop the metric nondeterministically.
+    /// would drop the yielded value nondeterministically.
     ///
     /// # Safety
     ///

@@ -575,8 +575,8 @@ macro_rules! union_common_tests {
             }
         }
 
-        /// The children gave their metrics up when the aggregate was first
-        /// built, so rebuilding its entries must keep the metrics, frequency and
+        /// The children gave their yielded values up when the aggregate was first
+        /// built, so rebuilding its entries must keep the yielded values, frequency and
         /// field mask the aggregate already gathered.
         #[test]
         fn revalidate_ok_keeps_the_aggregate_yielded_values() {
@@ -595,7 +595,7 @@ macro_rules! union_common_tests {
 
             let current = union.current().expect("not at EOF");
             assert_eq!(current.yielded_values.len(), 1);
-            assert_eq!(current.yielded_values.get(0).expect("a metric").value, 0.5);
+            assert_eq!(current.yielded_values.get(0).expect("a yielded value").value, 0.5);
             assert_eq!(current.freq, freq);
             assert_eq!(current.field_mask, field_mask);
         }
@@ -1163,7 +1163,7 @@ macro_rules! union_common_tests {
         }
 
         /// Children whose union stays on doc 100 when the last one aborts: a
-        /// scored child carrying a metric, a sibling on the same document, and a
+        /// scored child carrying a yielded value, a sibling on the same document, and a
         /// doomed child ahead of the union.
         fn children_settling_back_onto_100() -> Vec<Box<dyn RQEIterator<'static>>> {
             let scored = rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
@@ -1178,9 +1178,9 @@ macro_rules! union_common_tests {
             vec![Box::new(scored), Box::new(sibling), Box::new(doomed)]
         }
 
-        /// A union moves its children's metrics into its aggregate when it builds
+        /// A union moves its children's yielded values into its aggregate when it builds
         /// it, so the children hold none afterwards. A revalidation that settles
-        /// the union back onto the same document must keep the metrics already
+        /// the union back onto the same document must keep the yielded values already
         /// gathered there, or a parent that later publishes this result loses
         /// e.g. a vector distance.
         #[track_caller]
@@ -1203,7 +1203,7 @@ macro_rules! union_common_tests {
             assert_eq!(
                 current.yielded_values.len(),
                 1,
-                "the metric must survive the settle",
+                "the yielded value must survive the settle",
             );
         }
 
@@ -1221,11 +1221,11 @@ macro_rules! union_common_tests {
             )));
         }
 
-        /// A quick union reports one child's metrics. Here two scored children sit
+        /// A quick union reports one child's yielded values. Here two scored children sit
         /// on doc 100 and the first read picks `first_scored`; the aborted child's
         /// removal can reorder the survivors so that the re-settle picks
-        /// `second_scored` instead, whose metric is still its own. The union must
-        /// keep publishing the metric it gathered, not both.
+        /// `second_scored` instead, whose yielded value is still its own. The union must
+        /// keep publishing the yielded value it gathered, not both.
         #[test]
         fn quick_revalidate_settling_back_onto_another_scored_backer_keeps_one_childs_yielded_values() {
             let doomed: Mock<'static, 2> = Mock::new([150, 300]);
@@ -1246,7 +1246,7 @@ macro_rules! union_common_tests {
             let first = union.read().expect("read failed").expect("doc 100");
             assert_eq!(first.doc_id, 100);
             assert_eq!(first.yielded_values.len(), 1);
-            let gathered = first.yielded_values.get(0).expect("one metric").value();
+            let gathered = first.yielded_values.get(0).expect("one yielded value").value();
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             assert!(matches!(
@@ -1258,12 +1258,12 @@ macro_rules! union_common_tests {
             assert_eq!(
                 current.yielded_values.len(),
                 1,
-                "a quick union publishes a single child's metrics",
+                "a quick union publishes a single child's yielded values",
             );
-            assert_eq!(current.yielded_values.get(0).expect("one metric").value(), gathered);
+            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value(), gathered);
         }
 
-        /// The metrics a quick union gathered also survive the settle that seeks a
+        /// The yielded values a quick union gathered also survive the settle that seeks a
         /// lagging sibling back onto the union's document, not only the one that
         /// finds a child already sitting there.
         ///
@@ -1303,8 +1303,12 @@ macro_rules! union_common_tests {
 
             let current = union.current().expect("still on doc 20");
             assert_eq!(current.doc_id, 20);
-            assert_eq!(current.yielded_values.len(), 1, "the metric must survive the settle");
-            assert_eq!(current.yielded_values.get(0).expect("one metric").value(), 0.5);
+            assert_eq!(
+                current.yielded_values.len(),
+                1,
+                "the yielded value must survive the settle"
+            );
+            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value(), 0.5);
         }
 
         /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling

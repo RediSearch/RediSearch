@@ -97,21 +97,21 @@ impl SettleOutcome {
     }
 }
 
-/// Puts back the metrics a union set aside before re-settling, once it has
+/// Puts back the yielded values a union set aside before re-settling, once it has
 /// settled back onto the document they were gathered for.
 ///
-/// The re-settle rebuilds the aggregate, which clears its metrics and drains the
+/// The re-settle rebuilds the aggregate, which clears its yielded values and drains the
 /// children's again — but the children gave theirs up when the aggregate was
 /// first built on this document, so `gathered` is the only record left. In full
 /// mode, any metric drained by the rebuild, from a child that only now reached
 /// the document, is kept after them.
 ///
-/// A `QUICK_EXIT` union reports a single child's metrics, but the re-settle may
+/// A `QUICK_EXIT` union reports a single child's yielded values, but the re-settle may
 /// pick a different backer than the one that gave up `gathered`, and that
 /// sibling still holds its own. Keeping both would publish two children's
 /// metrics — a yield key twice, if both score the document — so `gathered`
 /// wins, and the new backer's stand in only when it is empty. If the original
-/// backer was dropped in the meantime, its metrics are still the ones
+/// backer was dropped in the meantime, its yielded values are still the ones
 /// published: they are the last record of what the union reported for this
 /// document.
 pub(crate) fn restore_gathered_yielded_values<'index, const QUICK_EXIT: bool>(

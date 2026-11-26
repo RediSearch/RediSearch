@@ -597,7 +597,7 @@ impl Drop for VectorFixture {
 fn assert_bound_yield_request(fixture: &VectorFixture, name: &[u8]) {
     let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
-    assert_bound_to_a_freed_iterator(&requests[0], name, "an iterator that yields a metric");
+    assert_bound_to_a_freed_iterator(&requests[0], name, "an iterator that yields a value");
 }
 
 /// Assert `request` names `name` and carries a lookup-key handle that the

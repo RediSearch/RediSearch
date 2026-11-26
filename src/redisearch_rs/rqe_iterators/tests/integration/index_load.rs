@@ -57,10 +57,12 @@ fn bind<'index, I: RQEIterator<'index>>(it: &mut IndexLoad<'index, I>, key: &mut
 
 /// The single `(key, value)` metric `result` carries.
 fn sole_yielded_value(result: &RSIndexResult<'_>) -> (*const ffi::RLookupKey, f64) {
-    let metrics = result.yielded_values();
-    assert_eq!(metrics.len(), 1, "expected exactly one metric");
-    let entry = metrics.get(0).unwrap();
-    let key = entry.key().expect("the metric must carry the bound key");
+    let values = result.yielded_values();
+    assert_eq!(values.len(), 1, "expected exactly one yielded value");
+    let entry = values.get(0).unwrap();
+    let key = entry
+        .key()
+        .expect("the yielded value must carry the bound key");
     (key as *const _, entry.value())
 }
 
@@ -147,7 +149,7 @@ fn yielded_values_are_replaced_not_accumulated() {
     let mut it = IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap();
     bind(&mut it, &mut key);
 
-    // A metric left on the shared result by an earlier hit must not leak into
+    // A yielded value left on the shared result by an earlier hit must not leak into
     // the next one.
     let result = it.read().unwrap().unwrap();
     result.yielded_values_mut().push_without_key(-1.0);
@@ -221,7 +223,7 @@ fn resume_moved_reattaches() {
     let mut it = Box::new(IndexLoad::new(child).unwrap());
     bind(&mut it, &mut key);
 
-    // A parent takes the metrics of the hit it consumed.
+    // A parent takes the yielded values of the hit it consumed.
     let result = it.read().unwrap().unwrap();
     drop(std::mem::take(result.yielded_values_mut()));
 

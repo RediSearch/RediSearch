@@ -103,17 +103,17 @@ fn set_yielded_value(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey<
         panic!("Result is not numeric");
     }
 
-    let metrics = result.yielded_values_mut();
-    metrics.reset();
+    let values = result.yielded_values_mut();
+    values.reset();
     if key.is_null() {
-        metrics.push_without_key(val);
+        values.push_without_key(val);
     } else {
-        // The metrics vector types the key the way C sees it: the header
+        // `YieldedValues` types the key the way C sees it: the header
         // `RLookupKey` is exported under, which is this key's first field.
         //
         // SAFETY: `key` is non-null per the check above, and a valid `RLookupKey`
         // pointer that outlives this result (upheld by callers in `read` and `skip_to`).
-        metrics.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, val);
+        values.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, val);
     };
 }
 

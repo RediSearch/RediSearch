@@ -43,7 +43,7 @@ typedef struct QueryAST {
   const void *udata;
   size_t udatalen;
 
-  // array of additional metrics names in the AST.
+  // The keys the AST's iterators yield values under, resolved at pipeline construction.
   YieldRequest *yieldRequests;
 
   // Owned copy of a dialect 1 query, whose parser unescapes field names in place. NULL for later

@@ -208,7 +208,7 @@ pub struct RawTopK<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering = Ascend
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
     /// When `true`, filtered modes skip deep-copying the child's rich result
-    /// subtree and yield its metrics with the source's score attached.
+    /// subtree and yield its yielded values with the source's score attached.
     /// Set when the downstream pipeline needs no rich results (no relevance
     /// scorer or highlighter that reads the child's term records).
     can_trim_deep_results: bool,
@@ -810,7 +810,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // and takes the source-built path below.
             if self.child.is_some() && self.source.yields_child_record() {
                 if self.can_trim_deep_results {
-                    // Carry the child's captured metrics and attach our score
+                    // Carry the child's captured yielded values and attach our score
                     // last, so a lookup key shared with the child (e.g. nested
                     // KNN reusing an `AS` alias) keeps the outer vector score.
                     let mut result = match record {
@@ -821,7 +821,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                         continue;
                     }
                     self.last_doc_id = doc_id;
-                    // A carried record holds only the child's metrics, with a zeroed
+                    // A carried record holds only the child's yielded values, with a zeroed
                     // payload. The score is this record's own value, so it has to reach
                     // the payload too — that is what `ScoreSource::build_result` puts
                     // there, and what consumers reading the record numerically expect.
@@ -1280,7 +1280,7 @@ fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult
 ///
 /// Used on the trim path, where the child's deep scoring subtree is skipped but
 /// its yielded metrics remain explicit output/sort fields that must still be
-/// carried. Cloning copies each metric entry by value; the `RLookupKey`s they
+/// carried. Cloning copies each yielded value; the `RLookupKey`s they
 /// reference are owned by the query and stay valid for `'index`, so the copy
 /// outlives subsequent child reads.
 fn capture_child_yielded_values<'index>(record: &RSIndexResult<'index>) -> RSIndexResult<'index> {

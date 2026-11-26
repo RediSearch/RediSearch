@@ -35,19 +35,19 @@ fn retag<T>(child: Box<T>) -> Box<T> {
 fn push_borrowed<'a>(
     parent: &mut RSIndexResult<'a>,
     child: &RSIndexResult<'a>,
-    yielded_values: YieldedValues<'a>,
+    values: YieldedValues<'a>,
 ) {
     let child: *const RSIndexResult<'a> = child;
     // SAFETY: every caller below keeps the child alive for as long as `parent`,
     // moving it only through the deliberate `retag` above (which preserves its
     // address).
     let child = unsafe { &*child };
-    parent.push_borrowed(child, metrics);
+    parent.push_borrowed(child, values);
 }
 
 /// The property the primitive exists for: after every child has been retagged,
 /// rebuilding the entries from those children makes the aggregate readable
-/// again — and leaves the metrics alone, which is the part a rebuild cannot put
+/// again — and leaves the yielded values alone, which is the part a rebuild cannot put
 /// back.
 #[test]
 fn rebuilt_entries_survive_the_children_being_retagged() {
@@ -65,9 +65,9 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
     );
 
     let mut parent = RSIndexResult::build_intersect(2).build();
-    let mut metrics = YieldedValues::new();
-    metrics.push_without_key(0.5);
-    push_borrowed(&mut parent, &child0, metrics);
+    let mut values = YieldedValues::new();
+    values.push_without_key(0.5);
+    push_borrowed(&mut parent, &child0, values);
     push_borrowed(&mut parent, &child1, YieldedValues::new());
 
     let (doc_id, freq, field_mask) = (parent.doc_id, parent.freq, parent.field_mask);
@@ -120,7 +120,7 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
     assert_eq!(
         parent.yielded_values.get(0).map(|m| m.value()),
         Some(0.5),
-        "the metrics moved out of the children when the aggregate was first \
+        "the yielded values moved out of the children when the aggregate was first \
          built are still here — `reset_aggregate` would have lost them",
     );
 }

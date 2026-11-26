@@ -321,7 +321,7 @@ TEST_P(ScoreThresholdProcessorTypeTest, betweenScorerAndSorter) {
 INSTANTIATE_TEST_SUITE_P(
     Types, ScoreThresholdProcessorTypeTest,
     ::testing::Values(
-        ProcessorTypeCase{"Metrics", RP_YIELDED_VALUES_LOADER, true},
+        ProcessorTypeCase{"YieldedValuesLoader", RP_YIELDED_VALUES_LOADER, true},
         ProcessorTypeCase{"Projector", RP_PROJECTOR, true},
         ProcessorTypeCase{"Filter", RP_FILTER, true}, ProcessorTypeCase{"Loader", RP_LOADER, true},
         ProcessorTypeCase{"SafeLoader", RP_SAFE_LOADER, true},

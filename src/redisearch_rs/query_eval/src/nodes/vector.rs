@@ -227,7 +227,7 @@ fn default_score_field(field: &ffi::FieldSpec) -> CString {
 /// own-key slot, and give the iterator the back-reference it uses to invalidate
 /// the handle when it is freed.
 ///
-/// A no-op for iterator types that yield no metric — the range branch can
+/// A no-op for iterator types that yield no value — the range branch can
 /// return a plain empty iterator, for instance — which drops `id` and leaves
 /// the request unbound.
 fn bind_yield_request(
@@ -272,7 +272,7 @@ fn bind_yield_request(
             // SAFETY: as above.
             unsafe { metric::set_key_handle(it, Some(handle)) };
         }
-        // Every other type yields no metric to bind.
+        // Every other type yields no value to bind.
         _ => {}
     }
 }

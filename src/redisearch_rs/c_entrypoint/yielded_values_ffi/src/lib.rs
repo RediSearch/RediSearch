@@ -15,9 +15,9 @@
 use ffi::RLookupKey;
 use index_result::{RSIndexResult, YieldedValues, YieldedValuesSlice};
 
-/// Creates an empty metrics collection. Does not allocate.
+/// Creates an empty [`YieldedValues`]. Does not allocate.
 ///
-/// Use this to initialize the `metrics` field when constructing an
+/// Use this to initialize the `yieldedValues` field when constructing an
 /// `RSIndexResult` in place on the C side. Zero-initialization (e.g.
 /// designated initializers, `memset`, `calloc`) produces an invalid
 /// `YieldedValues` because the underlying `ThinVec` represents the empty
@@ -28,11 +28,11 @@ pub const extern "C" fn YieldedValues_New() -> YieldedValues<'static> {
     YieldedValues::new()
 }
 
-/// Moves all metrics from `child` into `parent`, leaving `child` empty.
+/// Moves all yielded values from `child` into `parent`, leaving `child` empty.
 ///
 /// # Safety
 ///
-/// 1. `parent` must point to a valid `YieldedValues` (e.g. `&result.yielded_values`).
+/// 1. `parent` must point to a valid `YieldedValues` (e.g. `&result.yieldedValues`).
 /// 2. `child` must point to a valid `YieldedValues`, or be null (no-op).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn YieldedValues_Concat<'a>(
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn YieldedValues_Concat<'a>(
     parent.concat(child);
 }
 
-/// Appends a single metric to the result's metrics collection.
+/// Appends a single yielded value to the result.
 ///
 /// # Safety
 ///
@@ -70,16 +70,16 @@ pub unsafe extern "C" fn IndexResult_AddYieldedValue(
 
     // SAFETY: caller guarantees validity (1).
     let result = unsafe { &mut *r };
-    let metrics = result.yielded_values_mut();
+    let values = result.yielded_values_mut();
     if key.is_null() {
-        metrics.push_without_key(val);
+        values.push_without_key(val);
     } else {
         // SAFETY: `key` is non-null (checked above) and valid per caller guarantee (2).
-        metrics.push_with_key(unsafe { &*key }, val);
+        values.push_with_key(unsafe { &*key }, val);
     }
 }
 
-/// Clears all entries from the result's metrics collection.
+/// Clears all of the result's yielded values.
 ///
 /// # Safety
 ///
@@ -94,7 +94,7 @@ pub unsafe extern "C" fn IndexResult_ResetYieldedValues(r: *mut RSIndexResult) {
 }
 
 /// Resets aggregate-specific fields on an `RSIndexResult`: doc_id, freq,
-/// field_mask, child records, and metrics.
+/// field_mask, child records, and yielded values.
 ///
 /// # Safety
 ///
@@ -108,43 +108,41 @@ pub unsafe extern "C" fn IndexResult_ResetAggregate(r: *mut RSIndexResult) {
     result.reset_aggregate();
 }
 
-/// Returns a read-only slice view of the metrics collection for zero-copy
+/// Returns a read-only slice view of `values` for zero-copy
 /// iteration from C.
 ///
 /// # Safety
 ///
-/// 1. `metrics` must point to a valid `YieldedValues` (e.g. `&result.yielded_values`).
+/// 1. `values` must point to a valid `YieldedValues` (e.g. `&result.yieldedValues`).
 /// 2. The returned slice borrows from the `YieldedValues`; the caller must
 ///    not mutate or free the `YieldedValues` while the slice is in use.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn YieldedValues_AsSlice(
-    metrics: *const YieldedValues,
-) -> YieldedValuesSlice {
-    debug_assert!(!metrics.is_null(), "metrics must not be null");
+pub unsafe extern "C" fn YieldedValues_AsSlice(values: *const YieldedValues) -> YieldedValuesSlice {
+    debug_assert!(!values.is_null(), "values must not be null");
 
     // SAFETY: caller guarantees validity (1).
-    let vec = unsafe { &*metrics };
+    let vec = unsafe { &*values };
     vec.as_c_slice()
 }
 
-/// Finds the first metric whose key matches `key` (pointer equality) and
+/// Finds the first yielded value whose key matches `key` (pointer equality) and
 /// replaces its value.
 ///
 /// # Safety
 ///
-/// 1. `metrics` must point to a valid `YieldedValues` (e.g. `&result.yielded_values`).
+/// 1. `values` must point to a valid `YieldedValues` (e.g. `&result.yieldedValues`).
 /// 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn YieldedValues_UpdateValue(
-    metrics: *mut YieldedValues,
+    values: *mut YieldedValues,
     key: *const RLookupKey,
     new_value: f64,
 ) {
-    debug_assert!(!metrics.is_null(), "metrics must not be null");
+    debug_assert!(!values.is_null(), "values must not be null");
     debug_assert!(!key.is_null(), "key must not be null");
 
     // SAFETY: caller guarantees validity (1) and (2).
-    let vec = unsafe { &mut *metrics };
+    let vec = unsafe { &mut *values };
     // SAFETY: caller guarantees `key` is valid and non-null (2); checked by debug_assert above.
     let key = unsafe { &*key };
     if let Some(entry) = vec.find_by_key_mut(key) {

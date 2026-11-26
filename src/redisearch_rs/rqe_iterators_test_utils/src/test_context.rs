@@ -255,7 +255,7 @@ impl TestContext {
 
                 let status = Box::into_raw(Box::new(QueryError::default()));
                 // A valid pointer to an empty (null) `YieldRequest` list head.
-                // Evaluating a node that yields a metric grows the list in
+                // Evaluating a node that yields a value grows the list in
                 // place; `QctxAlloc`'s teardown reclaims whatever it left.
                 let yield_requests_p =
                     Box::into_raw(Box::new(ptr::null_mut::<rlookup::YieldRequest<'static>>()));
@@ -1411,7 +1411,7 @@ impl Drop for QctxAlloc {
         unsafe {
             drop(Box::from_raw(self.config));
             // The list itself belongs to whatever was evaluated through this
-            // context, not to the allocation above: a node that yields a metric
+            // context, not to the allocation above: a node that yields a value
             // appends an entry, and an iterator that was actually built leaves
             // an owned key handle on it. Both are reclaimed here, as the query
             // AST's teardown does in production.

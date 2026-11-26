@@ -504,17 +504,17 @@ impl<'index> SparseVectorIterator<'index> {
         *result
             .as_numeric_mut()
             .expect("the sparse result is built as a sparse score") = value;
-        let metrics = result.yielded_values_mut();
-        metrics.reset();
+        let values = result.yielded_values_mut();
+        values.reset();
         if !key.is_null() {
-            // The metrics vector types the key the way C sees it: the header
+            // `YieldedValues` types the key the way C sees it: the header
             // `RLookupKey` is exported under, which is this key's first field.
             //
             // SAFETY: `key` is non-null per the check above. It is the lookup
             // key the pipeline resolved for this node, which lives in the
             // query's `RLookup` and so outlives every result this iterator
             // yields.
-            metrics.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, value);
+            values.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, value);
         }
     }
 }

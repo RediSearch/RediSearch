@@ -264,13 +264,13 @@ impl<Shell, Elem, Resumed> Drop for FreeSuspendedShell<Shell, Elem, Resumed> {
 /// surviving entry accounts for, and `field_mask` decides field filtering and
 /// field-weighted scoring.
 ///
-/// [`metrics`] are carried across untouched, because they are *not* a function of
-/// the children: [`RSIndexResult::push_borrowed`] **moves** a child's metrics
+/// [`yielded_values`] are carried across untouched, because they are *not* a function of
+/// the children: [`RSIndexResult::push_borrowed`] **moves** a child's yielded values
 /// into the composite when the aggregate is first built, leaving the child with
 /// none. There is nothing to re-accumulate, so resetting them would discard
 /// them for good — a KNN child's `__vector_score` vanishing from the reply. The
-/// cost of keeping them is that a metric contributed by a child that has since
-/// been dropped stays; the alternative loses the surviving children's metrics
+/// cost of keeping them is that a yielded value contributed by a child that has since
+/// been dropped stays; the alternative loses the surviving children's yielded values
 /// too, to remove it. Should a union then re-settle,
 /// [`restore_gathered_yielded_values`] decides which of them it goes on publishing.
 ///
@@ -302,7 +302,7 @@ impl<Shell, Elem, Resumed> Drop for FreeSuspendedShell<Shell, Elem, Resumed> {
 ///
 /// [`freq`]: index_result::RawIndexResult::freq
 /// [`field_mask`]: index_result::RawIndexResult::field_mask
-/// [`metrics`]: index_result::RawIndexResult::yielded_values
+/// [`yielded_values`]: index_result::RawIndexResult::yielded_values
 /// [`restore_gathered_yielded_values`]: crate::union::restore_gathered_yielded_values
 pub(crate) fn repush_borrowed_entries<'a, 'child, R, const QUICK_EXIT: bool>(
     aggregate: &mut RawBorrowedAggregateResult<'a, Suspended>,
@@ -316,7 +316,7 @@ where
 {
     // Drops the records and the kind mask; `push_borrowed_ptr_from_ref` rebuilds
     // both, entry by entry. Deliberately not `reset_aggregate`, which would also
-    // take `doc_id` and the metrics, which cannot be put back. See
+    // take `doc_id` and the yielded values, which cannot be put back. See
     // `# What is recomputed` above.
     aggregate.reset();
     *freq = 0;

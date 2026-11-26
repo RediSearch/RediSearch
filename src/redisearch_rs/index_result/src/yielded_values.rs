@@ -7,10 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Yieldable metrics attached to query results.
+//! Values that iterators yield alongside a hit, for the query pipeline to load.
 //!
-//! A [`YieldedValues`] holds a dynamic array of [`YieldedValue`] values, each
-//! pairing a borrowed [`RLookupKey`] with a numeric value.
+//! An iterator can attach a [`YieldedValue`] to the result it produces: a
+//! numeric value (a vector distance, a score, a loaded field value) paired with
+//! the [`RLookupKey`] the pipeline writes it under. Aggregate iterators forward
+//! their children's values, and the result processor that loads them writes each
+//! one into the row through its key. The planner asks for a key per value up
+//! front, see `rlookup::YieldRequest`.
+//!
+//! A result carries its values as a [`YieldedValues`].
 //!
 //! Backed by [`ThinVec`] (pointer-sized, no-alloc on construction),
 //! `YieldedValues` is `repr(transparent)` and can be embedded directly in
@@ -19,13 +25,13 @@ use ffi::RLookupKey;
 use std::ptr;
 use thin_vec::ThinVec;
 
-/// A single metric: a borrowed key and a numeric value.
+/// A single yielded value: a borrowed key and a numeric value.
 #[derive(Debug)]
 #[repr(C)]
 #[cheadergen::config(export)]
 pub struct YieldedValue<'query> {
-    /// Borrowed reference to the lookup key that identifies this metric,
-    /// or `None` when the metric has no associated key.
+    /// Borrowed reference to the lookup key the value is written under, or
+    /// `None` when the value has no associated key.
     ///
     /// The key always lives under the `'query` lifetime: it belongs to the
     /// query pipeline (the `RLookupKey`), not to the inverted index, so it is
@@ -39,7 +45,7 @@ pub struct YieldedValue<'query> {
     /// `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
     pub key: Option<&'query RLookupKey>,
 
-    /// The metric value (e.g. vector distance, score).
+    /// The value (e.g. vector distance, score).
     pub value: f64,
 }
 
@@ -52,7 +58,7 @@ impl Clone for YieldedValue<'_> {
 }
 
 impl<'a> YieldedValue<'a> {
-    /// Creates a metric entry with an associated key.
+    /// Creates a yielded value with an associated key.
     pub const fn with_key(key: &'a RLookupKey, value: f64) -> Self {
         Self {
             key: Some(key),
@@ -60,19 +66,19 @@ impl<'a> YieldedValue<'a> {
         }
     }
 
-    /// Creates a metric entry without an associated key.
+    /// Creates a yielded value without an associated key.
     pub const fn without_key(value: f64) -> Self {
         Self { key: None, value }
     }
 
-    /// Returns the key reference, or `None` if the metric has no key.
+    /// Returns the key reference, or `None` if the value has no key.
     pub const fn key(&self) -> Option<&'a RLookupKey> {
         self.key
     }
 }
 
 impl YieldedValue<'_> {
-    /// Returns the metric value.
+    /// Returns the value.
     pub const fn value(&self) -> f64 {
         self.value
     }
@@ -85,7 +91,7 @@ impl YieldedValue<'_> {
 
 // Manual `PartialEq` (rather than derived) because `RLookupKey` is an opaque
 // FFI type without a `PartialEq` impl, and we want identity-based key
-// comparison anyway: two metric entries refer to "the same key" when their
+// comparison anyway: two yielded values refer to "the same key" when their
 // pointers match, regardless of the key's content. Restricted to the
 // `Active` instantiation since [`Suspended`] pointers may be stale.
 impl<'a> PartialEq for YieldedValue<'a> {
@@ -101,7 +107,7 @@ impl<'a> PartialEq for YieldedValue<'a> {
     }
 }
 
-/// A dynamically-sized collection of [`YieldedValue`] values.
+/// A dynamically-sized collection of [`YieldedValue`]s.
 ///
 /// Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
 /// the allocation header. `YieldedValues::new()` does not allocate.
@@ -149,7 +155,7 @@ pub struct YieldedValuesSlice<'query> {
 }
 
 impl<'query> YieldedValues<'query> {
-    /// Creates an empty metrics collection. Does not allocate.
+    /// Creates an empty collection. Does not allocate.
     pub const fn new() -> Self {
         Self {
             inner: ThinVec::new(),
@@ -214,12 +220,12 @@ impl<'query> YieldedValues<'query> {
 }
 
 impl<'a> YieldedValues<'a> {
-    /// Appends a metric entry with an associated key.
+    /// Appends a yielded value with an associated key.
     pub fn push_with_key(&mut self, key: &'a RLookupKey, value: f64) {
         self.inner.push(YieldedValue::with_key(key, value));
     }
 
-    /// Appends a metric entry without an associated key.
+    /// Appends a yielded value without an associated key.
     pub fn push_without_key(&mut self, value: f64) {
         self.inner.push(YieldedValue::without_key(value));
     }

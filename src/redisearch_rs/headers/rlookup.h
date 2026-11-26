@@ -376,25 +376,28 @@ typedef struct CHEADERGEN_ALIGNED(8) RLookup {
 } RLookup;
 
 /**
- * A deferred binding between a metric name produced during query parsing
- * and the [`RLookupKey`] that will be resolved during
- * pipeline construction.
+ * A planner request for the [`RLookupKey`] an iterator yields a value under.
+ *
+ * Query evaluation records the key's name; pipeline construction resolves the
+ * name to a key and writes it into the iterator's key slot through
+ * [`key_handle`](Self::key_handle). The yielded value itself travels on the
+ * iterator's results, see `index_result::YieldedValue`.
  */
 typedef struct YieldRequest {
   /**
-   * The name of the metric field to register in the
-   * [`RLookup`] table (e.g. `"__vec_score"`).
+   * The name of the key to register in the [`RLookup`] table
+   * (e.g. `"__vec_score"`).
    */
   const char *key_name;
   /**
    * Optional handle back to the iterator's
    * [`RLookupKey`] slot. `NULL` when the iterator
-   * that requested this metric was not created (e.g. an early
+   * that requested this key was not created (e.g. an early
    * empty-result short-circuit).
    */
   struct RLookupKeyHandle *key_handle;
   /**
-   * When `true`, the metric is excluded from the query response
+   * When `true`, the value is excluded from the query response
    * (the corresponding [`RLookupKey`] is created
    * with the `HIDDEN` flag).
    */

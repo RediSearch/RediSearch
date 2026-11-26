@@ -10,7 +10,7 @@
 //! Integration tests for [`YieldedValue`] and [`YieldedValues`].
 //!
 //! These types track yieldable metrics (vector distance, score, etc.) attached
-//! to query results. The metrics machinery never dereferences the borrowed
+//! to query results. The yielded values machinery never dereferences the borrowed
 //! [`RLookupKey`]: it only stores and compares the pointer. The tests below
 //! therefore use stack-allocated POD `RLookupKey` values whose contents are
 //! irrelevant — only their addresses matter.
@@ -21,7 +21,7 @@ use std::ptr;
 
 /// Builds a zero-initialized `RLookupKey` suitable for pointer-identity tests.
 ///
-/// The metrics code only stores and compares the borrow's address, so the
+/// The yielded values code only stores and compares the borrow's address, so the
 /// field values are intentionally meaningless.
 const fn make_key() -> RLookupKey {
     RLookupKey {

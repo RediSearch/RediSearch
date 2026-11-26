@@ -428,7 +428,7 @@ fn index_size_reflects_added_vectors() {
     assert_eq!(source.index_size(), n);
 }
 
-/// A zero-filled lookup key. The metrics channel only compares the key's
+/// A zero-filled lookup key. The yielded values code only compares the key's
 /// address, so the fields are never read.
 const fn make_key() -> RLookupKey {
     RLookupKey {
@@ -447,7 +447,7 @@ const fn make_key() -> RLookupKey {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn attach_yielded_score_appends_when_absent() {
-    // Arrange: a keyed source and a result holding only the child's own metric.
+    // Arrange: a keyed source and a result holding only the child's own yielded value.
     let index = build_hnsw_index(3);
     let mut source = make_source(&index, 3, 3, 3);
     let mut own = make_key();
@@ -460,7 +460,7 @@ fn attach_yielded_score_appends_when_absent() {
     // Act.
     source.attach_yielded_score(&mut result, 42.0);
 
-    // Assert: appended alongside the untouched foreign metric.
+    // Assert: appended alongside the untouched foreign yielded value.
     assert_eq!(result.yielded_values.len(), 2);
     assert_eq!(
         result.yielded_values.find_by_key_mut(&own).unwrap().value(),
@@ -503,7 +503,7 @@ fn attach_yielded_score_overwrites_in_place() {
     );
 }
 
-/// With no output key wired up (the metrics loader never ran), attaching a
+/// With no output key wired up (the yielded values loader never ran), attaching a
 /// score must be a no-op rather than pushing a keyless entry.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
@@ -525,7 +525,7 @@ fn attach_yielded_score_without_key_is_noop() {
 /// this suite's index can produce.
 const STALE_CHILD_SCORE: f64 = 777.0;
 
-/// Drives a trimmed filtered query in `mode` whose child yields a metric under
+/// Drives a trimmed filtered query in `mode` whose child yields a value under
 /// the source's own output key, and returns `(doc id, value under that key,
 /// numeric payload)` per result, asserting along the way that no second entry
 /// appeared for the key.
@@ -574,7 +574,7 @@ fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)>
     emitted
 }
 
-/// A nested KNN reusing the outer `AS` alias makes the child yield a metric
+/// A nested KNN reusing the outer `AS` alias makes the child yield a value
 /// under this source's own key: the distance must overwrite that entry and the
 /// numeric payload, leaving nothing of the child's value.
 #[test]
@@ -593,7 +593,7 @@ fn batches_trimmed_shared_yield_key_carries_vector_score() {
 
 /// Adhoc-BF counterpart of
 /// [`batches_trimmed_shared_yield_key_carries_vector_score`]: the child-driven
-/// scan captures the child's metrics on its own path, so it needs its own check.
+/// scan captures the child's yielded values on its own path, so it needs its own check.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn adhoc_trimmed_shared_yield_key_carries_vector_score() {

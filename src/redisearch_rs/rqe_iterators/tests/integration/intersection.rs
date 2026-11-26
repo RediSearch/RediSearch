@@ -1427,8 +1427,8 @@ fn revalidate_ok_leaves_the_aggregate_readable() {
     assert_entries_on(&mut ii, 10, 2);
 }
 
-/// The children gave their metrics up when the aggregate was first built, so
-/// rebuilding its entries must keep the metrics, frequency and field mask the
+/// The children gave their yielded values up when the aggregate was first built, so
+/// rebuilding its entries must keep the yielded values, frequency and field mask the
 /// aggregate already gathered.
 #[test]
 fn revalidate_ok_keeps_the_aggregate_yielded_values() {
@@ -1447,7 +1447,14 @@ fn revalidate_ok_keeps_the_aggregate_yielded_values() {
 
     let current = ii.current().expect("not at EOF");
     assert_eq!(current.yielded_values.len(), 1);
-    assert_eq!(current.yielded_values.get(0).expect("a metric").value, 0.5);
+    assert_eq!(
+        current
+            .yielded_values
+            .get(0)
+            .expect("a yielded value")
+            .value,
+        0.5
+    );
     assert_eq!(current.freq, freq);
     assert_eq!(current.field_mask, field_mask);
 }
@@ -1780,7 +1787,7 @@ mod via_resume {
         }
     }
 
-    /// Metrics are carried across the rebuild: `RSIndexResult::push_borrowed`
+    /// Yielded values are carried across the rebuild: `RSIndexResult::push_borrowed`
     /// moved them out of the children, so they cannot be re-gathered. Losing them
     /// would drop `__vector_score` from a hybrid query's reply.
     #[test]
@@ -1817,7 +1824,7 @@ mod via_resume {
         assert_eq!(
             current.yielded_values.len(),
             1,
-            "the metric must survive a rebuild of the document it was gathered for",
+            "the yielded value must survive a rebuild of the document it was gathered for",
         );
     }
 
@@ -2620,7 +2627,7 @@ mod via_resume {
         freq: u32,
         field_mask: rqe_core::FieldMask,
         entries: usize,
-        metrics: usize,
+        yielded_values: usize,
     }
 
     fn published<'index>(it: &mut impl RQEIterator<'index>) -> Option<Published> {
@@ -2629,7 +2636,7 @@ mod via_resume {
             freq: r.freq,
             field_mask: r.field_mask,
             entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
-            metrics: r.yielded_values.len(),
+            yielded_values: r.yielded_values.len(),
         })
     }
 

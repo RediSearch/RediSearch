@@ -301,7 +301,7 @@ pub struct RawIndexResult<'query, R: Ref> {
     /// The actual data of the result
     pub(super) data: RawResultData<'query, R>,
 
-    /// Holds an array of metrics yielded by the different iterators in the AST.
+    /// The values the iterators in the AST yielded for this hit.
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
@@ -354,7 +354,7 @@ const _: () = {
     assert!(offset_of!(A, weight) == offset_of!(S, weight));
 
     // The only `R`-dependent field is `data`; check its two instantiations
-    // have identical size. The `metrics` field no longer depends on `R` (its
+    // have identical size. The `yielded_values` field does not depend on `R` (its
     // `RLookupKey` lives under `'query`, never weakened), so it is the same
     // `YieldedValues<'static>` type on both sides — nothing to assert there.
     assert!(
@@ -606,7 +606,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Reset an aggregate result for reuse, clearing children, frequency,
-    /// field mask, and metrics.
+    /// field mask, and yielded values.
     pub fn reset_aggregate(&mut self) {
         self.doc_id = 0;
         self.freq = 0;
@@ -886,12 +886,12 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         matches!(self.data, RawResultData::Term(_))
     }
 
-    /// Returns a mutable reference to the metrics collection.
+    /// Returns a mutable reference to the yielded values.
     pub const fn yielded_values_mut(&mut self) -> &mut YieldedValues<'query> {
         &mut self.yielded_values
     }
 
-    /// Returns a reference to the metrics collection.
+    /// Returns a reference to the yielded values.
     pub const fn yielded_values(&self) -> &YieldedValues<'query> {
         &self.yielded_values
     }
@@ -950,13 +950,14 @@ impl<'a> RSIndexResult<'a> {
     /// - `doc_id` is set to the child's doc_id (inherits, not accumulated)
     /// - `freq` is accumulated (`+=`) from the child's frequency
     /// - `field_mask` is OR'd with the child's field mask
-    /// - `child_yielded_values` are concatenated (moved) into this result's metrics
+    /// - `child_yielded_values` are concatenated (moved) into this result's yielded values
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
     ///
-    /// The caller must drain the child's metrics via `std::mem::take(&mut child.yielded_values)`
-    /// before calling this method, and pass them as `child_yielded_values`.
+    /// The caller must drain the child's yielded values via
+    /// `std::mem::take(&mut child.yielded_values)` before calling this method, and pass them as
+    /// `child_yielded_values`.
     ///
     /// # Panics
     ///
@@ -975,7 +976,7 @@ impl<'a> RSIndexResult<'a> {
     ) {
         debug_assert!(
             child.yielded_values.is_empty(),
-            "child metrics must be drained by caller via std::mem::take()"
+            "child yielded values must be drained by caller via std::mem::take()"
         );
         if !self.is_aggregate() {
             return;
@@ -1037,7 +1038,7 @@ impl<'a> RSIndexResult<'a> {
     /// - The document ID will inherit the new child added
     /// - The child's frequency will contribute to this result
     /// - The child's field mask will contribute to this result's field mask
-    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    /// - If the child has yielded values, then they will be concatenated to this result's own
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.

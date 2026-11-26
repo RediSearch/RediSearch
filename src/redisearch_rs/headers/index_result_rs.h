@@ -514,12 +514,12 @@ typedef struct ThinVec_YieldedValue__u64 {
 #endif /* THINVEC_YIELDEDVALUE__U64_DEFINED */
 
 /**
- * A single metric: a borrowed key and a numeric value.
+ * A single yielded value: a borrowed key and a numeric value.
  */
 typedef struct YieldedValue {
   /**
-   * Borrowed reference to the lookup key that identifies this metric,
-   * or `None` when the metric has no associated key.
+   * Borrowed reference to the lookup key the value is written under, or
+   * `None` when the value has no associated key.
    *
    * The key always lives under the `'query` lifetime: it belongs to the
    * query pipeline (the `RLookupKey`), not to the inverted index, so it is
@@ -534,13 +534,13 @@ typedef struct YieldedValue {
    */
   const RLookupKey *key;
   /**
-   * The metric value (e.g. vector distance, score).
+   * The value (e.g. vector distance, score).
    */
   double value;
 } YieldedValue;
 
 /**
- * A dynamically-sized collection of [`YieldedValue`] values.
+ * A dynamically-sized collection of [`YieldedValue`]s.
  *
  * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
  * the allocation header. `YieldedValues::new()` does not allocate.
@@ -583,7 +583,7 @@ typedef struct RawIndexResult_Active {
    */
   union RawResultData_Active data;
   /**
-   * Holds an array of metrics yielded by the different iterators in the AST.
+   * The values the iterators in the AST yielded for this hit.
    *
    * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
    * allocation when empty.
