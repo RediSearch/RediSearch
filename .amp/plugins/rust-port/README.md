@@ -62,7 +62,7 @@ The thread that calls `port_plan` owns the job; hooks ignore every other thread.
    keeps the tests passing, or it cites a rule.
 4. **Admission**, if the evidence passed and no blocking finding holds the stage: the stage PR is
    opened or updated, stacked on the one before it. Admitting the stage a worker started on
-   hands the job to a fresh thread for the next stage, briefed with the plan and the outstanding
+   hands the job, at turn end, to a fresh thread for the next stage, briefed with the plan and the outstanding
    findings, because every request re-reads its thread's history. Former workers own nothing.
 
 Evidence is keyed by stage, candidate, base and plan hash, so passing evidence is reused and an

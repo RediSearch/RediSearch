@@ -61,7 +61,13 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
 
   const result = await run('claim', { stage: 'a', revision: a });
   assert.match(result, /Stage a admitted at/);
-  assert.match(result, /continues in a fresh thread, https:\/\/host\/T-2/);
+  assert.equal((await state()).job.owner, WORKER);
+  assert.deepEqual(
+    started.map((s) => s.id),
+    ['T-1'],
+  );
+  assert.equal(await port.endTurn(WORKER), undefined);
+  assert.equal(await port.endTurn(WORKER), undefined);
   assert.deepEqual(
     published.map((p) => [p.branch, p.base, p.candidate]),
     [['p-a', 'main', a]],
@@ -97,6 +103,9 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
     ],
   );
   assert.equal((await state()).job.owner, 'T-2');
+  const finalTurn = await port.endTurn('T-2');
+  assert.ok(finalTurn && 'continue' in finalTurn);
+  assert.equal(started.filter((s) => !s.role).length, 1);
   const evidence = [{ path: 'a/t.txt', line: 1 }];
   await run(
     'retro',
@@ -114,10 +123,11 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
 });
 
 test('every publication links all stage PRs, and a failed link holds nothing back', async () => {
-  const { run, commit, state, linked, forge } = await setup();
+  const { port, run, commit, state, linked, forge } = await setup();
   const url = (n: number) => `https://forge/pull/${n}`;
   const a = await commit({ 'a/t.txt': 'pins\n' });
   await run('claim', { stage: 'a', revision: a });
+  await port.endTurn(WORKER);
   forge.linkStack = async () => {
     throw new Error('stacks are unavailable');
   };
@@ -151,18 +161,34 @@ test('a claim the gates reject costs no assessment', async () => {
   assert.equal((await state()).job.used, 0);
 });
 
+test('an unpublished admission does not hand off at turn end', async () => {
+  const { host, started } = fakeHost();
+  const { port, run, commit, state, forge } = await setup(host);
+  forge.publish = async () => {
+    throw new Error('publication unavailable');
+  };
+  const a = await commit({ 'a/t.txt': 'pins\n' });
+  await assert.rejects(run('claim', { stage: 'a', revision: a }), /publication unavailable/);
+  assert.deepEqual(await port.endTurn(WORKER), { continue: 'Continue the port job.' });
+  assert.equal((await state()).job.owner, WORKER);
+  assert.equal(started.filter((s) => !s.role).length, 0);
+});
+
 test('a failed handoff keeps the worker, and passing evidence is reused for free', async () => {
   const { host } = fakeHost();
+  let fail = true;
   const failing: Host = {
     ...host,
-    startThread: (o) => (o.role ? host.startThread(o) : Promise.reject(new Error('no agent'))),
+    startThread: (o) =>
+      o.role || !fail ? host.startThread(o) : Promise.reject(new Error('no agent')),
   };
   const report = '### Microbenchmark results\n\n| Scan | 40 ns | 30 ns | -25.00% |';
-  const { run, commit, state, published } = await setup(failing, {
+  const { port, run, commit, state, published } = await setup(failing, {
     test: () => ({ report }),
   });
   const a = await commit({ 'a/t.txt': 'pins\n' });
-  assert.doesNotMatch(await run('claim', { stage: 'a', revision: a }), /fresh thread/);
+  await run('claim', { stage: 'a', revision: a });
+  assert.deepEqual(await port.endTurn(WORKER), { continue: 'Continue the port job.' });
   assert.match(await run('claim', { stage: 'a', revision: a }), /Stage a admitted/);
   const { job, evidence } = await state();
   assert.deepEqual([job.owner, job.former, job.used], [WORKER, undefined, 1]);
@@ -172,6 +198,10 @@ test('a failed handoff keeps the worker, and passing evidence is reused for free
     assert.ok(pr.body.includes(report));
     assert.ok(pr.body.indexOf(report) < pr.body.indexOf('<details>'));
   }
+  fail = false;
+  assert.equal(await port.endTurn(WORKER), undefined);
+  assert.equal((await state()).job.owner, 'T-2');
+  assert.equal((await state()).job.used, 1);
 });
 
 test('the worker continues while it moves the job, and stops when blocked or stuck', async () => {
