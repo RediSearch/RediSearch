@@ -165,7 +165,7 @@ fn value_comes_from_the_aggregate_child_that_matched() {
         CRQEIterator::from_rust_leaf(Mock::new_with_values([2], [20.0])),
     ];
     let union = build_union(leaves, true, 20, QueryNodeType::Numeric, 1.0);
-    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `build_union` returns a valid, owning iterator handle.
     let mut it = IndexLoad::new(unsafe { CRQEIterator::new(union) }).unwrap();
     bind(&mut it, &mut key);
 
@@ -265,7 +265,7 @@ fn resume_aborted_frees_the_decorator() {
         is_valid: true,
     };
     let mut it = Box::new(IndexLoad::new(child).unwrap());
-    // SAFETY: `handle` outlives `it`, no handle was attached before, and
+    // SAFETY: (1) `handle` outlives `it`, no handle was attached before, and
     // nothing else borrows `handle` while `it` is dropped.
     unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
 
@@ -292,7 +292,7 @@ fn resume_error_frees_the_decorator() {
         is_valid: true,
     };
     let mut it = Box::new(IndexLoad::new(child).unwrap());
-    // SAFETY: as in `resume_aborted_frees_the_decorator`.
+    // SAFETY: (1) as in `resume_aborted_frees_the_decorator`.
     unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
 
     assert!(matches!(
@@ -343,10 +343,10 @@ fn intersection_sort_weight_through_the_c_abi() {
         CRQEIterator::from_rust_leaf(Mock::new([3])),
     ];
     let union = build_union(leaves, false, 20, QueryNodeType::Union, 1.0);
-    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `build_union` returns a valid, owning iterator handle.
     let child = unsafe { CRQEIterator::new(union) };
     let decorator = IndexLoad::new(child).unwrap();
-    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `boxed_new` returns a valid, owning iterator handle.
     let it = unsafe { CRQEIterator::new(index_load::boxed_new(decorator)) };
 
     assert_eq!(it.type_(), IteratorType::Union);
@@ -363,12 +363,12 @@ fn a_decorated_union_is_not_a_union_wrapper() {
         CRQEIterator::from_rust_leaf(Mock::new([2])),
     ];
     let union = build_union(leaves, false, 20, QueryNodeType::Union, 1.0);
-    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `build_union` returns a valid, owning iterator handle.
     let union = unsafe { CRQEIterator::new(union) };
     assert!(is_union_wrapper(&union));
 
     let decorator = IndexLoad::new(union).unwrap();
-    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `boxed_new` returns a valid, owning iterator handle.
     let it = unsafe { CRQEIterator::new(index_load::boxed_new(decorator)) };
     assert_eq!(it.type_(), IteratorType::Union);
     assert!(!is_union_wrapper(&it));
@@ -394,7 +394,7 @@ fn key_slot_survives_profiling() {
     unsafe { decorator.set_handle(Some(NonNull::from(&mut handle))) };
     let header = index_load::boxed_new(decorator);
 
-    // SAFETY: `header` is a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `header` is a valid, owning iterator handle.
     let mut profiled = unsafe { CRQEIterator::new(header) }.into_profiled();
 
     assert!(
@@ -438,11 +438,11 @@ fn union_over_loading_child(
     bind(&mut loading, key);
     let sibling = Mock::new([1, 3]);
     sibling.data().set_revalidate_result(sibling_outcome);
-    // SAFETY: `boxed_new` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `boxed_new` returns a valid, owning iterator handle.
     let loading = unsafe { CRQEIterator::new(index_load::boxed_new(loading)) };
     let children = vec![loading, CRQEIterator::from_rust_leaf(sibling)];
     let union = build_union(children, false, 20, QueryNodeType::Union, 1.0);
-    // SAFETY: `build_union` returns a valid, owning iterator handle.
+    // SAFETY: (1)–(4) `build_union` returns a valid, owning iterator handle.
     unsafe { CRQEIterator::new(union) }
 }
 

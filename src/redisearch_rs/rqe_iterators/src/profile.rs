@@ -308,9 +308,9 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         // Profile delegates `current()` into the child's storage, which the
         // reused allocation keeps in place.
-        // SAFETY: `child_ptr` projects to the child slot, and the `Active` and
-        // `Suspended` forms are layout-identical apart from that slot
-        // (invariant 1 on `RawProfile`).
+        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
+        // reference. (2) The `Active` and `Suspended` forms are layout-identical
+        // apart from that slot (invariant 1 on `RawProfile`).
         unsafe { suspend_single_child(self, Self::child_ptr) }
     }
 }
@@ -334,9 +334,10 @@ where
         // Profile owns no aggregate result and simply mirrors the child's
         // `Ok`/`Moved`/`Aborted` outcome.
         //
-        // SAFETY: `child_ptr` projects to the child slot, the forms are
-        // layout-identical apart from that slot (invariant 1 on `RawProfile`), and
-        // `drop_rest` drops every other field in place.
+        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
+        // reference. (2) The forms are layout-identical apart from that slot
+        // (invariant 1 on `RawProfile`). (3) `drop_rest` drops every other field
+        // in place, without reading the child slot.
         unsafe { resume_single_child(self, guard, Self::child_ptr, Self::drop_rest) }
     }
 

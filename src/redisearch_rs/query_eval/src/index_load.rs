@@ -54,8 +54,8 @@ pub(crate) fn reserve(
         return None;
     }
     ctx.count_loading_clause();
-    // SAFETY: `alias` is the NUL-terminated name the parser stored on the
-    // node's options. The request borrows it; the node owns it, and the AST
+    // SAFETY: (1) `alias` is the NUL-terminated name the parser stored on the
+    // node's options. (2) The request borrows it; the node owns it, and the AST
     // outlives the metric-request array.
     Some(Some(unsafe {
         ctx.add_metric_request(alias.as_ptr(), false)
@@ -76,8 +76,8 @@ pub(crate) fn decorate<'index>(
     let Some(request) = request else {
         return Some(evaluated);
     };
-    // SAFETY: `into_c_iterator` yields a valid, owning iterator handle with
-    // all callbacks populated — exactly the precondition of `CRQEIterator::new`.
+    // SAFETY: (1)–(4) `into_c_iterator` yields a valid, owning iterator handle
+    // with every required callback populated and callable.
     let child = unsafe { CRQEIterator::new(evaluated.into_c_iterator()) };
     let mut decorator = match IndexLoad::new(child) {
         Ok(decorator) => decorator,

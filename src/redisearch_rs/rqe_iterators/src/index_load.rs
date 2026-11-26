@@ -390,9 +390,9 @@ where
     type Suspended = RawIndexLoad<'index, Suspended, I::Suspended>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // SAFETY: `child_ptr` projects to the child slot, and the `Active` and
-        // `Suspended` forms are layout-identical apart from that slot
-        // (invariant 1).
+        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
+        // reference. (2) The `Active` and `Suspended` forms are layout-identical
+        // apart from that slot (invariant 1).
         unsafe { suspend_single_child(self, Self::child_ptr) }
     }
 }
@@ -413,9 +413,10 @@ where
     where
         'query: 'a,
     {
-        // SAFETY: `child_ptr` projects to the child slot, the forms are
-        // layout-identical apart from that slot (invariant 1), and `drop_rest`
-        // drops every other field in place.
+        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
+        // reference. (2) The forms are layout-identical apart from that slot
+        // (invariant 1). (3) `drop_rest` drops every other field in place,
+        // without reading the child slot.
         let outcome = unsafe {
             resume_single_child::<_, _, Self::Resumed<'a>>(
                 self,
