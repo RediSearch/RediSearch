@@ -15965,6 +15965,21 @@ function engine(o) {
             const { job } = state;
             if (job.retro)
                 return;
+            // Amp excludes the executing tool from children it creates. Hand off outside claim so
+            // the next worker retains the claim tool. Admissions and publication persist the intent.
+            const index = job.former?.length ?? 0;
+            const stage = stages[index];
+            const next = stages[index + 1];
+            const candidate = job.admitted[stage]?.candidate;
+            if (next &&
+                candidate &&
+                isAdmitted(job, stage) &&
+                job.prs[stage]?.head === candidate &&
+                (await vcs.currentRevision()) === candidate &&
+                (await handOff(state, stage, next, candidate))) {
+                await save(state);
+                return;
+            }
             // An unreachable forge counts as pending, so the worker sleeps rather than spins.
             if (done(state) && (await collectFeedback(state).catch(() => true)))
                 return void (await save(state));
@@ -16031,23 +16046,20 @@ function engine(o) {
         const holding = outstanding(state).filter((f) => blocksAdmission(f, stage));
         const admitted = passed(state.evidence[key]) && !holding.length;
         debug(`${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`);
-        let handedTo = '';
         if (admitted) {
             // Recorded first, so the PR's run record shows it; a failed publication throws, and a
             // failed call saves nothing.
             job.admitted[stage] = { candidate, base, plan: job.planHash };
             await publish(state, stage, candidate);
-            const next = stages[stages.indexOf(stage) + 1];
-            // Only the worker of this stage hands on; a later one re-admitting it keeps the job.
-            if (next && stages.indexOf(stage) === (job.former?.length ?? 0))
-                handedTo = await handOff(state, stage, next, candidate);
         }
         const big = sizeClass(size.lines);
         const result = newFindingsMessage(state, `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
             `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
             (big ? ` ${big.label}: ${big.note}` : ''));
-        return handedTo
-            ? `${result}\n\nThe job continues in a fresh thread, ${handedTo}, which owns this checkout now. Change nothing more and end your turn.`
+        return admitted &&
+            stages[stages.indexOf(stage) + 1] &&
+            stages.indexOf(stage) === (job.former?.length ?? 0)
+            ? `${result}\n\nThe plugin will hand the job to a fresh worker when this turn ends. Report the admission without making further changes to the checkout.`
             : result;
     }
     /** The base the stage's diff starts from: the base branch, or the admitted stage before it. */
@@ -16236,7 +16248,7 @@ ${formatFindings(outstanding(state), tool('close')) || 'None.'}
 
 ${describePlan(job.plan, profile)}`;
         // Ownership moves only once the new thread has its briefing. Its first tool calls queue behind
-        // this claim, by when it owns the job; if anything fails, the current worker carries on.
+        // this turn-end transition, by when it owns the job; if anything fails, the worker carries on.
         try {
             const child = await host.startThread({ parent: from, labels: [next] });
             await host.sendMessage(child, briefing);
