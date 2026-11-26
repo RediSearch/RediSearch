@@ -557,6 +557,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     ///
     /// `total_docs` and `num_docs` (the documents in the index and those carrying the tag) give
     /// the tag's IDFs, as for an in-memory tag reader.
+    #[expect(clippy::too_many_arguments)]
     fn new_tag_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
