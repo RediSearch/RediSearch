@@ -91,7 +91,7 @@ on `RawInvIndIterator`.
 
 ## Generic (wrapper / composite) iterators
 
-Examples: `Profile` (single child); `Optional` (single child + an owned virtual
+Examples: `Profile` and `IndexLoad` (single child); `Optional` (single child + an owned virtual
 sentinel result); `MaybeEmpty` (child-or-`Empty`). `Not`, `Intersection`, and the
 `Union*` family are also wrappers over child collections. The child is a generic
 `I: RQEIteratorBoxed` (active) / `S: RQESuspendedIterator` (suspended), and in
@@ -213,12 +213,45 @@ without touching the moved-from child.
 When the child was consumed and its slot is uninitialized, free the reused
 allocation **without dropping the moved-from child**. Two approved shapes:
 
-- Drop the `Rf`-free fields in place, then `std::alloc::dealloc` (see `Profile`'s
-  `dealloc_after_child_gone`).
+- Drop the `Rf`-free fields in place, then free the allocation without dropping
+  the child slot. A single-child decorator does not hand-roll this: it uses the
+  shared helpers below.
 - Overwrite the consumed slot with an `I`-free enum variant via `ptr::write`
   (`OptionalChild::Gone` / `MaybeEmptyOption::None(Empty)`) — which does **not**
   drop the moved-from payload — then `drop(Box::from_raw(raw))` to reclaim the
   reused box normally. This is what `Optional` and `MaybeEmpty` do.
+
+### Single-child decorators: use the shared helpers
+
+A decorator with one child plus `Rf`-free fields (`Profile`, `IndexLoad`) does
+not write the transition or the teardown itself. `boxed::suspend_single_child`
+and `boxed::resume_single_child` reuse the allocation, drive the child's
+transition in place, relabel the box, and, on `Aborted` / `Err`, call
+`drop_rest` and free the allocation without touching the consumed child slot.
+`resume_single_child` mirrors the child's `Ok` / `Moved` / `Aborted` outcome, so
+post-processing (e.g. `IndexLoad` re-attaching a value after `Moved`) goes on the
+returned outcome.
+
+The decorator supplies two `unsafe fn` projections on its raw struct, each with
+a `# Safety` contract the helpers' own docs build on:
+
+- `child_ptr(raw: *mut Self) -> *mut I`: `&raw mut (*raw).child`, with no
+  reference formed into the allocation.
+- `drop_rest(raw: *mut Self)` (resume only): drops in place every field except
+  the child, without reading the child slot. The fields are valid, and are not
+  used afterwards.
+
+The decorator must also be `#[repr(C)]`, with no `Rf` in a field other than the
+child except as a zero-sized marker, and keep its invariant-1 proof (see
+"Wrapper invariant proof"). Then:
+
+```rust
+unsafe { suspend_single_child(self, Self::child_ptr) }
+unsafe { resume_single_child::<_, _, Self::Resumed<'a>>(self, guard, Self::child_ptr, Self::drop_rest) }?
+```
+
+Reach for the hand-written shapes above only when the child slot is not a plain
+field (`Optional`, `MaybeEmpty`).
 
 ### Align `resume` with the existing `revalidate`
 
