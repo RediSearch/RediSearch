@@ -88,7 +88,7 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     /// Transition to the suspended state.
     ///
     /// Must be called while the spec read lock is still held: an implementation may still read
-    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
+    /// index memory, as [`CRQEIterator`](crate::c2rust::CRQEIterator) does to snapshot its estimate.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
