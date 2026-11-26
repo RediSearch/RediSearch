@@ -10,7 +10,14 @@ if [[ -d ${BOOST_DIR} ]]; then
     exit 0
 fi
 
-wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz -O ${BOOST_NAME}.tar.gz
+BOOST_URL=https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz
+if [[ "$(uname -s)" == Darwin ]]; then
+    # Homebrew's wget on the macOS x86_64 runners can't verify github.com's
+    # certificate chain; curl uses the system trust store.
+    curl -fsSL --retry 3 "${BOOST_URL}" -o ${BOOST_NAME}.tar.gz
+else
+    wget "${BOOST_URL}" -O ${BOOST_NAME}.tar.gz
+fi
 
 tar -xzf ${BOOST_NAME}.tar.gz
 cd boost-${VERSION}
