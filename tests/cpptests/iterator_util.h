@@ -54,7 +54,6 @@ private:
       base.Rewind = MockIterator_Rewind;
       base.Revalidate = MockIterator_Revalidate;
       QueryIterator_SetNoScoreBounds(&base);
-      base.IntersectionSortWeight = Default_IntersectionSortWeight;
       base.Suspend = Default_Suspend;
 
       std::sort(docIds.begin(), docIds.end());

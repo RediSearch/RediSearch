@@ -65,7 +65,8 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -149,7 +150,8 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -381,15 +383,11 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         self.type_
     }
 
-    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
-        Some(self)
-    }
-
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
-        let callback = unsafe { self.IntersectionSortWeight.unwrap_unchecked() };
-        // SAFETY: The C code must guarantee, by constructor, that callbacks can be called on
-        // types that implement its C iterator API; this one only reads.
+        let Some(callback) = self.IntersectionSortWeight else {
+            return 1.0;
+        };
+        // SAFETY: As in `reports_score_bounds`.
         unsafe { callback(self.header.as_ptr(), prioritize_union_children) }
     }
 

@@ -20,7 +20,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust,
+    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
 };
 
 /// Where the checker believes the wrapped iterator stands, updated on every
@@ -706,10 +706,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
 
     fn type_(&self) -> IteratorType {
         self.inner.type_()
-    }
-
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        self.inner.as_c_iterator()
     }
 
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
