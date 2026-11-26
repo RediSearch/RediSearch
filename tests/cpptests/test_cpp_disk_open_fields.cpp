@@ -614,9 +614,9 @@ TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
       create("tag_wildcard_disk", {"folded", "TAG", "exact", "TAG", "CASESENSITIVE"}, &err);
   ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
   const char *folded[] = {"hello"};
-  const char *exact[] = {"a*b?end", "axbyend"};
+  const char *exact[] = {"a*b?end", "axbyend", "azend"};
   TagIndex_Commit(TagIndex_Open(&sp->fields[0]), folded, 1, &sp->stats);
-  TagIndex_Commit(TagIndex_Open(&sp->fields[1]), exact, 2, &sp->stats);
+  TagIndex_Commit(TagIndex_Open(&sp->fields[1]), exact, std::size(exact), &sp->stats);
 
   Restore minPrefix{RSGlobalConfig.iteratorsConfigParams.minTermPrefix};
   RSGlobalConfig.iteratorsConfigParams.minTermPrefix = 2;
@@ -641,7 +641,8 @@ TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
   const std::pair<const char *, std::vector<std::string>> cases[] = {
       {"@folded:{w'HE*'}", {"hello"}},
       {"@folded:{w'H*'}", {}},
-      {R"(@exact:{w'a\*b\?*'})", {"a*b?end"}},
+      // RAM removes the escapes before interpreting wildcard metacharacters.
+      {R"(@exact:{w'a\*b\?*'})", {"a*b?end", "axbyend"}},
   };
   for (const auto &[query, expected] : cases) {
     SCOPED_TRACE(query);
