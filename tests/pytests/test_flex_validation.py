@@ -176,13 +176,6 @@ def test_on_json_is_supported(env):
 @with_simulate_in_flex(True)
 def test_disk_json_rejects_multi_value_vector_jsonpath(env):
     """Test that disk validation rejects a dynamic JSONPath for a VECTOR field"""
-    # The vector parser rejects a dynamic path before the JSONPath check runs.
-    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.vec[*]', 'AS', 'vec', 'VECTOR', 'HNSW', '14',
-               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
-               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10', 'RERANK', 'TRUE') \
-        .error().contains('Disk index does not support multi-value vectors')
-
     # A field rejected after an accepted one leaves no index behind.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                '$.a[*]', 'AS', 't', 'TEXT',
@@ -191,6 +184,13 @@ def test_disk_json_rejects_multi_value_vector_jsonpath(env):
                'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10', 'RERANK', 'TRUE') \
         .error().contains('Disk index does not support multi-value vectors')
     env.expect('FT.INFO', 'idx').error().contains('Index not found')
+
+    # The vector parser rejects a dynamic path before the JSONPath check runs.
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.vec[*]', 'AS', 'vec', 'VECTOR', 'HNSW', '14',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2',
+               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10', 'RERANK', 'TRUE') \
+        .error().contains('Disk index does not support multi-value vectors')
 
 
 @skip(cluster=True)
