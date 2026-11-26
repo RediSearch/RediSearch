@@ -328,7 +328,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   REPLY_KVINT("num_records", num_records);
   if (isDisk) {
-    REPLY_KVINT("disk_score_skipping", SearchDisk_IsScoreSkippingEnabled(sp->diskSpec));
+    REPLY_KVINT("disk_score_skipping", !!(sp->flags & Index_DiskScoreSkipping));
   }
   REPLY_KVNUM("inverted_sz_mb", inverted_size / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", vector_indexes_size / (float)0x100000);

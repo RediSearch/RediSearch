@@ -369,7 +369,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
-      c_index_spec->flags, RSGlobalConfig.diskScoreSkipping, fields, c_index_spec->numFields,
+      c_index_spec->flags, fields, c_index_spec->numFields,
       &callbacks, c_index_spec, status);
   rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
@@ -493,11 +493,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
   RS_ASSERT(disk && index && batch);
   return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, docStats,
                                offsets, offsetsLen);
-}
-
-bool SearchDisk_IsScoreSkippingEnabled(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && index);
-  return disk->index.isScoreSkippingEnabled(index);
 }
 
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
