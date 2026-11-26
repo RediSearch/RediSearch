@@ -16,6 +16,7 @@
 #include "value_ffi.h"
 #include "search_result_ffi.h"
 #include "pipeline/pipeline.h"
+#include "query_memory.h"
 #include "reducer.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -281,6 +282,13 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
 
   // Rows without multi-valued keys belong to one group, so skip the scan for more.
   do {
+    // The array values of one row can reach up to maxGroups groups, new or existing, before the
+    // per-row check.
+    if (combinations > 1 && g->base.parent->limits &&
+        QueryMemory_Checkpoint(g->base.parent->limits)) {
+      RP_EndRowSourceOnStop(g->base.parent);
+      return RS_RESULT_STOPPED;
+    }
     int rc = addToGroup(g, nkeys ? g->cursors[nkeys - 1].hash : 0, srcrow, docId);
     if (rc != RS_RESULT_OK) {
       return rc;
@@ -298,6 +306,12 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
+    if (rc == RS_RESULT_OK && base->parent->limits &&
+        QueryMemory_Checkpoint(base->parent->limits)) {
+      // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
+      RP_EndRowSourceOnStop(base->parent);
+      rc = RS_RESULT_STOPPED;
+    }
     if (rc != RS_RESULT_OK) {
       break;
     }
@@ -311,9 +325,14 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     base->parent->skippedResults = 0;
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
-  } else {
-    return rc;
   }
+  if (rc == RS_RESULT_STOPPED && base->parent->limits &&
+      QueryRequestLimits_IsMemoryStopped(base->parent->limits)) {
+    // No group is replied, so none is counted either.
+    base->parent->totalResults = 0;
+    base->parent->skippedResults = 0;
+  }
+  return rc;
 }
 
 static void Grouper_rpFree(ResultProcessor *grrp) {

@@ -37,7 +37,7 @@ pub struct AutomatonIter<'tm, Data, A: Automaton> {
     /// backtracks, instead of allocating a fresh `Vec` per yield.
     key: Vec<u8>,
     /// The timeout state
-    timeout: IteratorTimeoutState,
+    timeout: IteratorTimeoutState<'tm>,
 }
 
 /// One pending visit on the traversal stack.
@@ -125,7 +125,11 @@ impl<'tm, Data, A: Automaton> AutomatonIter<'tm, Data, A> {
 
     /// Set timeout
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
-        self.timeout = timeout.into()
+        self.timeout.set_timeout(timeout)
+    }
+
+    pub(crate) fn set_stop_check(&mut self, stop: &'tm (dyn Fn() -> bool + Sync)) {
+        self.timeout.set_stop_check(stop);
     }
 
     /// Advance to the next matching entry, returning a reference to its data.

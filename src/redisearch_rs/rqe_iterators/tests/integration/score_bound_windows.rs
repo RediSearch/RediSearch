@@ -33,7 +33,7 @@ fn min_competitive(theta: f64) -> MinCompetitiveScore {
     MinCompetitiveScore::new(theta).expect("a positive heap minimum")
 }
 
-fn leaf(blocks: Vec<Block>) -> (Blocked, Log) {
+fn leaf(blocks: Vec<Block>) -> (Blocked<'static>, Log) {
     let leaf = Blocked::new(blocks);
     let log = leaf.log();
     (leaf, log)
@@ -65,7 +65,7 @@ fn ids(range: std::ops::RangeInclusive<DocId>) -> Vec<DocId> {
 /****************************** intersection ******************************/
 
 /// `a` has a weak block then a strong one; `b` one weak block over both.
-fn and_children() -> [(Blocked, Log); 2] {
+fn and_children() -> [(Blocked<'static>, Log); 2] {
     [
         leaf(vec![
             Block::uniform(1..=10, 1.0),
@@ -154,7 +154,7 @@ fn intersection_passes_over_a_target_its_aligned_children_rule_out() {
 fn phrase(
     a: (&[(DocId, f64)], &[u8]),
     b: (&[(DocId, f64)], &[u8]),
-) -> Intersection<'static, Blocked> {
+) -> Intersection<'static, Blocked<'static>> {
     let a = Blocked::new(vec![Block::tight(a.0)]).with_positions(a.1);
     let b = Blocked::new(vec![Block::tight(b.0)]).with_positions(b.1);
     Intersection::new_with_slop_order(vec![a, b], 1.0, false, Some(0), true)
@@ -195,7 +195,7 @@ fn phrase_intersection_drops_by_bound_and_by_relevancy() {
 /// Builds a union over leaves, under the name of its variant.
 struct UnionCase {
     name: &'static str,
-    build: fn(Vec<Blocked>) -> DynIterator,
+    build: fn(Vec<Blocked<'static>>) -> DynIterator,
 }
 
 const UNIONS: &[UnionCase] = &[
@@ -227,7 +227,7 @@ const UNIONS: &[UnionCase] = &[
 
 /// The union a query builds: an opaque union over C-wrapped children, itself reached through
 /// the C vtable.
-fn opaque_union(children: Vec<Blocked>, min_union_iter_heap: usize) -> DynIterator {
+fn opaque_union(children: Vec<Blocked<'static>>, min_union_iter_heap: usize) -> DynIterator {
     let children = children
         .into_iter()
         .map(CRQEIterator::from_rust_leaf)
@@ -245,7 +245,7 @@ fn opaque_union(children: Vec<Blocked>, min_union_iter_heap: usize) -> DynIterat
 
 /// `a` has two weak blocks then a strong one; `b` sits far ahead in a block of its own, so every
 /// variant, a quick-exit one included, positions both children on its first read.
-fn union_children() -> [(Blocked, Log); 2] {
+fn union_children() -> [(Blocked<'static>, Log); 2] {
     [
         leaf(vec![Block::uniform([40], 0.0)]),
         leaf(vec![
@@ -452,7 +452,7 @@ fn edge_cases() -> [EdgeCase; 2] {
 
 /// A leaf whose first block, `[1, 5]`, scores `window_bound`, followed by a strong block. Adding
 /// a zero-scored partner keeps the window sum exactly `window_bound`.
-fn edge_leaf(window_bound: f64) -> (Blocked, Log) {
+fn edge_leaf(window_bound: f64) -> (Blocked<'static>, Log) {
     leaf(vec![
         Block::uniform(1..=5, window_bound),
         Block::uniform(6..=10, 10.0),
@@ -582,7 +582,7 @@ fn composites_do_not_pass_the_threshold_to_their_children() {
 fn nested_composites_skip_through_their_composite_children() {
     struct Nested {
         name: &'static str,
-        build: fn([Blocked; 3]) -> DynIterator,
+        build: fn([Blocked<'static>; 3]) -> DynIterator,
     }
     let shapes = [
         Nested {

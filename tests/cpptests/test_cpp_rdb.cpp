@@ -2179,8 +2179,7 @@ TEST_F(RdbMockTest, DiskTagCountsRestoreSuffixBeforeStorageBinding) {
   ASSERT_NE(restored, nullptr);
   EXPECT_EQ(restored->diskSpec, nullptr);
   EXPECT_TRUE(restored->valuesAreCounts);
-  auto timeout = timespec{.tv_sec = LONG_MAX, .tv_nsec = 0};
-  auto matches = TagIndex_GetSuffixMatches(restored.get(), "llo", 3, false, timeout, true);
+  auto matches = TagIndex_GetSuffixMatches(restored.get(), "llo", 3, false, nullptr);
   ASSERT_EQ(array_len(matches), 1u);
   EXPECT_STREQ(matches[0][0], "hello");
   array_free(matches);

@@ -89,6 +89,11 @@ impl Chain {
         }
     }
 
+    /// Set the pipeline's request limits, which the caller must keep alive while the chain is used.
+    pub fn set_limits(&mut self, limits: *mut ffi::QueryRequestLimits) {
+        self.query_processing_context.limits = limits;
+    }
+
     /// Append a new result processor at the end of the chain. It will have its `upstream`
     /// field set to the previous last result processor.
     pub fn append<P>(&mut self, result_processor: P)

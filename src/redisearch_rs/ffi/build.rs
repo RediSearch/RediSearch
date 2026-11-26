@@ -212,15 +212,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/iterators/optimizer_reader.h",
-        fns: &[
-            "OptimizerIterator_GetChild",
-            "OptimizerIterator_GetOptimizationType",
-        ],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/json.h",
         fns: &["JSON_GetJsonFromHandle"],
         types: &[],
@@ -373,6 +364,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DiskGCRunResult",
             "DocTableDiskAPI",
             "IndexDiskAPI",
+            "IndexInfoTotals",
             "SlotMigrationAPI",
             "MetricsDiskAPI",
             "RedisSearchDisk",
@@ -581,7 +573,16 @@ const HEADERS: &[HeaderAllowlist] = &[
     // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
     HeaderAllowlist {
         path: "src/query_request.h",
-        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        fns: &[
+            "QueryRequestLimits_IsBlockedClientTimedOut",
+            "QueryRequestLimits_ShouldStopExact",
+        ],
+        types: &[],
+        vars: &["QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT"],
+    },
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &["QueryMemory_CheckpointExtern"],
         types: &[],
         vars: &[],
     },
@@ -675,8 +676,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "types_ffi.h",
     // TAG GC walks the C TagIndex values trie directly.
     "triemap_ffi.h",
-    // `aggregate.h` includes `value_ffi.h`; reachable via
-    // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
+    // `aggregate.h` includes `value_ffi.h`.
     "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call
     // `NewVarintVectorWriter` / `VVW_Free` / `VVW_Write`. The whole file is
