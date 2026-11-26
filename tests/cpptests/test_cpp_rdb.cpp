@@ -560,7 +560,7 @@ struct ScopedMockDisk {
         api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
         api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return true; };
         api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
-                                     const char *, size_t, DocumentType, bool, IndexFlags, bool,
+                                     const char *, size_t, DocumentType, bool, IndexFlags,
                                      const SearchDiskField *, size_t,
                                      const SearchDiskCompactionCallbacks *, void *, QueryError *) {
           return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
