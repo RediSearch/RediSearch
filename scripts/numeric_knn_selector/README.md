@@ -119,7 +119,33 @@ Use the same 10,000 requests and
 [pinned native driver](https://github.com/redis/vector-db-benchmark/tree/d22d44e8b46009a800a59e952710166ece2e38a1)
 for all three Redis arms and OpenSearch. Use K=25, an index built with M=64 and
 construction EF 512, Redis EF 2048 and OpenSearch 3.7.0 EF 1024. Rotate the
-run order at 100 clients. Check QPS, p95, p99, completed queries, and per-query
-retention of every ground-truth hit returned by legacy AUTO or the first
-selector. The fixed 10,000-query workload includes the earlier calibration
-queries.
+run order at 100 clients. Check QPS, mean latency, p95, p99, completed
+queries, and per-query retention of every ground-truth hit returned by
+legacy AUTO or the first selector. The fixed 10,000-query workload
+includes the earlier calibration queries.
+
+## Native benchmark results
+
+The AWS c7i.4xlarge run used four counterbalanced trials per arm and
+10,000 requests per trial. All three Redis policies ran on one module,
+process, and HNSW graph with six Search workers. The table reports the
+median per-trial QPS, p95, and recall, and the mean client latency across
+the four equally sized trials.
+
+| Policy | QPS | Mean latency (ms) | p95 (ms) | Recall@25 |
+| --- | ---: | ---: | ---: | ---: |
+| Redis legacy AUTO | 101.29 | 984.44 | 1,146.05 | 99.6824% |
+| Redis first selector | 108.29 | 919.91 | 1,082.41 | 99.6976% |
+| Redis early-exact | 108.98 | 912.83 | 1,073.41 | 99.7040% |
+| OpenSearch | 249.67 | 402.92 | 592.23 | 99.6532% |
+
+Early-exact improved throughput by 7.59% over legacy AUTO and 0.63%
+over the first selector. Mean latency fell by 7.27% and 0.77%,
+respectively. Early-exact had higher QPS and lower mean latency than
+both Redis controls in all four trials. OpenSearch delivered 2.29×
+the throughput of early-exact on this workload.
+
+Separate ranked replays over all 10,000 queries found zero lost
+ground-truth hits against either Redis control. Early-exact found
+54 additional ground-truth hits compared with legacy AUTO and 16
+compared with the first selector.
