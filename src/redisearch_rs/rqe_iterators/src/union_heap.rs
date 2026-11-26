@@ -65,8 +65,11 @@ pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     /// Scratch for [`PivotingUnion::visit_live_children_in_order`]: the heap slots next in line,
     /// as `(doc_id, heap slot)`. Kept between calls only to reuse its allocation.
     ///
+    /// `None` until the union is first read under a score threshold: only the thresholded read
+    /// path walks the heap in order, and a union that is never read that way never needs it.
+    ///
     /// [`PivotingUnion::visit_live_children_in_order`]: crate::composite::PivotingUnion::visit_live_children_in_order
-    pivot_frontier: BinaryHeap<Reverse<(DocId, usize)>>,
+    pivot_frontier: Option<BinaryHeap<Reverse<(DocId, usize)>>>,
 }
 
 /// Alias for an [`Active`] [`RawUnionHeap`] — the only instantiation with an
@@ -166,7 +169,7 @@ where
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
                 heap: DocIdMinHeap::new(),
-                pivot_frontier: BinaryHeap::new(),
+                pivot_frontier: None,
             };
         }
 
@@ -177,7 +180,7 @@ where
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
             heap: DocIdMinHeap::with_capacity(num_children),
-            pivot_frontier: BinaryHeap::new(),
+            pivot_frontier: None,
         }
     }
 
@@ -888,7 +891,7 @@ where
         }
         // A min-heap's slots in doc-id order: a slot is next once its parent has been visited,
         // and its children never sort below it.
-        let frontier = &mut self.pivot_frontier;
+        let frontier = self.pivot_frontier.get_or_insert_with(BinaryHeap::new);
         frontier.clear();
         if let Some(root) = entries.first() {
             frontier.push(Reverse((root.doc_id, 0)));
