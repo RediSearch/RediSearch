@@ -30,6 +30,7 @@ impl NumericRangeTree {
         &self,
         docs: usize,
         mut can_continue: impl FnMut() -> bool,
+        mut can_cache: impl FnMut() -> bool,
     ) -> Option<Arc<[f64]>> {
         if self.has_multivalued_docs
             || self.last_doc_id as usize != docs
@@ -49,6 +50,10 @@ impl NumericRangeTree {
             let values = Arc::clone(&entry.2);
             cache.push(entry);
             return Some(values);
+        }
+        if !can_cache() {
+            cache.retain(|entry| Arc::strong_count(&entry.2) > 1);
+            return None;
         }
         if cache.len() == MAX_CACHED_FIELDS {
             let pos = cache
@@ -78,6 +83,10 @@ impl NumericRangeTree {
             return None;
         }
         let values: Arc<[f64]> = values.into();
+        if !can_cache() {
+            cache.retain(|entry| Arc::strong_count(&entry.2) > 1);
+            return None;
+        }
         cache.push((id, docs, Arc::clone(&values)));
         Some(values)
     }

@@ -36,6 +36,7 @@
 #include "search_disk_api.h"
 #include "util/config_macros.h"
 #include "util/dict/dict.h"
+#include "util/redis_mem_info.h"
 #include "util/references.h"
 #include "util/strconv.h"
 #include "util/stringify.h"
@@ -47,6 +48,11 @@ static atomic_bool denseNumericKnnEnabled;
 
 bool RSConfig_DenseNumericKnnEnabled(void) {
   return atomic_load_explicit(&denseNumericKnnEnabled, memory_order_relaxed);
+}
+
+bool RSConfig_DenseNumericKnnCanCache(void) {
+  return RSConfig_DenseNumericKnnEnabled() &&
+         RedisMemory_GetUsedMemoryRatioEstimate() < REDIS_MEMORY_OOM_RATIO;
 }
 
 // Config setters run on the main thread. Query workers read their combined state atomically.

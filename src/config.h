@@ -315,6 +315,7 @@ typedef int (*RSConfigExternalTrigger)(RSConfig *);
 extern RSConfig RSGlobalConfig;
 
 bool RSConfig_DenseNumericKnnEnabled(void);
+bool RSConfig_DenseNumericKnnCanCache(void);
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;

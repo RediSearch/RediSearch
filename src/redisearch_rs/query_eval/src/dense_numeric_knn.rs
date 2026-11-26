@@ -79,9 +79,13 @@ impl Clause {
         if tree.find(&filter).len() < 4 {
             return None;
         }
+        let can_cache = || {
+            // SAFETY: the C helper takes no arguments and uses worker-safe reads.
+            unsafe { ffi::RSConfig_DenseNumericKnnCanCache() }
+        };
         Some(Self {
             filter,
-            values: tree.dense_values(docs, || timeout.check_timeout().is_ok())?,
+            values: tree.dense_values(docs, || timeout.check_timeout().is_ok(), can_cache)?,
         })
     }
 
@@ -130,6 +134,7 @@ impl DensePlan {
             estimated,
             timeout,
             result: RSIndexResult::build_virt().weight(1.0).build(),
+            first_doc: None,
             exhausted: false,
         })
     }
@@ -176,6 +181,7 @@ struct RawDenseIterator<Result, Child> {
     estimated: usize,
     timeout: AnyTimeoutContext,
     result: Result,
+    first_doc: Option<DocId>,
     exhausted: bool,
 }
 
@@ -198,6 +204,27 @@ impl<Result, Child> RawDenseIterator<Result, Child> {
 }
 
 impl<'index> DenseIterator<'index> {
+    fn read_first(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        // BATCHES rewinds the filter for each batch. Postings can jump straight to
+        // the first match even if the dense array has a long non-matching prefix.
+        let id = match (self.first_doc, &mut self.regular) {
+            (Some(id), _) => Some(id),
+            (None, Some(regular)) => regular.read()?.map(|result| result.doc_id),
+            (None, None) => return self.seek(1),
+        };
+        self.first_doc = id;
+        match id {
+            Some(id) => {
+                self.result.doc_id = id;
+                Ok(Some(&mut self.result))
+            }
+            None => {
+                self.exhausted = true;
+                Ok(None)
+            }
+        }
+    }
+
     fn seek(
         &mut self,
         target: DocId,
@@ -236,6 +263,7 @@ impl<'index> RQEIterator<'index> for DenseIterator<'index> {
             return Ok(None);
         }
         match self.plan {
+            Some(_) if self.result.doc_id == 0 => self.read_first(),
             Some(_) => self.seek(self.result.doc_id + 1),
             None => self
                 .regular

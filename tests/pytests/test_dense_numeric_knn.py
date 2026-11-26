@@ -37,10 +37,11 @@ def test_dense_numeric_knn():
     blob = struct.pack("<4f", .2, .3, .5, .7)
     cases = (
         "@a:[(200 20000]",
+        "@a:[(43000 59900]",
         "@a:[(200 20000] @b:[(42000 59900]",
         "@a:[(200 10000] | @a:[(40000 59000]",
     )
-    for search_mode in ("HYBRID_POLICY ADHOC_BF", "EF_RUNTIME 128"):
+    for search_mode in ("HYBRID_POLICY ADHOC_BF", "HYBRID_POLICY BATCHES BATCH_SIZE 64", "EF_RUNTIME 128"):
         for shape in cases:
             query = f"({shape})=>[KNN 25 @v $blob {search_mode} AS dist]"
             args = (query, "SORTBY", "dist", "ASC", "RETURN", 1, "dist", "LIMIT", 0, 25,
