@@ -16704,6 +16704,7 @@ function rustHouseRules(layout) {
  */
 /** What a port of a C module to Rust adds: plan fields, the swap's completeness, its reviewers. */
 const SOURCES = /\.(c|h|cpp|cc|hpp|rs)$/;
+const C_TESTS = /\.(c|cpp|cc)$/;
 /**
  * Functions a C header declares: a name with a return type before it, either type words or a
  * macro call on the same line such as `arrayof(char**)`. Column-zero macro calls such as
@@ -16721,24 +16722,50 @@ function headerFunctions(header) {
     return [...code.matchAll(pattern)].map((m) => m[1]);
 }
 /**
+ * Tests a C or C++ file defines: gtest's `TEST`, `TEST_F`, `TEST_P`, `TYPED_TEST` and
+ * `TYPED_TEST_P` as `Suite.name`, and a C test by the function its `TESTFUNC` or minunit's
+ * `MU_RUN_TEST` registers. Mentions of a name in comments or other tests are not definitions.
+ */
+function cTests(text) {
+    const gtest = /^\s*(?:TYPED_TEST(?:_P)?|TEST(?:_[FP])?)\(\s*(\w+)\s*,\s*(\w+)\s*\)/gm;
+    const ctest = /^\s*(?:TESTFUNC|MU_RUN_TEST)\(\s*(\w+)\s*\)/gm;
+    return [
+        ...[...text.matchAll(gtest)].map((m) => `${m[1]}.${m[2]}`),
+        ...[...text.matchAll(ctest)].map((m) => m[1]),
+    ];
+}
+/**
  * What a port's plan gets wrong: a module without sources and headers, symbols missing or
- * invented against the headers on the base branch, tests named for their artifact, filtered
+ * invented against the headers on the base branch, replaced tests the base branch lacks, outside
+ * the swap's paths or covered by no cited test, tests named for their artifact, filtered
  * benchmarks, missing Cargo tools, and paths spanning several crates.
  */
 async function checkPortPlan(plan, stages, o) {
     const errors = [];
+    const nonblank = (v) => typeof v === 'string' && v.trim();
     if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
         errors.push('module needs the C files being ported: sources and headers');
     if (!plan.symbols?.length)
         errors.push('symbols needs every function the headers declare');
     for (const [i, s] of (plan.symbols ?? []).entries()) {
-        const nonblank = (v) => typeof v === 'string' && v.trim();
         if (!nonblank(s?.c) ||
             !nonblank(s?.rust ?? s?.retired) ||
             (s?.rust !== undefined && s?.retired !== undefined))
             errors.push(`symbols[${i}] needs c and exactly one of rust or a retired reason`);
     }
-    for (const t of citedTests(plan, stages.at(-1).name))
+    const swap = stages.at(-1).name;
+    const cited = citedTests(plan, swap);
+    if (!Array.isArray(plan.replacedTests))
+        errors.push('replacedTests is required, even if empty');
+    for (const [i, r] of (plan.replacedTests ?? []).entries()) {
+        if (!nonblank(r?.path) ||
+            !nonblank(r?.name) ||
+            !cited.some((t) => t.path === r?.by?.path && t.name === r?.by?.name))
+            errors.push(`replacedTests[${i}] needs path, name and by, a test the contract or divergences cite`);
+        else if (filesOutside([r.path], plan.stages[swap]?.paths ?? []).length)
+            errors.push(`replacedTests[${i}]: ${swap} may not change ${r.path}; add it to its paths`);
+    }
+    for (const t of cited)
         if (namedForArtifact(t.name))
             errors.push(`${t.path}::${t.name} is named for its artifact; name it for the behavior it asserts`);
     for (const { name } of stages) {
@@ -16765,6 +16792,11 @@ async function checkPortPlan(plan, stages, o) {
         errors.push(`symbols leaves out ${unmapped.join(', ')}`);
     if (unknown.length)
         errors.push(`symbols names undeclared ${unknown.join(', ')}`);
+    for (const r of plan.replacedTests) {
+        const text = await o.vcs.readFileAt(o.base, r.path);
+        if (text === undefined || !cTests(text).includes(r.name))
+            errors.push(`replacedTests names ${r.path}::${r.name}, which ${plan.baseBranch} lacks`);
+    }
     const files = await o.vcs.listFiles(o.base);
     for (const { name } of stages)
         errors.push(...multiCratePaths(plan.stages[name].paths, files));
@@ -16775,10 +16807,15 @@ const describePortPlan = (plan, swap) => `### What replaces each C function
 
 The C being ported, ${plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree until \`${swap}\` deletes it.
 
-${plan.symbols.map((s) => `- \`${s.c}\`: ${s.retired !== undefined ? `retired — ${s.retired}` : `\`${s.rust}\``}`).join('\n')}`;
+${plan.symbols.map((s) => `- \`${s.c}\`: ${s.retired !== undefined ? `retired — ${s.retired}` : `\`${s.rust}\``}`).join('\n')}
+
+### C tests the swap replaces
+
+${(plan.replacedTests ?? []).map((r) => `- \`${r.path}::${r.name}\`: by \`${r.by.path}::${r.by.name}\``).join('\n') || 'None.'}`;
 /**
- * What the swap leaves undone: a Rust replacement or generated export missing, a module file
- * left, an export no production code calls, or Rust outside the FFI crate without a mutants check.
+ * What the swap leaves undone: a Rust replacement or generated export missing, a module file or
+ * replaced test left, a C test deleted that the plan does not replace, an export no production
+ * code calls, or Rust outside the FFI crate without a mutants check.
  * A C definition left elsewhere fails to link against the Rust export of its name. The candidate
  * is the clean checkout at `root`.
  */
@@ -16811,10 +16848,32 @@ async function checkSwap(layout, o) {
     for (const path of o.plan.module)
         if (tracked.includes(path))
             problems.push(`${path} still exists; the swap deletes the module, headers included`);
+    // A plan made before replacedTests existed replaces none.
+    const replaced = o.plan.replacedTests ?? [];
+    for (const r of replaced)
+        if (tracked.includes(r.path) && cTests(await read(r.path)).includes(r.name))
+            problems.push(`${r.path}::${r.name} is still defined; the swap deletes it for ${r.by.path}::${r.by.name}`);
+    for (const t of deletedCTests(layout, o.files))
+        if (!replaced.some((r) => r.path === t.path && r.name === t.name))
+            problems.push(`${t.path}::${t.name} is deleted, but replacedTests does not name the test replacing it`);
     for (const name of await orphanedExports(layout, o.files, tracked, read))
         problems.push(`${name} is exported, but no production code calls it: delete it, and point any test ` +
             'that calls it at the Rust API');
     return problems;
+}
+/**
+ * The C and C++ tests a diff deletes: definitions it removes and does not add back, as a
+ * rewritten one would be. Only the swap may delete them, each listed in `replacedTests`.
+ */
+function deletedCTests(layout, files) {
+    return files
+        .filter((f) => layout.isTest(f.path) && C_TESTS.test(f.path))
+        .flatMap((f) => {
+        const added = new Set(cTests(f.added.join('\n')));
+        return cTests(f.removed.join('\n'))
+            .filter((name) => !added.has(name))
+            .map((name) => ({ path: f.path, name }));
+    });
 }
 /** Reads files of the checkout at `root` once each. */
 function fileReader(root) {
@@ -17079,7 +17138,9 @@ const profile = {
     ],
     checkClaim: async (o) => [
         ...multiCratePaths(o.plan.stages[o.stage].paths, await o.vcs.listFiles(o.candidate)),
-        ...(o.stage === 'swap' ? await checkSwap(layout, o) : []),
+        ...(o.stage === 'swap'
+            ? await checkSwap(layout, o)
+            : deletedCTests(layout, o.files).map((t) => `${t.path}::${t.name} is deleted; only swap deletes C tests, as replacedTests`)),
     ],
     describePlan: (plan) => describePortPlan(plan, 'swap'),
 };

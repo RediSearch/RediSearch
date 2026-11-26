@@ -56,6 +56,7 @@ const plan: Plan<PortPlan> = {
     },
   ],
   symbols: [{ c: 'GeoFilter_Validate', rust: 'geo::RadiusFilter::new' }],
+  replacedTests: [],
   structure: 'A geo crate shared by all stages.',
   interfaces: 'GeoFilter_Validate(const GeoFilter *, QueryError *) -> int',
   stages: Object.fromEntries(
