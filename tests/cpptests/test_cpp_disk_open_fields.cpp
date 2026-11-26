@@ -123,7 +123,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
     // The mock uses the C spec as an opaque disk handle.
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
-                                 const char *, size_t, DocumentType, bool, IndexFlags flags, bool,
+                                 const char *, size_t, DocumentType, bool, IndexFlags flags,
                                  const SearchDiskField *fields, size_t n,
                                  const SearchDiskCompactionCallbacks *callbacks, void *privateData,
                                  QueryError *status) {
@@ -244,6 +244,40 @@ TEST_F(DiskSchemaOpenTest, CreateForwardsIndexFlags) {
   EXPECT_EQ(flagsAtOpen, std::vector<IndexFlags>{sp->flags});
   EXPECT_FALSE(sp->flags & (Index_StoreTermOffsets | Index_StoreByteOffsets));
   EXPECT_FALSE(sp->flags & Index_StoreFieldFlags);
+}
+
+// The score-skipping mode is the index's flag: the config at create sets it, unless the create
+// names the mode, as one replicated from a primary does.
+TEST_F(DiskSchemaOpenTest, CreateRecordsTheScoreSkippingModeAsAFlag) {
+  Restore scoreSkipping{RSGlobalConfig.diskScoreSkipping};
+  QueryError err = QueryError_Default();
+
+  RSGlobalConfig.diskScoreSkipping = true;
+  IndexSpec *fromConfig = create("skipping_from_config", {"title", "TEXT"}, &err);
+  ASSERT_NE(fromConfig, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_TRUE(fromConfig->flags & Index_DiskScoreSkipping);
+  IndexSpec *named = create("skipping_named_off", {"title", "TEXT"}, &err,
+                            {SPEC_DISK_SCORE_SKIPPING_STR, "0"});
+  ASSERT_NE(named, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_FALSE(named->flags & Index_DiskScoreSkipping);
+
+  RSGlobalConfig.diskScoreSkipping = false;
+  IndexSpec *off = create("skipping_off", {"title", "TEXT"}, &err);
+  ASSERT_NE(off, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_FALSE(off->flags & Index_DiskScoreSkipping);
+  IndexSpec *namedOn = create("skipping_named_on", {"title", "TEXT"}, &err,
+                              {SPEC_DISK_SCORE_SKIPPING_STR, "1"});
+  ASSERT_NE(namedOn, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_TRUE(namedOn->flags & Index_DiskScoreSkipping);
+  EXPECT_EQ(flagsAtOpen.back(), namedOn->flags);
+}
+
+TEST_F(DiskSchemaOpenTest, InvalidScoreSkippingModeIsRejected) {
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("skipping_invalid", {"title", "TEXT"}, &err, {SPEC_DISK_SCORE_SKIPPING_STR, "2"}),
+            nullptr);
+  EXPECT_TRUE(QueryError_HasError(&err));
+  QueryError_ClearError(&err);
 }
 
 TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
