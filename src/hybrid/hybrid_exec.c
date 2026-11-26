@@ -233,6 +233,11 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
   return QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout) ||
          PendingSpecWriters_Get() > 0;
 }
+
+static bool hreq_timed_out(void *arg) {
+  HybridRequest *hreq = arg;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout);
+}
 #endif
 
 void HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(HybridRequest *hreq) {
@@ -857,9 +862,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     int rc;
     if (backgroundDepletion) {
-      // The caller holds the spec read lock on the request's sctx; DepleteAll
-      // releases it once every depleter has taken its own.
-      rc = RPSafeDepleter_DepleteAll(depleters, HREQ_SearchCtx(req), status);
+      rc = RPSafeDepleter_DepleteAll(depleters, status);
     } else {
       // Foreground depletion for WORKERS == 0
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
@@ -886,7 +889,8 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
         if (!QueryError_HasError(status)) {
           if (rc == RS_RESULT_TIMEDOUT) {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
-          } else {
+          } else if (HybridRequest_GetError(req, status) == REDISMODULE_OK) {
+            // No subquery recorded why it failed.
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);
           }
         }
@@ -950,10 +954,10 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Background depleters acquire their own read locks before this thread releases its lock.
-  // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
-  // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
-  // Disk depletion uses the snapshot taken during the build and needs no spec lock.
+  // In RoR, background depleters take their own read locks after this thread unlocks,
+  // bounded to the documents that existed at build time. Synchronous depletion keeps this
+  // thread's lock across all subqueries. Disk depletion uses the snapshot taken during
+  // the build and needs no spec lock.
   const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
   bool unlockSuppressed = false;
 
@@ -972,6 +976,17 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     goto done;
   }
 
+  if (depleteInBackground && !sctx->spec->diskSpec) {
+    const t_docId maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ_SearchCtx(hreq->requests[i])->maxVisibleDocId = maxDocId;
+    }
+  }
+
+  if (sctx->spec->diskSpec || depleteInBackground) {
+    IndexSpec_Unlock(sctx->spec);
+  }
+
   // Record pipeline build time if profiling is enabled
   if (isProfile) {
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
@@ -987,8 +1002,6 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   if (suppressSubqueryUnlocks) {
     IndexSpec_SuppressUnlock(sctx->spec);
     unlockSuppressed = true;
-  } else if (!depleteInBackground) {
-    IndexSpec_Unlock(sctx->spec);
   }
 
   if (!isCursor) {
@@ -1007,18 +1020,14 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
 #ifdef ENABLE_ASSERT
-      // Sync point (debug): pause while still holding the read lock, before
-      // the depleters race a queued writer for their own locks.
-      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timeout_or_pending_spec_writers, hreq);
+      // Pause after the build released the spec lock and before the depleters start.
+      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timed_out, hreq);
 #endif
-      // Launch all background depletion up front; the caller holds the spec
-      // read lock, and StartAll releases it once every depleter has taken its
-      // own. Completion is the merger's business: each depleter's Next waits
-      // for its own buffer, so the merger consumes the sub-pipelines in
-      // completion order, and the policy-dependent reply (partial results or
-      // timeout error) is the pipeline's as usual. A lock failure is fatal
-      // before any result exists.
-      const int startRc = RPSafeDepleter_StartAll(depleters, sctx, status);
+      // Launch all background depletion up front. Completion is the merger's
+      // business: each depleter's Next waits for its own buffer, so the merger
+      // consumes the sub-pipelines in completion order, and the policy-dependent
+      // reply (partial results or timeout error) is the pipeline's as usual.
+      const int startRc = RPSafeDepleter_StartAll(depleters, status);
       if (startRc == RS_RESULT_ERROR) {
         array_free(depleters);
         goto done;

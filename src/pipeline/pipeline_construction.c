@@ -497,7 +497,10 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   pipeline->qctx.skipIndexResultDeepCopy =
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
+  // A hybrid subquery that ends early is merged as empty and successful.
+  ResultProcessor *rp = RPQueryIterator_New(
+      params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx,
+      IsHybridSearchSubquery(&params->common) || IsHybridVectorSubquery(&params->common));
   params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
   params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
   ResultProcessor *rpUpstream = NULL;
