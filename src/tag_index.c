@@ -158,14 +158,54 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
 
   // If the field indexes empty fields, index the case of an empty field, or a
   // field that ends with a separator as well.
-  if (indexEmpty) {
-    if (p == pp || last_is_sep)
-    tok = rm_strdup("");
-    array_append(*resArray, tok);
+  if (indexEmpty && (p == pp || last_is_sep)) {
+    array_append(*resArray, rm_strdup(""));
   }
 
   rm_free(pp);
   return REDISMODULE_OK;
+}
+
+static int cmpTagSlots(const void *a, const void *b) {
+  char *const *sa = *(char *const *const *)a;
+  char *const *sb = *(char *const *const *)b;
+  int c = strcmp(*sa, *sb);
+  if (c) return c;
+  // Equal values: order by position so the first occurrence sorts first.
+  return (sa > sb) - (sa < sb);
+}
+
+/* Keep only the first occurrence of each value, preserving order, and free the
+ * dropped tokens. A document counts once per distinct value: disk indexes keep
+ * a per-value document count in the values trie, which a repeat would inflate
+ * with no matching decrement when the `(value, doc)` entry is later removed. */
+static arrayof(char *) dedupTags(arrayof(char *) tags) {
+  uint32_t n = array_len(tags);
+  if (n < 2) return tags;
+
+  char ***slots = rm_malloc(n * sizeof(*slots));
+  for (uint32_t i = 0; i < n; i++) {
+    RS_LOG_ASSERT(tags[i], "tokenizeTagString never produces NULL tags");
+    slots[i] = &tags[i];
+  }
+  qsort(slots, n, sizeof(*slots), cmpTagSlots);
+  // `kept` is the first occurrence of the current run, so it is never freed.
+  char **kept = slots[0];
+  for (uint32_t i = 1; i < n; i++) {
+    if (strcmp(*slots[i], *kept)) {
+      kept = slots[i];
+    } else {
+      rm_free(*slots[i]);
+      *slots[i] = NULL;
+    }
+  }
+  rm_free(slots);
+
+  uint32_t len = 0;
+  for (uint32_t i = 0; i < n; i++) {
+    if (tags[i]) tags[len++] = tags[i];
+  }
+  return array_trimm(tags, len);
 }
 
 int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldIndexerData *fdata) {
@@ -196,7 +236,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
     RS_ABORT("nope")
     break;
   }
-  fdata->tags = arr;
+  fdata->tags = dedupTags(arr);
   return ret;
 }
 

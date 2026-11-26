@@ -541,6 +541,36 @@ TEST_F(DiskSchemaOpenTest, TagCompactionCallbackUpdatesOnlyTheSelectedField) {
       1u);
 }
 
+TEST_F(DiskSchemaOpenTest, RepeatedTagValuesCountOncePerDocument) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_repeat_counts", {"tags", "TAG", "SEPARATOR", ","}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  DocumentField field{};
+  field.unionType = FLD_VAR_T_CSTR;
+  field.strval = (char *)"a,b,a,B";
+  field.strlen = strlen(field.strval);
+  FieldIndexerData fdata{};
+  ASSERT_EQ(TagIndex_Preprocess(&sp->fields[0], &field, &fdata), 1);
+  auto *idx = TagIndex_Ensure(&sp->fields[0], sp->diskSpec, false);
+  ASSERT_NE(idx, nullptr);
+  const size_t recordsBefore = sp->stats.numRecords;
+  TagIndex_Commit(idx, (const char **)fdata.tags, array_len(fdata.tags), &sp->stats);
+  TagIndex_FreePreprocessedData(fdata.tags);
+
+  EXPECT_EQ(sp->stats.numRecords - recordsBefore, 2u);
+  for (const char *value : {"a", "b"}) {
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(TrieMap_Find(idx->values, value, 1)), 1u) << value;
+  }
+
+  // Compaction removes each stored `(value, doc)` entry once; that must drain the count.
+  void *update = compactionCallbacks.beginUpdate(sp);
+  for (const char *value : {"a", "b"}) {
+    EXPECT_TRUE(compactionCallbacks.decrementTagValueCount(update, 0, value, 1, 1)) << value;
+  }
+  compactionCallbacks.endUpdate(update);
+  EXPECT_EQ(TagIndex_NUniqueValues(idx), 0u);
+}
+
 TEST_F(DiskSchemaOpenTest, TagDebugCommandsReportDiskCountsAndRejectPostingDumps) {
   QueryError err = QueryError_Default();
   IndexSpec *sp = create("tag_debug_counts", {"tags", "TAG"}, &err);
