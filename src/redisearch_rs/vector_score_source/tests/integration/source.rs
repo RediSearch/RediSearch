@@ -463,16 +463,22 @@ fn attach_yielded_score_appends_when_absent() {
     // Assert: appended alongside the untouched foreign yielded value.
     assert_eq!(result.yielded_values.len(), 2);
     assert_eq!(
-        result.yielded_values.find_by_key_mut(&own).unwrap().value(),
-        42.0
+        result
+            .yielded_values
+            .find_by_key_mut(&own)
+            .unwrap()
+            .value()
+            .as_number(),
+        Some(42.0)
     );
     assert_eq!(
         result
             .yielded_values
             .find_by_key_mut(&foreign)
             .unwrap()
-            .value(),
-        7.0
+            .value()
+            .as_number(),
+        Some(7.0)
     );
 }
 
@@ -498,8 +504,13 @@ fn attach_yielded_score_overwrites_in_place() {
     // Assert: updated in place, not duplicated.
     assert_eq!(result.yielded_values.len(), 1);
     assert_eq!(
-        result.yielded_values.find_by_key_mut(&own).unwrap().value(),
-        99.0
+        result
+            .yielded_values
+            .find_by_key_mut(&own)
+            .unwrap()
+            .value()
+            .as_number(),
+        Some(99.0)
     );
 }
 
@@ -567,7 +578,9 @@ fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)>
             .yielded_values
             .find_by_key_mut(&lookup_key)
             .unwrap()
-            .value();
+            .value()
+            .as_number()
+            .unwrap();
         emitted.push((result.doc_id, value, payload));
     }
 

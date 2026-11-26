@@ -18,14 +18,15 @@
 //! pipeline resolved for the alias, and the yielded values loader writes it into the
 //! row.
 
-use std::ptr::NonNull;
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use ffi::QueryIterator;
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, SharedString, SharedStringVTable};
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
+use value::{SharedValue, Value};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -455,4 +456,54 @@ pub fn boxed_new(decorator: IndexLoad<'_, CRQEIterator>) -> NonNull<QueryIterato
         decorator,
         Some(rust_profile_children::<IndexLoad<'_, CRQEIterator>>),
     )
+}
+
+/// [`SharedString`] operations over a string [`SharedValue`], whose raw
+/// pointer is the `RSValue *` C sees.
+static SHARED_VALUE_STRING: SharedStringVTable = SharedStringVTable {
+    retain: |value| {
+        // SAFETY: a `SharedString` built by `shared_string` holds a pointer
+        // `SharedValue::into_raw` returned, a reference to which is live; the
+        // borrowed handle is not dropped, and the clone's reference is kept.
+        let borrowed = ManuallyDrop::new(unsafe { SharedValue::from_raw(value.as_ptr().cast()) });
+        std::mem::forget(SharedValue::clone(&borrowed));
+    },
+    release: |value| {
+        // SAFETY: as above, and the caller hands this reference over.
+        drop(unsafe { SharedValue::from_raw(value.as_ptr().cast()) });
+    },
+    bytes: |value| {
+        // SAFETY: as above; the caller keeps the reference for as long as it
+        // reads the bytes.
+        let value = unsafe { value.cast::<Value>().as_ref() };
+        NonNull::from(
+            value
+                .as_str_bytes()
+                .expect("a `SharedString` holds a string value"),
+        )
+    },
+};
+
+/// A [`SharedString`] holding `bytes`, in a newly allocated [`SharedValue`].
+pub fn shared_string(bytes: Vec<u8>) -> SharedString {
+    let raw = SharedValue::new_string(bytes).into_raw();
+    let raw = NonNull::new(raw.cast_mut().cast()).expect("`SharedValue` pointers are non-null");
+    // SAFETY: `raw` is a string value whose one reference is handed over, and
+    // `SHARED_VALUE_STRING` holds `SharedValue`'s operations, which are
+    // thread-safe.
+    unsafe { SharedString::from_raw(raw, &SHARED_VALUE_STRING) }
+}
+
+/// How many references the [`SharedValue`] behind `string` has, if
+/// [`shared_string`] built it.
+pub fn shared_value_refcount(string: &SharedString) -> Option<usize> {
+    if !std::ptr::eq(string.vtable(), &SHARED_VALUE_STRING) {
+        return None;
+    }
+    // SAFETY: `shared_string` built it, so the pointer is one
+    // `SharedValue::into_raw` returned and `string` holds a reference to it;
+    // the borrowed handle is not dropped.
+    let value =
+        ManuallyDrop::new(unsafe { SharedValue::from_raw(string.as_ptr().as_ptr().cast()) });
+    Some(SharedValue::refcount(&value))
 }

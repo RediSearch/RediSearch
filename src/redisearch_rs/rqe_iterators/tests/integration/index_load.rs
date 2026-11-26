@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, YieldedData, YieldedValues};
 use query_types::QueryNodeType;
 use rlookup::{RLookupKey, RLookupKeyHandle};
 use rqe_iterators::{
@@ -63,7 +63,10 @@ fn sole_yielded_value(result: &RSIndexResult<'_>) -> (*const ffi::RLookupKey, f6
     let key = entry
         .key()
         .expect("the yielded value must carry the bound key");
-    (key as *const _, entry.value())
+    (
+        key as *const _,
+        entry.value().as_number().expect("a numeric value"),
+    )
 }
 
 fn fake_key_ptr(key: &FakeKey) -> *const ffi::RLookupKey {
@@ -494,4 +497,54 @@ fn union_keeps_the_value_when_a_sibling_changes_on_resume(
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 1);
     assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
+}
+
+#[test]
+fn string_value_holds_its_bytes_and_no_number() {
+    let value = YieldedData::String(index_load::shared_string(b"tag\xff".to_vec()));
+
+    let YieldedData::String(string) = &value else {
+        unreachable!("built as a string");
+    };
+    assert_eq!(string.as_bytes(), b"tag\xff");
+    assert_eq!(value.as_number(), None);
+}
+
+#[test]
+fn string_value_clone_shares_the_allocation() {
+    let string = index_load::shared_string(b"red".to_vec());
+    let clone = string.clone();
+
+    assert_eq!(string.as_ptr(), clone.as_ptr());
+    assert_eq!(index_load::shared_value_refcount(&string), Some(2));
+    drop(clone);
+    assert_eq!(index_load::shared_value_refcount(&string), Some(1));
+}
+
+#[test]
+fn string_values_compare_by_content() {
+    let red = YieldedData::String(index_load::shared_string(b"red".to_vec()));
+    let other_red = YieldedData::String(index_load::shared_string(b"red".to_vec()));
+    let blue = YieldedData::String(index_load::shared_string(b"blue".to_vec()));
+
+    assert_eq!(
+        red, other_red,
+        "separate allocations of one value are equal"
+    );
+    assert_ne!(red, blue);
+    assert_ne!(red, YieldedData::Number(0.0));
+}
+
+#[test]
+fn yielded_values_clone_shares_string_values() {
+    let string = index_load::shared_string(b"red".to_vec());
+    let mut v = YieldedValues::new();
+    v.push_without_key(YieldedData::String(string.clone()));
+
+    let cloned = v.clone();
+    assert_eq!(v, cloned);
+    assert_eq!(index_load::shared_value_refcount(&string), Some(3));
+    drop(cloned);
+    v.reset();
+    assert_eq!(index_load::shared_value_refcount(&string), Some(1));
 }

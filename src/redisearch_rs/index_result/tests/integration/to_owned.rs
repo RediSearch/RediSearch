@@ -201,7 +201,12 @@ fn a_nested_copy_equals_its_source_and_owns_every_term() {
     drop(numeric_child);
 
     assert_all_terms_owned(&copy);
-    assert_eq!(copy.yielded_values.get(0).map(|m| m.value()), Some(0.75));
+    assert_eq!(
+        copy.yielded_values
+            .get(0)
+            .and_then(|m| m.value().as_number()),
+        Some(0.75)
+    );
     let nested = copy.get(0).expect("the intersection is copied along");
     assert_is_detached_foo(
         nested

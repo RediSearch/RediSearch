@@ -31,4 +31,6 @@ pub use offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 pub use result_data::{RSResultData, RawResultData};
 pub use shared_term::SharedQueryTerm;
 pub use term_record::{RSTermRecord, RawTermRecord};
-pub use yielded_values::{YieldedValue, YieldedValues, YieldedValuesSlice};
+pub use yielded_values::{
+    SharedString, SharedStringVTable, YieldedData, YieldedValue, YieldedValues, YieldedValuesSlice,
+};

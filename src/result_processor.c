@@ -893,7 +893,10 @@ static int rpYieldedValuesLoaderNext(ResultProcessor *base, SearchResult *res) {
   YieldedValuesSlice slice =
       YieldedValues_AsSlice(&SearchResult_GetIndexResult(res)->yieldedValues);
   for (size_t i = 0; i < slice.len; i++) {
-    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
+    const YieldedData *data = &slice.data[i].value;
+    RSValue *value = data->tag == YieldedData_String ? RSValue_IncrRef(data->string.value)
+                                                     : RSValue_NewNumber(data->number);
+    RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), value);
   }
 
   return rc;

@@ -595,7 +595,7 @@ macro_rules! union_common_tests {
 
             let current = union.current().expect("not at EOF");
             assert_eq!(current.yielded_values.len(), 1);
-            assert_eq!(current.yielded_values.get(0).expect("a yielded value").value, 0.5);
+            assert_eq!(current.yielded_values.get(0).expect("a yielded value").value.as_number(), Some(0.5));
             assert_eq!(current.freq, freq);
             assert_eq!(current.field_mask, field_mask);
         }
@@ -1246,7 +1246,7 @@ macro_rules! union_common_tests {
             let first = union.read().expect("read failed").expect("doc 100");
             assert_eq!(first.doc_id, 100);
             assert_eq!(first.yielded_values.len(), 1);
-            let gathered = first.yielded_values.get(0).expect("one yielded value").value();
+            let gathered = first.yielded_values.get(0).expect("one yielded value").value().clone();
 
             let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
             assert!(matches!(
@@ -1260,7 +1260,7 @@ macro_rules! union_common_tests {
                 1,
                 "a quick union publishes a single child's yielded values",
             );
-            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value(), gathered);
+            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value(), &gathered);
         }
 
         /// The yielded values a quick union gathered also survive the settle that seeks a
@@ -1303,12 +1303,8 @@ macro_rules! union_common_tests {
 
             let current = union.current().expect("still on doc 20");
             assert_eq!(current.doc_id, 20);
-            assert_eq!(
-                current.yielded_values.len(),
-                1,
-                "the yielded value must survive the settle"
-            );
-            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value(), 0.5);
+            assert_eq!(current.yielded_values.len(), 1, "the yielded value must survive the settle");
+            assert_eq!(current.yielded_values.get(0).expect("one yielded value").value().as_number(), Some(0.5));
         }
 
         /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling

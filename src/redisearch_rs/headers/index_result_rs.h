@@ -25,6 +25,21 @@ typedef struct RLookupKey RLookupKey;
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
+
+/**
+ * How a [`SharedString`] shares, releases and reads the value it holds,
+ * supplied by the code that builds one.
+ *
+ * This crate cannot do it itself: depending on the value library would put
+ * its C references into every Rust test binary that holds a result, including
+ * those that do not link the C library.
+ */
+typedef struct SharedStringVTable SharedStringVTable;
+
 #ifndef BITFLAGS_RSRESULTKIND__U8_DEFINED
 #define BITFLAGS_RSRESULTKIND__U8_DEFINED
 /**
@@ -290,6 +305,20 @@ typedef union RawTermRecord_Active {
  */
 typedef union RawTermRecord_Active RSTermRecord;
 
+/**
+ * A string `RSValue` held by reference count, which C reads as
+ * [`value`](Self::as_ptr).
+ *
+ * # Invariants
+ *
+ * `value` is a string value, this handle owns one reference to it, and
+ * `vtable` holds the operations of the library that built it.
+ */
+typedef struct SharedString {
+  RSValue *value;
+  const struct SharedStringVTable *vtable;
+} SharedString;
+
 #ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
 #define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
@@ -514,7 +543,45 @@ typedef struct ThinVec_YieldedValue__u64 {
 #endif /* THINVEC_YIELDEDVALUE__U64_DEFINED */
 
 /**
- * A single yielded value: a borrowed key and a numeric value.
+ * The data of a [`YieldedValue`].
+ */
+enum YieldedData_Tag
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
+  /**
+   * A number: a vector distance, a score, or a value a NUMERIC clause
+   * loaded.
+   */
+  YieldedData_Number,
+  /**
+   * The tag a TAG clause loaded, as a string `RSValue`.
+   *
+   * Shared rather than copied: the iterator reading one tag value builds it
+   * once, and each hit carries a clone, an atomic reference-count increment
+   * rather than a copy of the string.
+   */
+  YieldedData_String,
+};
+#ifndef __cplusplus
+typedef uint8_t YieldedData_Tag;
+#endif // __cplusplus
+
+typedef struct YieldedData {
+  YieldedData_Tag tag;
+  union {
+    struct {
+      double number;
+    };
+    struct {
+      struct SharedString string;
+    };
+  };
+} YieldedData;
+
+/**
+ * A single yielded value: a borrowed key and its [`YieldedData`].
  */
 typedef struct YieldedValue {
   /**
@@ -534,9 +601,9 @@ typedef struct YieldedValue {
    */
   const RLookupKey *key;
   /**
-   * The value (e.g. vector distance, score).
+   * The value (e.g. vector distance, score, loaded tag).
    */
-  double value;
+  struct YieldedData value;
 } YieldedValue;
 
 /**

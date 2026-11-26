@@ -118,7 +118,10 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
          caller's to maintain",
     );
     assert_eq!(
-        parent.yielded_values.get(0).map(|m| m.value()),
+        parent
+            .yielded_values
+            .get(0)
+            .and_then(|m| m.value().as_number()),
         Some(0.5),
         "the yielded values moved out of the children when the aggregate was first \
          built are still here — `reset_aggregate` would have lost them",
