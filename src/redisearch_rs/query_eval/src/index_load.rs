@@ -17,6 +17,8 @@
 //! in an [`IndexLoad`](rqe_iterators::index_load::IndexLoad) decorator bound
 //! to it.
 
+use std::{ffi::c_char, ptr::NonNull};
+
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
@@ -24,38 +26,37 @@ use rqe_iterators::{c2rust::CRQEIterator, index_load};
 
 use crate::{Evaluated, QueryEvalContext, QueryNodeRef, metric_binding::bind_metric_request};
 
-/// The clause was rejected, and the reason reported into the query status.
-pub(crate) struct Rejected;
-
 /// Reserve the metric request of `node`'s alias, if it has one.
 ///
 /// Reserved before anything can find the clause empty, so the pipeline learns
 /// the alias even when nothing matches and the request stays unbound.
 ///
-/// A clause under a `NOT` is rejected: the documents a `NOT` yields are the
-/// ones the clause did not match, so there is no value to load.
+/// Returns `None`, with the reason reported into the query
+/// [`status`](QueryEvalContext::status), when the clause is rejected. A clause
+/// under a `NOT` is: the documents a `NOT` yields are the ones the clause did
+/// not match, so there is no value to load.
 pub(crate) fn reserve(
     ctx: &mut QueryEvalContext,
     node: &QueryNodeRef,
-) -> Result<Option<MetricRequestId>, Rejected> {
+) -> Option<Option<MetricRequestId>> {
     if !loads(node) {
-        return Ok(None);
+        return Some(None);
     }
-    let alias = node.opts().dist_field;
-    debug_assert!(!alias.is_null(), "a loading node carries its alias");
+    let alias = alias(node);
     if ctx.in_not_sub_tree() {
         ctx.status().set_error(
             QueryErrorCode::BadAttr,
             "`$as` is not supported under a negation",
         );
-        return Err(Rejected);
+        return None;
     }
     ctx.count_loading_clause();
-    // SAFETY: `alias` is non-null, as on every loading node, and is the
-    // NUL-terminated name the parser stored on the node's options. The
-    // request borrows it; the node owns it, and the AST outlives the
-    // metric-request array.
-    Ok(Some(unsafe { ctx.add_metric_request(alias, false) }))
+    // SAFETY: `alias` is the NUL-terminated name the parser stored on the
+    // node's options. The request borrows it; the node owns it, and the AST
+    // outlives the metric-request array.
+    Some(Some(unsafe {
+        ctx.add_metric_request(alias.as_ptr(), false)
+    }))
 }
 
 /// Wrap `evaluated` in an index-loading decorator bound to `request`, or hand
@@ -77,6 +78,11 @@ pub(crate) fn decorate<'index>(
     // metric-request array, outlives the iterator tree.
     unsafe { bind_metric_request(ctx, request, it) };
     Evaluated::RustCompound(it)
+}
+
+/// The alias of a loading `node`.
+const fn alias(node: &QueryNodeRef) -> NonNull<c_char> {
+    NonNull::new(node.opts().dist_field).expect("a loading node carries its alias")
 }
 
 /// Whether `node` itself loads a value.

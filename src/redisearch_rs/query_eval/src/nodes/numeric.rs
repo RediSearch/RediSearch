@@ -26,11 +26,12 @@ use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, index_load};
 /// numeric iterator via [`SearchDiskHandle::new_numeric_iterator`]. Otherwise
 /// opens the field's numeric range tree and builds a union over the matching
 /// sub-ranges. Returns `None` when the field has no numeric index yet,
-/// no sub-range matches, or the disk iterator not be created
-/// (in which case the failure is reported via [`status`](QueryEvalContext::status)).
+/// no sub-range matches, or, with the failure reported via
+/// [`status`](QueryEvalContext::status), when the disk iterator cannot be
+/// created or [`index_load::reserve`] rejects the node's `$as` alias (as under
+/// a `NOT`).
 ///
-/// A node with a `$as` alias is wrapped by [`index_load::decorate`], unless
-/// [`index_load::reserve`] rejects it.
+/// A node with a `$as` alias is otherwise wrapped by [`index_load::decorate`].
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     node: &QueryNodeRef,
@@ -64,7 +65,7 @@ pub(crate) fn eval<'index>(
         );
     }
 
-    let load = index_load::reserve(ctx, node).ok()?;
+    let load = index_load::reserve(ctx, node)?;
 
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
