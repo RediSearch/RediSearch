@@ -37,6 +37,12 @@ the plugin falls back to the local `gh` login. It checks repository access befor
 it never retries a write with different credentials. Git pushes still use git's configured
 authentication. The API credentials need to open PRs, reply and resolve threads.
 
+When `gh` is installed and supports `gh stack link`, each publication also registers the
+job's stage PRs as one GitHub stack, using the verified API credentials, without local stack
+tracking or extra branch pushes. Once a stage merges, the stack is left as registered. Without
+stack support, or when registration fails, the PRs stay ordinary PRs chained through their
+bases; a failure is only logged.
+
 Amp GitHub subscriptions are optional when the App cannot access the repository and local
 `gh` works; see the [host policy](amp/policy.md#waiting-for-ci-and-comments) for the manual-resume fallback.
 
@@ -62,6 +68,12 @@ The thread that calls `port_plan` owns the job; hooks ignore every other thread.
 Evidence is keyed by stage, candidate, base and plan hash, so passing evidence is reused and an
 amendment invalidates every admission. Everything left to do is a finding; the worker closes
 reviewer findings and comments, and failed checks and CI close themselves.
+
+The benchmark check saves each fresh C/Rust pair's Criterion medians and percentage time
+difference with that evidence. The Rust PR shows the table outside the folded run record,
+including when publication is retried or the retrospective updates it. C is the baseline:
+`100 × (Rust / C − 1)`, negative for less time. The table describes microbenchmarks, not
+end-to-end speedups; comparison-scope caveats belong in the planned PR body.
 
 ## State and debugging
 

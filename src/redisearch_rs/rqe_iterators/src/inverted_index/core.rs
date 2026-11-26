@@ -185,15 +185,16 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     }
 }
 
-impl<'index, Enc: inverted_index::Encoder, E>
-    InvIndIterator<'index, inverted_index::IndexReaderCore<'index, Enc>, E>
+impl<'query, Rf: Ref, RRf: Ref, Enc: inverted_index::Encoder, E, RA>
+    RawInvIndIterator<'query, Rf, inverted_index::RawIndexReaderCore<RRf, Enc>, E, RA>
 {
     /// Whether this iterator reads `index`, as
     /// [`points_to_ii`](inverted_index::IndexReaderCore::points_to_ii) defines it.
     ///
     /// For leaves outside this crate whose owner can drop or replace the index
-    /// while the iterator is parked: revalidation resolves the index again
-    /// through the owner and checks it with this before reseating.
+    /// while the iterator is parked: revalidation, or resume on the suspended
+    /// form, resolves the index again through the owner and checks it with this
+    /// before reseating.
     pub fn reads_index(&self, index: &inverted_index::InvertedIndex<Enc>) -> bool {
         self.reader.points_to_ii(index)
     }

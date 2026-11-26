@@ -20,6 +20,7 @@ index_result.workspace = true
 index_spec.workspace = true
 inverted_index.workspace = true
 redis_reply.workspace = true
+ref_mode.workspace = true
 rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterators.workspace = true
@@ -31,6 +32,7 @@ proptest = { workspace = true, features = ["std"] }
 redis_mock.workspace = true
 redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 rqe_iterators_test_utils.workspace = true
+rstest.workspace = true
 sparse_vector_index = { path = ".", features = ["unittest"] }
 
 [lints]

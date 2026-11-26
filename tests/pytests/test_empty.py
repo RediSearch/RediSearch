@@ -1490,14 +1490,6 @@ JSON_MULTI_VALUE_EXPECTED_EMPTY = {
     '$.f[*]': {'one_empty', 'all_empty', 'null_and_empty', 'mixed'},
 }
 
-# (path, field type, SORTABLE) -> docs that fail to index; absent keys mean none.
-# SORTABLE on `$.f` builds its sort key from the array's first element, so `[]`
-# fails.
-JSON_MULTI_VALUE_INDEXING_FAILURES = {
-    ('$.f', 'TAG', True): {'empty_arr'},
-    ('$.f', 'TEXT', True): {'empty_arr'},
-}
-
 @skip(cluster=True, no_json=True)
 def testJsonMultiValueEmpty():
     """Pins which JSON multi-value shapes INDEXEMPTY indexes as the empty value,
@@ -1515,15 +1507,10 @@ def testJsonMultiValueEmpty():
                 case = f'{path} {field_type} {options}'
                 env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
                            path, 'AS', 'f', field_type, 'INDEXEMPTY', *options).ok()
-                # A doc that fails to index also looks like a non-match, so check each insert.
-                failed = JSON_MULTI_VALUE_INDEXING_FAILURES.get(
-                    (path, field_type, bool(options)), set())
-                failures = 0
                 for suffix, doc in JSON_MULTI_VALUE_EMPTY_DOCS.items():
                     conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
-                    total = index_info(env, 'idx')['hash_indexing_failures']
-                    env.assertEqual(total > failures, suffix in failed, message=f'{case} {suffix}')
-                    failures = total
+                # A doc that fails to index also looks like a non-match, so rule that out.
+                env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'], 0, message=case)
 
                 for query, expected in ((empty_query, expected_empty),
                                         (value_query, {'mixed', 'non_empty'})):
