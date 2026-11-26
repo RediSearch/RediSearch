@@ -1797,7 +1797,7 @@ def testConfigAPIConfigOnlyBooleanParams():
 def testConfigAPINumericKnnDecisionTree(env):
     config = 'search-_numeric-knn-decision-tree'
     env.expect('CONFIG', 'GET', config).equal([config, 'no'])
-    for value in ('yes', 'early-exact', 'no'):
+    for value in ('yes', 'early-exact', 'unified-exact', 'no'):
         env.expect('CONFIG', 'SET', config, value).ok()
         env.expect('CONFIG', 'GET', config).equal([config, value])
     env.expect('CONFIG', 'SET', config, 'unsupported').error().contains('CONFIG SET failed')

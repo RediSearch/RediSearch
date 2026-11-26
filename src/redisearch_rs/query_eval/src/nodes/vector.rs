@@ -155,8 +155,11 @@ fn prefers_exact_for_estimates(policy: ffi::RSNumericKnnPolicy, product: u64, la
     // Retain the first selector's exact routes and add the leaf fitted by
     // fit_early_exact.py. Both rules use stock iterator estimates.
     product <= 86_872
-        || (policy == ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT
-            && product <= 133_378
+        || (matches!(
+            policy,
+            ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT
+                | ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_UNIFIED_EXACT
+        ) && product <= 133_378
             && larger <= 558_180)
 }
 
@@ -176,10 +179,14 @@ mod tests {
 
     #[test]
     fn early_exact_checks_both_inclusive_thresholds() {
-        let early_exact = ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT;
-        assert!(prefers_exact_for_estimates(early_exact, 133_378, 558_180));
-        assert!(!prefers_exact_for_estimates(early_exact, 133_379, 558_180));
-        assert!(!prefers_exact_for_estimates(early_exact, 133_378, 558_181));
+        for policy in [
+            ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_EARLY_EXACT,
+            ffi::RSNumericKnnPolicy_NUMERIC_KNN_POLICY_UNIFIED_EXACT,
+        ] {
+            assert!(prefers_exact_for_estimates(policy, 133_378, 558_180));
+            assert!(!prefers_exact_for_estimates(policy, 133_379, 558_180));
+            assert!(!prefers_exact_for_estimates(policy, 133_378, 558_181));
+        }
     }
 }
 

@@ -149,3 +149,46 @@ Separate ranked replays over all 10,000 queries found zero lost
 ground-truth hits against either Redis control. Early-exact found
 54 additional ground-truth hits compared with legacy AUTO and 16
 compared with the first selector.
+
+## Screen the unified benchmark
+
+The unified replay covers 11,990 cases across 12 index sizes, 15 K
+values, and numeric, TAG, TEXT, and compound filters. This includes
+140 customer-derived FLOAT16 cases. The paired runner exercises the
+stock AUTO, ADHOC_BF, and BATCHES paths on the same graph for each case.
+It records ordinary query timings and the ground-truth hits retained
+by each mode.
+
+```sh
+python3 scripts/numeric_knn_selector/fit_unified.py paired-measurements \
+  --split-published-configuration --reference legacy-profile-results \
+  > unified-tree.json
+```
+
+The original historical seeds are used to fit the historical subtree.
+The expanded seeds and 20% of the published query IDs are held out
+from fitting. Each leaf can retain the current route or start in stock
+exact search. The fit screens for any lost ground-truth hit and for
+latency regressions exceeding both 20% and 0.1 ms. Negations and
+optional filter roots retain their current route.
+
+The guarded fit changed the actual path in 26 of 3,167 held-out cases.
+All 26 were from the 32-dimensional grid. On that grid the mean
+per-case latency ratio was 1.55% lower than the current policy. The
+other three configurations used their existing execution paths. Across
+the full replay, the rule retained every ground-truth hit found by
+legacy AUTO and early-exact. These are results from selecting among
+paired measurements. The section above reports native throughput for
+the earlier early-exact policy.
+
+```redis
+CONFIG SET search-enable-unstable-features yes
+CONFIG SET search-_numeric-knn-decision-tree unified-exact
+```
+
+The unified setting inherits early-exact for the published
+100-dimensional configuration. On the supported historical RAM
+HNSW configurations, it adds direct exact when the filter estimate
+exceeds 1,886 and `floor(1000 * estimate / K) <= 13460`. The initial
+exact decision uses existing query paths and respects explicit query
+options.
