@@ -382,8 +382,7 @@ TEST_F(TagIndexTest, DiskCountsRemoveOnlyEmptyValues) {
   EXPECT_TRUE(TagIndex_DecrementValueCount(idx, "", 0, 1));
   EXPECT_EQ(TagIndex_NUniqueValues(idx), 1u);
 
-  auto timeout = timespec{.tv_sec = LONG_MAX, .tv_nsec = 0};
-  auto matches = TagIndex_GetSuffixMatches(idx, "llo", 3, false, timeout, true);
+  auto matches = TagIndex_GetSuffixMatches(idx, "llo", 3, false, nullptr);
   EXPECT_EQ(array_len(matches), 0u);
   array_free(matches);
   TagIndex_Free(idx);

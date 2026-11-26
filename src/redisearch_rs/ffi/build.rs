@@ -577,7 +577,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryRequestLimits_ShouldStopExact",
         ],
         types: &[],
-        vars: &[],
+        vars: &["QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT"],
     },
     HeaderAllowlist {
         path: "src/query_memory.h",

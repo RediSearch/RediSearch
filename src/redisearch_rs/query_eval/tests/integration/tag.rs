@@ -2397,11 +2397,6 @@ fn eval_tag_suffix_trie_expansion_stops_at_the_deadline() {
 
 #[test]
 fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
-    // `GetList_SuffixTrieMap_Wildcard` installs its own deadline, independent
-    // of both the plain wildcard brute-force fallback and
-    // `GetList_SuffixTrieMap` (the prefix/suffix-anchored path
-    // `eval_tag_suffix_trie_expansion_stops_at_the_deadline` above already
-    // covers) -- so neither of those pins this path's timeout handling.
     let mut fixture = TagFixture::new(TagOptions {
         values: generated(TIMEOUT_VALUES, 100),
         field: TagField::IndexedWithSuffixTrie,
@@ -2414,6 +2409,42 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
     let ids = drain_doc_ids(&mut it);
     assert!(!ids.is_empty());
     assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+#[test]
+fn eval_tag_exact_suffix_bucket_stops_opening_readers_when_requested() {
+    const TAGS: u32 = 220;
+    let make_fixture = |timeout| {
+        let mut values = generated(TAGS, 100);
+        for (tag, _) in &mut values {
+            tag.extend_from_slice(b"end");
+        }
+        TagFixture::new(TagOptions {
+            values,
+            field: TagField::IndexedWithSuffixTrie,
+            children: vec![Child::Prefix {
+                pattern: b"end",
+                prefix: false,
+                suffix: true,
+            }],
+            max_prefix_expansions: Some(TAGS + 1),
+            timeout,
+            ..TagOptions::default()
+        })
+    };
+
+    let mut active = make_fixture(Timeout::NoTimeout);
+    let baseline = drain_doc_ids(&mut active.eval().unwrap());
+    assert_eq!(baseline.len(), TAGS as usize);
+
+    let mut cancelled = make_fixture(Timeout::BlockedClientCancelled);
+    let mut memory_stopped = make_fixture(Timeout::NoTimeout);
+    memory_stopped.request_memory_stop();
+    for fixture in [&mut cancelled, &mut memory_stopped] {
+        let ids = drain_doc_ids(&mut fixture.eval().unwrap());
+        assert!(!ids.is_empty());
+        assert!(ids.len() < baseline.len());
+    }
 }
 
 #[test]
