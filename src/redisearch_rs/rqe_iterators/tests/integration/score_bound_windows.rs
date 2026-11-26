@@ -16,14 +16,14 @@ use proptest::prelude::*;
 use query_types::QueryNodeType;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
+    Empty, Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
     union_opaque::build_union,
 };
 
-use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, tree};
+use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, leaf_spec, tree};
 
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
@@ -700,4 +700,80 @@ proptest! {
         let thresholded = logs.iter().filter(|log| log.borrow().thresholded_reads > 0).count();
         prop_assert!(thresholded <= usize::from(is_leaf));
     }
+}
+
+/// What a union read under `thresholds` returns, and how it moved each of its leaves: the
+/// documents a leaf positioned on, and how many reads and skips it took. The union is rewound
+/// once, before read `rewind_at`, if it gets that far: the heap union then pivots by rescanning
+/// until its heap is populated again.
+fn trace_union(
+    leaves: &[Tree],
+    heap: bool,
+    thresholds: &[MinCompetitiveScore],
+    rewind_at: usize,
+) -> (Vec<DocId>, Vec<(Vec<DocId>, usize, usize)>) {
+    let tree = Tree::Or {
+        children: leaves.to_vec(),
+        heap,
+    };
+    let mut logs = Vec::new();
+    let mut it = tree.build(&mut logs);
+    let mut docs = Vec::new();
+    for call in 0.. {
+        if call == rewind_at {
+            it.rewind();
+        }
+        let min = thresholds[call.min(thresholds.len() - 1)];
+        match it.read_with_threshold(min).expect("read failed") {
+            Some(r) => docs.push(r.doc_id),
+            None => break,
+        }
+    }
+    let moves = logs
+        .iter()
+        .map(|log| {
+            let log = log.borrow();
+            (log.visited.clone(), log.reads, log.skip_tos)
+        })
+        .collect();
+    (docs, moves)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// The heap union finds its pivot by walking its heap rather than rescanning its children,
+    /// and must reach the same decisions: the same documents come back, and every leaf is read
+    /// and skipped the same way as under the flat union.
+    #[test]
+    #[cfg_attr(miri, ignore = "Hundreds of random unions: too slow under Miri")]
+    fn heap_and_flat_unions_pivot_alike(
+        leaves in proptest::collection::vec(leaf_spec(60, 30), 2..=24),
+        thresholds in thresholds(),
+        rewind_at in 1..=8usize,
+    ) {
+        prop_assert_eq!(
+            trace_union(&leaves, true, &thresholds, rewind_at),
+            trace_union(&leaves, false, &thresholds, rewind_at),
+        );
+    }
+}
+
+/// A quick-exit heap union walks its heap only while the heap holds every child it counts as
+/// active, so a child already at EOF on the first read must not stay counted.
+#[test]
+fn quick_heap_union_does_not_count_a_child_already_at_eof() {
+    let (a, _) = leaf(vec![Block::uniform(1..=4, 1.0)]);
+    let (b, _) = leaf(vec![Block::uniform(3..=6, 1.0)]);
+    let children: Vec<DynIterator> = vec![Box::new(Empty), Box::new(a), Box::new(b)];
+    let mut it = UnionQuickHeap::new(children);
+
+    it.read_with_threshold(min_competitive(0.5))
+        .expect("read failed");
+    assert_eq!(it.num_children_active(), 2, "after the first read");
+
+    it.rewind();
+    it.read_with_threshold(min_competitive(0.5))
+        .expect("read failed");
+    assert_eq!(it.num_children_active(), 2, "after a rewind");
 }
