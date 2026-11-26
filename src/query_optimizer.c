@@ -17,7 +17,6 @@
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
-#include "index_loading.h"
 #include "numeric_score_source.h"
 #include "obfuscation/hidden.h"
 #include "query_error.h"
@@ -175,7 +174,8 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
-void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
+void QOptimizer_QueryNodes(QueryAST *ast, QOptimizer *opt) {
+  QueryNode *root = ast->root;
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
@@ -184,7 +184,7 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   // The numeric top-k the optimizer can put at the root, only ever for a numeric SORTBY, yields
   // results of its own, without the values a loading clause attaches. Without SORTBY the optimizer
   // only decides on the scorer, which a loading clause does not affect.
-  if (isSortby && IndexLoading_TreeLoads(root)) {
+  if (isSortby && ast->loadsValues) {
     opt->type = Q_OPT_NONE;
     return;
   }

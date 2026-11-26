@@ -57,6 +57,10 @@ typedef struct QueryAST {
 
   // Flags indicating which syntax features are enabled for this query
   QASTValidationFlagsSet validationFlags;
+
+  // Whether a clause of the tree loads a value through `$as`, recorded as the parser applies it so
+  // that a query without one never walks the tree to find out.
+  bool loadsValues;
 } QueryAST;
 
 /**

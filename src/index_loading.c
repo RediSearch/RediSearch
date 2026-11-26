@@ -67,12 +67,3 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
   qn->opts.flags |= QueryNodeFlags_LoadsValue;
   return 1;
 }
-
-static int nodeDoesNotLoad(QueryNode *node, QueryNode *root, void *ctx) {
-  return !IndexLoading_NodeLoads(node);
-}
-
-bool IndexLoading_TreeLoads(QueryNode *root) {
-  // `QueryNode_ForEach` stops, and returns 0, at the first node the callback rejects.
-  return !QueryNode_ForEach(root, nodeDoesNotLoad, NULL, 0);
-}
