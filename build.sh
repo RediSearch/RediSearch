@@ -55,6 +55,10 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
+# Extra CMake arguments. An exported CMAKE_ARGS string is split on whitespace
+# into the array; arguments given on the command line are appended whole.
+# -d '' reads past newlines; it returns non-zero at end of input, which `set -e` must not see.
+read -r -d '' -a CMAKE_ARGS <<< "${CMAKE_ARGS:-}" || true
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
@@ -200,7 +204,7 @@ parse_arguments() {
         ;;
       *)
         # Pass all other arguments directly to CMake
-        CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
+        CMAKE_ARGS+=("-D${arg}")
         ;;
     esac
   done
@@ -493,13 +497,6 @@ select_macos_compilers() {
   for dir in "${candidates[@]}"; do
     if [[ -x "$dir/clang" && -x "$dir/clang++" && \
           "$(clang_major_version "$dir/clang")" == "$LLVM_VERSION" ]]; then
-      # run_cmake() runs its command unquoted, so these paths would be split
-      # at the space and fail in CMake with an unrelated error.
-      if [[ "$dir" =~ [[:space:]] ]]; then
-        echo "Error: LLVM $LLVM_VERSION is at '$dir', whose path contains whitespace." >&2
-        echo "Paths with whitespace are not supported; set LLVM_INSTALL_DIR to a path without it." >&2
-        exit 1
-      fi
       MACOS_C_COMPILER="$dir/clang"
       MACOS_CXX_COMPILER="$dir/clang++"
       export LIBCLANG_PATH="${dir%/bin}/lib"
@@ -527,7 +524,7 @@ clang_major_version() {
 #-----------------------------------------------------------------------------
 prepare_cmake_arguments() {
   # Initialize with base arguments
-  CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
+  CMAKE_BASIC_ARGS=("-DCOORD_TYPE=$COORD")
 
   # A reused build directory keeps the LTO configuration it was created with:
   # the CMake cache retains CMAKE_INTERPROCEDURAL_OPTIMIZATION=true and the
@@ -717,13 +714,13 @@ prepare_cmake_arguments() {
     # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
     export CC="$C_COMPILER"
     export CXX="$CXX_COMPILER"
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS \
-        -DCMAKE_C_COMPILER=$C_COMPILER \
-        -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-        -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER \
-        -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER \
-        -DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER \
-        -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true"
+    CMAKE_BASIC_ARGS+=(
+        "-DCMAKE_C_COMPILER=$C_COMPILER"
+        "-DCMAKE_CXX_COMPILER=$CXX_COMPILER"
+        "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=$LINKER"
+        "-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=$LINKER"
+        "-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=$LINKER"
+        "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=true")
     # Include LLVM bitcode information for cross-language LTO
     RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C linker-plugin-lto -C linker=$C_COMPILER -C link-arg=-fuse-ld=$LINKER"
     if [[ -n "$GCC_INSTALL_DIR" ]]; then
@@ -732,27 +729,27 @@ prepare_cmake_arguments() {
   fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
+    CMAKE_BASIC_ARGS+=("-DBUILD_SEARCH_UNIT_TESTS=ON")
   fi
 
   if [[ "$REDISEARCH_GENERATE_HEADERS" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=ON"
+    CMAKE_BASIC_ARGS+=("-DREDISEARCH_GENERATE_HEADERS=ON")
   else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
+    CMAKE_BASIC_ARGS+=("-DREDISEARCH_GENERATE_HEADERS=OFF")
   fi
 
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
+  CMAKE_BASIC_ARGS+=("-DSAN=$SAN")
   if [[ -n "$SAN" ]]; then
     DEBUG="1"
   fi
 
   if [[ "$COV" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOV=1"
+    CMAKE_BASIC_ARGS+=("-DCOV=1")
     DEBUG=1
   fi
 
   if [[ "$PROFILE" != 0 ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DPROFILE=$PROFILE"
+    CMAKE_BASIC_ARGS+=("-DPROFILE=$PROFILE")
     # We shouldn't run profile with debug - so we fail the build
     if [[ "$DEBUG" == "1" ]]; then
       echo "Error: Cannot run profile with debug/sanitizer/coverage"
@@ -762,13 +759,13 @@ prepare_cmake_arguments() {
 
   # Set build type
   if [[ "$DEBUG" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
+    CMAKE_BASIC_ARGS+=("-DCMAKE_BUILD_TYPE=Debug")
   else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=RelWithDebInfo"
+    CMAKE_BASIC_ARGS+=("-DCMAKE_BUILD_TYPE=RelWithDebInfo")
   fi
 
   # Ensure output file is always .so even on macOS
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
+  CMAKE_BASIC_ARGS+=("-DCMAKE_SHARED_LIBRARY_SUFFIX=.so")
 
   # Enable sccache for C/C++ compilation caching if available.
   # Prefer SCCACHE_PATH (set by sccache-action in CI with the full path), otherwise look on PATH.
@@ -781,7 +778,7 @@ prepare_cmake_arguments() {
     # --show-stats is idempotent: it spawns the server if needed, connects to
     # an already-running one otherwise, and fails only if it cannot start.
     if SCCACHE_PROBE_OUTPUT=$("$SCCACHE" --show-stats 2>&1); then
-      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE -DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE"
+      CMAKE_BASIC_ARGS+=("-DCMAKE_C_COMPILER_LAUNCHER=$SCCACHE" "-DCMAKE_CXX_COMPILER_LAUNCHER=$SCCACHE")
       echo "Using sccache for C/C++ compilation caching"
     else
       # Surface the underlying sccache error (e.g. "Timed out waiting for
@@ -791,29 +788,29 @@ prepare_cmake_arguments() {
       # run_cmake() reuses an existing build directory unless FORCE=1, so a
       # previously cached CMAKE_*_COMPILER_LAUNCHER would otherwise keep the
       # broken sccache active on reconfigure. Pass empty values to clear it.
-      CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER="
+      CMAKE_BASIC_ARGS+=("-DCMAKE_C_COMPILER_LAUNCHER=" "-DCMAKE_CXX_COMPILER_LAUNCHER=")
     fi
   fi
 
   # Add caching flags to prevent using old configurations
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
+  CMAKE_BASIC_ARGS+=("-UCMAKE_TOOLCHAIN_FILE")
 
   if [[ "$OS_NAME" == "macos" ]]; then
     select_macos_compilers
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=$MACOS_C_COMPILER -DCMAKE_CXX_COMPILER=$MACOS_CXX_COMPILER"
+    CMAKE_BASIC_ARGS+=("-DCMAKE_C_COMPILER=$MACOS_C_COMPILER" "-DCMAKE_CXX_COMPILER=$MACOS_CXX_COMPILER")
   fi
 
   if [[ "$BUILD_INTEL_SVS_OPT" == "yes" || "$BUILD_INTEL_SVS_OPT" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_INTEL_SVS_OPT=ON"
+    CMAKE_BASIC_ARGS+=("-DBUILD_INTEL_SVS_OPT=ON")
   else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSVS_SHARED_LIB=OFF"
+    CMAKE_BASIC_ARGS+=("-DSVS_SHARED_LIB=OFF")
   fi
 
   # Forward INLINE_LSE_ATOMICS to CMake (controls the C/C++ side).
   if [[ "$INLINE_LSE_ATOMICS" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=ON"
+    CMAKE_BASIC_ARGS+=("-DINLINE_LSE_ATOMICS=ON")
   else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DINLINE_LSE_ATOMICS=OFF"
+    CMAKE_BASIC_ARGS+=("-DINLINE_LSE_ATOMICS=OFF")
   fi
 
   # Handle RUST_DYN_CRT flag for Alpine Linux compatibility
@@ -859,7 +856,7 @@ prepare_cmake_arguments() {
       echo "Error: expected one Rust profiling runtime in $rust_target_libdir" >&2
       exit 1
     fi
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}"
+    CMAKE_BASIC_ARGS+=("-DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}")
   fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
@@ -897,15 +894,15 @@ prepare_cmake_arguments() {
   # This prevents CMake argument parsing from truncating complex flag values
 
   if [[ "$RUST_PROFILE" != "" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_PROFILE=$RUST_PROFILE"
+    CMAKE_BASIC_ARGS+=("-DRUST_PROFILE=$RUST_PROFILE")
   fi
 
   if [[ -n "$CARGO_BUILD_TARGET" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
+    CMAKE_BASIC_ARGS+=("-DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET")
   fi
 
   if [[ -n "$RUST_TOOLCHAIN_MODIFIER" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER"
+    CMAKE_BASIC_ARGS+=("-DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER")
   fi
 }
 
@@ -938,14 +935,15 @@ run_cmake() {
 
   # Always reconfigure so -D changes (BUILD_SEARCH_UNIT_TESTS, DEBUG, COV, SAN, ...)
   # take effect on subsequent invocations without requiring FORCE.
-  CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
-  echo "$CMAKE_CMD"
+  local -a cmake_cmd=(cmake "$ROOT" "${CMAKE_BASIC_ARGS[@]}" "${CMAKE_ARGS[@]}")
+  printf '%q ' "${cmake_cmd[@]}"
+  echo
 
   if [[ "$VERBOSE" == "1" ]]; then
     echo "Running CMake with verbose output..."
-    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD --trace-expand
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" "${cmake_cmd[@]}" --trace-expand
   else
-    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" "${cmake_cmd[@]}"
   fi
 }
 
