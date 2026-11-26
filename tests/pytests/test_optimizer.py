@@ -1259,6 +1259,7 @@ def testUnfilteredUnscoredAfterHeavyDeletions(env):
         env.assertEqual(opt[1:], plain[1:])
 
 
+@skip(no_json=True)
 def testJsonArraySinglePathNotBoundedByIntersection(env):
     ''' JSON single-result path $.n can still hold an array [0, 10]; @n:[0 0] @n:[10 10] must match '''
     conn = getConnectionByEnv(env)
