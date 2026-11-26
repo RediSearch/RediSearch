@@ -54,6 +54,11 @@ export interface Forge {
     existing?: PR;
   }): Promise<PR>;
   /**
+   * Registers `prs`, the job's stage PRs bottom to top, as one stack into `base`. A stack the
+   * forge cannot record is left unregistered: the PRs still chain through their bases.
+   */
+  linkStack(o: { base: string; prs: PR[] }): Promise<void>;
+  /**
    * The review comments and the CI verdict of a stage PR. `posted` are the comments the plugin
    * wrote; `head` is the revision it published.
    */

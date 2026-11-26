@@ -303,6 +303,34 @@ export function github(o: { root: string; repository: string; ci: CI }): Forge {
       return { number: pr.number, url: pr.html_url, head: o.candidate };
     },
 
+    /** Needs `gh stack link`; without it, the PRs open unstacked. */
+    async linkStack({ base, prs }) {
+      if (prs.length < 2) return;
+      const supported = await execa('gh', ['stack', 'link', '--help'], { cwd: root }).then(
+        () => true,
+        () => false,
+      );
+      if (!supported) return;
+      const octokit = await api();
+      // A merged or closed PR cannot join a stack, so once a stage merges, the stack stays as it
+      // was registered.
+      for (const pr of prs) {
+        const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pr.number });
+        if (data.state !== 'open') return;
+      }
+      const { token } = (await octokit.auth()) as { token: string };
+      // gh picks its repository from GH_REPO or the checkout, which need not be `repository`.
+      await execa('gh', ['stack', 'link', '--base', base, ...prs.map((pr) => pr.url)], {
+        cwd: root,
+        env: {
+          GH_TOKEN: token,
+          GITHUB_TOKEN: token,
+          GH_REPO: repository,
+          GH_PROMPT_DISABLED: '1',
+        },
+      });
+    },
+
     replyToComment: async (pr, comment, body) =>
       (
         await (
