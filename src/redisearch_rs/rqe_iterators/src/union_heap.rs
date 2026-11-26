@@ -12,7 +12,7 @@
 use index_result::{RSIndexResult, RawBorrowedAggregateResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
-use std::ptr::NonNull;
+use std::{cmp::Reverse, collections::BinaryHeap, ops::ControlFlow, ptr::NonNull};
 
 use crate::composite::FreeSuspendedShell;
 use crate::union::{
@@ -62,6 +62,11 @@ pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     result: RawIndexResult<'query, Rf>,
     /// Min-heap of `(doc_id, child_index)`.
     heap: DocIdMinHeap,
+    /// Scratch for [`PivotingUnion::visit_live_children_in_order`]: the heap slots next in line,
+    /// as `(doc_id, heap slot)`. Kept between calls only to reuse its allocation.
+    ///
+    /// [`PivotingUnion::visit_live_children_in_order`]: crate::composite::PivotingUnion::visit_live_children_in_order
+    pivot_frontier: BinaryHeap<Reverse<(DocId, usize)>>,
 }
 
 /// Alias for an [`Active`] [`RawUnionHeap`] — the only instantiation with an
@@ -88,6 +93,7 @@ const _: () = {
     assert!(offset_of!(A, is_eof) == offset_of!(S, is_eof));
     assert!(offset_of!(A, result) == offset_of!(S, result));
     assert!(offset_of!(A, heap) == offset_of!(S, heap));
+    assert!(offset_of!(A, pivot_frontier) == offset_of!(S, pivot_frontier));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -160,6 +166,7 @@ where
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
                 heap: DocIdMinHeap::new(),
+                pivot_frontier: BinaryHeap::new(),
             };
         }
 
@@ -170,6 +177,7 @@ where
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
             heap: DocIdMinHeap::with_capacity(num_children),
+            pivot_frontier: BinaryHeap::new(),
         }
     }
 
@@ -859,6 +867,52 @@ where
     fn score_weight(&self) -> f64 {
         self.result.weight
     }
+
+    /// Walks the heap array best-first, so visiting `k` children costs `O(k log k)` rather than a
+    /// rescan of every child per position.
+    ///
+    /// The heap holds exactly the live children, each under its current position, once it is
+    /// populated: every move of a child goes through it. Before that, on the first read after
+    /// construction or [`rewind`](RQEIterator::rewind), it holds fewer entries than
+    /// [`num_active`](Self::num_children_active) counts, and the walk rescans the children
+    /// instead.
+    fn visit_live_children_in_order(&mut self, mut visit: impl FnMut(&I) -> ControlFlow<()>) {
+        let entries = self.heap.as_slice();
+        if entries.len() != self.num_active {
+            let children = &self.children;
+            crate::composite::visit_in_order_by_rescan(
+                || children.iter().filter(|child| !child.at_eof()),
+                visit,
+            );
+            return;
+        }
+        // A min-heap's slots in doc-id order: a slot is next once its parent has been visited,
+        // and its children never sort below it.
+        let frontier = &mut self.pivot_frontier;
+        frontier.clear();
+        if let Some(root) = entries.first() {
+            frontier.push(Reverse((root.doc_id, 0)));
+        }
+        while let Some(Reverse((_, slot))) = frontier.pop() {
+            let entry = entries[slot];
+            let child = &self.children[entry.child_idx];
+            debug_assert!(
+                entry.doc_id == child.last_doc_id() && !child.at_eof(),
+                "the heap entry of child {} is stale: {} vs {}",
+                entry.child_idx,
+                entry.doc_id,
+                child.last_doc_id(),
+            );
+            if visit(child).is_break() {
+                return;
+            }
+            for next in [2 * slot + 1, 2 * slot + 2] {
+                if let Some(e) = entries.get(next) {
+                    frontier.push(Reverse((e.doc_id, next)));
+                }
+            }
+        }
+    }
 }
 
 impl<'index, I, const QUICK_EXIT: bool> RQEIteratorBoxed<'index>
@@ -1264,6 +1318,7 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             is_eof: self.is_eof,
             result: self.result,
             heap: self.heap,
+            pivot_frontier: self.pivot_frontier,
         }
     }
 }

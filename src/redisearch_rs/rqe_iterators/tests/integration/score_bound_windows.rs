@@ -23,7 +23,7 @@ use rqe_iterators::{
     union_opaque::build_union,
 };
 
-use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, tree};
+use crate::utils::blocked::{Block, Blocked, BlockedLog, Tree, drain_above, leaf_spec, tree};
 
 type Log = Rc<RefCell<BlockedLog>>;
 type DynIterator = Box<dyn RQEIterator<'static>>;
@@ -699,5 +699,55 @@ proptest! {
         // Only the root may receive the threshold.
         let thresholded = logs.iter().filter(|log| log.borrow().thresholded_reads > 0).count();
         prop_assert!(thresholded <= usize::from(is_leaf));
+    }
+}
+
+/// What a union read under `thresholds` returns, and how it moved each of its leaves: the
+/// documents a leaf positioned on, and how many reads and skips it took.
+fn trace_union(
+    leaves: &[Tree],
+    heap: bool,
+    thresholds: &[MinCompetitiveScore],
+) -> (Vec<DocId>, Vec<(Vec<DocId>, usize, usize)>) {
+    let tree = Tree::Or {
+        children: leaves.to_vec(),
+        heap,
+    };
+    let mut logs = Vec::new();
+    let mut it = tree.build(&mut logs);
+    let mut docs = Vec::new();
+    for call in 0.. {
+        let min = thresholds[call.min(thresholds.len() - 1)];
+        match it.read_with_threshold(min).expect("read failed") {
+            Some(r) => docs.push(r.doc_id),
+            None => break,
+        }
+    }
+    let moves = logs
+        .iter()
+        .map(|log| {
+            let log = log.borrow();
+            (log.visited.clone(), log.reads, log.skip_tos)
+        })
+        .collect();
+    (docs, moves)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// The heap union finds its pivot by walking its heap rather than rescanning its children,
+    /// and must reach the same decisions: the same documents come back, and every leaf is read
+    /// and skipped the same way as under the flat union.
+    #[test]
+    #[cfg_attr(miri, ignore = "Hundreds of random unions: too slow under Miri")]
+    fn heap_and_flat_unions_pivot_alike(
+        leaves in proptest::collection::vec(leaf_spec(60, 30), 2..=24),
+        thresholds in thresholds(),
+    ) {
+        prop_assert_eq!(
+            trace_union(&leaves, true, &thresholds),
+            trace_union(&leaves, false, &thresholds),
+        );
     }
 }

@@ -430,7 +430,7 @@ impl Tree {
 /// Scores are multiples of a power of two, so sums are exact in `f64` and no tie is broken
 /// differently by rounding in two runs over the same tree. Every third block reports a maximum
 /// looser than its scores, as a quantized one does.
-fn leaf_spec(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Value = Tree> {
+pub(crate) fn leaf_spec(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Value = Tree> {
     let docs = proptest::collection::btree_map(1..=max_doc_id, 0u8..=8, 1..=max_docs);
     (docs, any::<u64>(), proptest::bool::weighted(0.85)).prop_map(
         |(docs, splits, reports_blocks)| {
