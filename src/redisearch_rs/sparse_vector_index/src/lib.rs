@@ -44,7 +44,10 @@ use inverted_index::{
 };
 use rustc_hash::FxHashMap;
 
-pub use query::{DimensionIterator, SparseVectorIterator};
+pub use query::{
+    DimensionIterator, RawDimensionIterator, RawSparseVectorIterator, SparseVectorIterator,
+    SuspendedDimensionIterator, SuspendedSparseVectorIterator,
+};
 pub use vector::{SparseVectorError, parse_blob, prepare};
 
 /// The posting list of one dimension: `(doc_id, weight)` pairs in doc-ID order.

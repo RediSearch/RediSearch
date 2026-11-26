@@ -19,6 +19,7 @@
 
 struct InvertedIndex;
 typedef struct TrieMapIterator TrieMapIterator;
+typedef struct QueryRequestLimits QueryRequestLimits;
 
 #ifdef __cplusplus
 extern "C" {
@@ -168,13 +169,13 @@ TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
 /* Return a list of list of terms which match the suffix or contains term or NULL */
 arrayof(char **)
     TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str, uint32_t len, bool prefix,
-                           struct timespec timeout, bool skipTimeoutChecks);
+                              const QueryRequestLimits *limits);
 
 /* Return a list of terms which match the wildcard pattern or NULL
  * If pattern does not match using suffix trie, return 0xBAAAAAAD */
 arrayof(char *)
     TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
-                                      struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks);
+                                      long long maxPrefixExpansions, const QueryRequestLimits *limits);
 
 /* Preprocess a document tag field, split the content in data into fdata `tags` array
    Return 0 if there's no content to index in the field (its value is NULL), 1 otherwise

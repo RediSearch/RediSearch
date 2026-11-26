@@ -18,12 +18,34 @@
 use std::{marker::PhantomData, ops::ControlFlow, ptr::NonNull};
 
 use field::FieldMaskOrIndex;
+use query_flags::QEFlag;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, disk, scorers::BuiltInScorer};
+
+/// Whether the query should stop for memory pressure (or an earlier stop), ending an
+/// expansion early. The cap is user-configurable up to `u32::MAX`, so the readers opened
+/// by an expansion can add up to real memory before the build checkpoint runs.
+///
+/// Only the stop is requested: the build checkpoint after the evaluation turns it into
+/// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
+/// FT.AGGREGATE take part: FT.EXPLAIN never runs its plan, and the hybrid reply does not map an
+/// OOM stop yet.
+pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
+    if !ctx
+        .req_flags()
+        .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
+    {
+        return false;
+    }
+    let timeout = ctx.sctx().limits;
+    // SAFETY: `timeout` is the request's own, which FT.SEARCH and FT.AGGREGATE set on the search
+    // context before evaluating.
+    unsafe { ffi::QueryMemory_CheckpointExtern(timeout) }
+}
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
 /// enterprise disk iterator as a [`CRQEIterator`].
@@ -226,7 +248,7 @@ impl Expansion<'_> {
     /// `num_docs` is the term's document count, used only on the disk path for
     /// the IDF.
     pub(crate) fn push_child(&mut self, num_docs: usize, term_bytes: &[u8]) -> ControlFlow<()> {
-        if self.cap_reached() {
+        if self.cap_reached() || memory_stop(self.ctx) {
             return ControlFlow::Break(());
         }
         self.push_child_ignoring_cap(num_docs, term_bytes);

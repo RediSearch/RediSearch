@@ -8,11 +8,5 @@
 */
 
 fn main() {
-    // Emit optimizer_shim before redisearch_c_bundle: static archives resolve
-    // left-to-right, and the shim's symbols are defined in libredisearch_c_bundle.a.
-    //
-    // Drives the real C OptimizerIterator from libredisearch_c_bundle.a, as a
-    // faithful counterpart to the Rust NumericTopKIterator.
-    build_utils::compile_c_bench_shim("benches/optimizer_shim.c");
     build_utils::bind_foreign_c_symbols();
 }

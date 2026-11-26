@@ -14,13 +14,13 @@ import { test } from 'node:test';
 import { git, gitVcs } from '../git.ts';
 import { engine } from '../engine.ts';
 import type { State } from '../job.ts';
-import type { Host } from '../ports.ts';
+import type { Host, Profile } from '../ports.ts';
 import { fakeForge, fakeHost, plan, profile } from './fakes.ts';
 
 const WORKER = 'T-worker';
 
 /** A checkout on `main` whose commits write files, and a job on it, kept outside it. */
-async function setup(host: Host = fakeHost().host) {
+async function setup(host: Host = fakeHost().host, judges: Profile['judges'] = {}) {
   const root = await mkdtemp(join(tmpdir(), 'engine-'));
   const dir = await mkdtemp(join(tmpdir(), 'engine-state-'));
   const sh = (args: string[]) => git(root, args);
@@ -37,9 +37,9 @@ async function setup(host: Host = fakeHost().host) {
   await commit({ README: 'r\n' });
   // The work goes on a branch of its own, so `main` stays the base the first stage diffs against.
   await sh(['checkout', '-q', '-b', 'work']);
-  const { forge, published } = fakeForge();
+  const { forge, published, linked } = fakeForge();
   const port = engine({
-    ...{ root, dir, profile, host, vcs: gitVcs(root), forge: () => forge },
+    ...{ root, dir, profile: { ...profile, judges }, host, vcs: gitVcs(root), forge: () => forge },
     ...{ policy: ['core.md', 'host.md'], log: () => {}, disposed: new AbortController().signal },
   });
   const run = (name: string, input: Record<string, unknown>, thread = WORKER) =>
@@ -47,12 +47,16 @@ async function setup(host: Host = fakeHost().host) {
   const state = async (): Promise<State> =>
     JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
   await run('plan', { plan });
-  return { port, run, commit, state, published, dir };
+  return { port, run, commit, state, published, linked, forge, dir };
 }
 
 test('admitting the first stage publishes it and hands the job to a fresh worker', async () => {
   const { host, started, sent } = fakeHost();
-  const { port, run, commit, state, published } = await setup(host);
+  const measured = 'First-stage benchmark measurements';
+  let report: string | undefined = measured;
+  const { port, run, commit, state, published } = await setup(host, {
+    test: () => ({ report }),
+  });
   const a = await commit({ 'a/t.txt': 'pins\n' });
 
   const result = await run('claim', { stage: 'a', revision: a });
@@ -82,6 +86,7 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
   await assert.rejects(run('findings', {}), /does not own a port job/);
   assert.match((await port.startTurn(WORKER))!, /handed the job to https:\/\/host\/T-2/);
 
+  report = undefined;
   const b = await commit({ 'b/x.txt': 'x\n' });
   assert.match(await run('claim', { stage: 'b', revision: b }, 'T-2'), /Stage b admitted/);
   assert.deepEqual(
@@ -92,6 +97,37 @@ test('admitting the first stage publishes it and hands the job to a fresh worker
     ],
   );
   assert.equal((await state()).job.owner, 'T-2');
+  const evidence = [{ path: 'a/t.txt', line: 1 }];
+  await run(
+    'retro',
+    {
+      mistakes: [{ what: 'w', cost: 'c', prevention: 'p', evidence }],
+      cuts: [{ what: 'w', lines: '1', evidence }],
+      improvements: [{ problem: 'p', proposal: 'q', target: 'plugin', evidence }],
+    },
+    'T-2',
+  );
+  assert.deepEqual(
+    published.map((pr) => pr.body.includes(measured)),
+    [true, false, true, false],
+  );
+});
+
+test('every publication links all stage PRs, and a failed link holds nothing back', async () => {
+  const { run, commit, state, linked, forge } = await setup();
+  const url = (n: number) => `https://forge/pull/${n}`;
+  const a = await commit({ 'a/t.txt': 'pins\n' });
+  await run('claim', { stage: 'a', revision: a });
+  forge.linkStack = async () => {
+    throw new Error('stacks are unavailable');
+  };
+  const b = await commit({ 'b/x.txt': 'x\n' });
+  assert.match(await run('claim', { stage: 'b', revision: b }, 'T-2'), /Stage b admitted/);
+  assert.equal((await state()).job.prs.b?.url, url(2));
+  assert.deepEqual(
+    linked.map((l) => [l.base, l.prs.map((p) => p.url)]),
+    [['main', [url(1)]]],
+  );
 });
 
 test('a state recorded with its stages out of order is read in the profile order', async () => {
@@ -121,12 +157,21 @@ test('a failed handoff keeps the worker, and passing evidence is reused for free
     ...host,
     startThread: (o) => (o.role ? host.startThread(o) : Promise.reject(new Error('no agent'))),
   };
-  const { run, commit, state } = await setup(failing);
+  const report = '### Microbenchmark results\n\n| Scan | 40 ns | 30 ns | -25.00% |';
+  const { run, commit, state, published } = await setup(failing, {
+    test: () => ({ report }),
+  });
   const a = await commit({ 'a/t.txt': 'pins\n' });
   assert.doesNotMatch(await run('claim', { stage: 'a', revision: a }), /fresh thread/);
   assert.match(await run('claim', { stage: 'a', revision: a }), /Stage a admitted/);
-  const { job } = await state();
+  const { job, evidence } = await state();
   assert.deepEqual([job.owner, job.former, job.used], [WORKER, undefined, 1]);
+  assert.equal(Object.values(evidence)[0].checks[0].report, report);
+  assert.equal(published.length, 2);
+  for (const pr of published) {
+    assert.ok(pr.body.includes(report));
+    assert.ok(pr.body.indexOf(report) < pr.body.indexOf('<details>'));
+  }
 });
 
 test('the worker continues while it moves the job, and stops when blocked or stuck', async () => {
