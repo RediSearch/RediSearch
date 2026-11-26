@@ -20,20 +20,10 @@ fn scanning(c: &mut Criterion) {
         ("long", [vec![b'a'; 4096], vec![0]].concat()),
     ] {
         let mut group = c.benchmark_group(format!("scan/{name}"));
-        group.bench_function("c", |b| {
-            b.iter(|| {
-                let mut cursor = black_box(input.as_ptr()).cast_mut().cast();
-                let mut len = 0;
-                // SAFETY: input is NUL-terminated, toksep only reads its bytes, and
-                // both output pointers refer to distinct initialized local variables.
-                unsafe { ffi::toksep(&raw mut cursor, &raw mut len) };
-                black_box((cursor, len))
-            })
-        });
         group.bench_function("rust", |b| {
             b.iter(|| {
                 let mut cursor = black_box(input.as_ptr());
-                // Match the NUL-terminated input used by C and the production FFI,
+                // Match the NUL-terminated input used by the production FFI,
                 // rather than adding a slice-length check to every byte read.
                 toksep::token_len(std::iter::from_fn(|| {
                     // SAFETY: input ends in NUL, and token_len stops at that byte.
@@ -46,14 +36,6 @@ fn scanning(c: &mut Criterion) {
         group.finish();
     }
     let mut group = c.benchmark_group("classification");
-    group.bench_function("c", |b| {
-        b.iter(|| {
-            for byte in 0..=255 {
-                // SAFETY: istoksep accepts every integer without accessing caller memory.
-                black_box(unsafe { ffi::istoksep(black_box(byte)) });
-            }
-        })
-    });
     group.bench_function("rust", |b| {
         b.iter(|| {
             for byte in 0..=255 {

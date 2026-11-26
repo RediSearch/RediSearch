@@ -12,11 +12,7 @@ harness = false
 [lints]
 workspace = true
 
-[build-dependencies]
-build_utils.workspace = true
-
 [dependencies]
 criterion.workspace = true
-ffi.workspace = true
 toksep.workspace = true
 workspace_hack.workspace = true

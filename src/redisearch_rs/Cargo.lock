@@ -2302,6 +2302,7 @@ dependencies = [
  "syn 2.0.118",
  "term_dictionary_ffi",
  "term_suffix_index_ffi",
+ "toksep_ffi",
  "toml",
  "trie_rdb_ffi",
  "triemap_ffi",
@@ -2683,6 +2684,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "sparse_vector_index_ffi",
+ "toksep_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3428,9 +3430,16 @@ dependencies = [
 name = "toksep_bencher"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "criterion",
- "ffi",
+ "toksep",
+ "workspace_hack",
+]
+
+[[package]]
+name = "toksep_ffi"
+version = "0.0.1"
+dependencies = [
+ "proptest",
  "toksep",
  "workspace_hack",
 ]
