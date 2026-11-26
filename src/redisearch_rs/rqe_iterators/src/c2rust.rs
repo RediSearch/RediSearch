@@ -173,6 +173,10 @@ impl CRQEIterator {
             "The `Revalidate` callback is a NULL function pointer"
         );
         debug_assert!(
+            self_.Suspend.is_some(),
+            "The `Suspend` callback is a NULL function pointer"
+        );
+        debug_assert!(
             self_.NumEstimated.is_some(),
             "The `NumEstimated` callback is a NULL function pointer"
         );
@@ -536,9 +540,17 @@ impl profile_print::ProfilePrint for CRQEIterator {
 impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
     type Suspended = CRQESuspendedIterator;
 
+    /// Forward the suspension to the wrapped iterator's `Suspend` callback, the only way a Rust
+    /// iterator lowered under a [`CRQEIterator`] leaves its active state.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // No call into C here: `suspend` may run after the read lock was released, once the
-        // index memory the C callbacks read has been freed.
+        // Not `unwrap_unchecked`: iterators built outside this crate are only trusted to install
+        // `Suspend`.
+        let callback = self
+            .Suspend
+            .expect("The `Suspend` callback is a NULL function pointer");
+        // SAFETY: the handle is unique (consumed by value into `self`), and the callback can be
+        // called per invariant 4. of [`CRQEIterator::header`].
+        unsafe { callback(self.header.as_ptr()) };
         // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
         unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
     }
