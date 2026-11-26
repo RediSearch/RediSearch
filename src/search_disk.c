@@ -808,12 +808,12 @@ uint64_t SearchDisk_GetInvertedIndexTotalBlocks(RedisSearchDiskIndexSpec* index)
   return disk->metrics.getInvertedIndexTotalBlocks(index);
 }
 
-void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx* ctx, uint64_t textRamMetadataBytes) {
-  RS_ASSERT(disk && disk_db && ctx);
-  disk->metrics.outputInfoMetrics(disk_db, ctx, textRamMetadataBytes);
+void SearchDisk_OutputInfoMetrics(RedisModuleInfoCtx *ctx, const IndexInfoTotals *totals) {
+  RS_ASSERT(disk && disk_db && ctx && totals);
+  disk->metrics.outputInfoMetrics(disk_db, ctx, totals);
 }
 
-PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec* index,
+PerFieldTextDiskMetrics SearchDisk_GetTextFieldMetrics(const RedisSearchDiskIndexSpec *index,
                                                        t_fieldId ftId) {
   RS_ASSERT(disk && index);
   return disk->metrics.getTextFieldMetrics(index, ftId);
