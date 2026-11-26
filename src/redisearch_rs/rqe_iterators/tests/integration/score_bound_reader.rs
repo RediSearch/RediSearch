@@ -41,7 +41,7 @@ struct BlockedReader {
     masks: BTreeMap<DocId, FieldMask>,
     duplicates: bool,
     /// Whether [`next_record_with_threshold`](IndexReader::next_record_with_threshold) passes
-    /// over blocks from their bound, rather than keeping the trait's default.
+    /// over blocks from their bound, rather than dropping record by record.
     skips_blocks: bool,
     /// `(block, index)` of the record last read.
     last: Option<(usize, usize)>,

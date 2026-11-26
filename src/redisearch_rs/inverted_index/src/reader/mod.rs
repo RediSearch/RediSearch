@@ -16,7 +16,7 @@ use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::{DocId, FieldMask};
 
-use crate::score_bound::{BlockBound, MinCompetitiveScore, can_drop};
+use crate::score_bound::{BlockBound, MinCompetitiveScore};
 
 pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
@@ -112,22 +112,22 @@ pub trait IndexReader<'index> {
 
     /// [`next_record`](Self::next_record), except that records whose
     /// [`current_record_max_score`](Self::current_record_max_score) is below
-    /// `min_competitive_score` ([`can_drop`]) are passed over without being returned.
+    /// `min_competitive_score` ([`can_drop`](crate::score_bound::can_drop)) are passed over without being returned.
     ///
-    /// Never passes over a record that could reach `min_competitive_score`. The default decodes
-    /// every record and drops it afterwards; a reader that knows its block bounds overrides it to
-    /// pass over whole blocks below the threshold without decoding them.
+    /// Never passes over a record that could reach `min_competitive_score`, and never returns one
+    /// that cannot. A reader that [reports score bounds](Self::reports_score_bounds) must override
+    /// it; the default is a plain read, which is only right for a reader whose records are all
+    /// unbounded.
     fn next_record_with_threshold(
         &mut self,
         result: &mut RSIndexResult<'index>,
-        min_competitive_score: MinCompetitiveScore,
+        _min_competitive_score: MinCompetitiveScore,
     ) -> std::io::Result<bool> {
-        while self.next_record(result)? {
-            if !can_drop(self.current_record_max_score(), min_competitive_score) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+        debug_assert!(
+            !self.reports_score_bounds(),
+            "a reader that reports score bounds must implement next_record_with_threshold"
+        );
+        self.next_record(result)
     }
 }
 
