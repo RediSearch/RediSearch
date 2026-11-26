@@ -12,7 +12,6 @@
 
 #include <pthread.h>
 #include <stdatomic.h>
-#include <time.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,26 +60,6 @@ static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index)
 
 // Whether the backend supports async I/O, copied from the backend by SearchDisk_CacheAsyncIOSupport.
 static _Atomic bool asyncIOSupported_g = false;
-
-// How long SearchDisk_Close waits for indexes that are mid-close before it gives up.
-#define DISK_CLOSE_LOCK_TIMEOUT_SEC 5
-
-// Takes diskLifetimeLock_g exclusively, waiting up to DISK_CLOSE_LOCK_TIMEOUT_SEC for the indexes
-// that are mid-close. Returns false on timeout, without the lock. Polled because
-// pthread_rwlock_timedwrlock is not available on every supported platform.
-static bool acquireDiskLifeTimeLock(void) {
-  const struct timespec poll = {.tv_sec = 0, .tv_nsec = 1000000};
-  struct timespec start, now;
-  clock_gettime(CLOCK_MONOTONIC, &start);
-  while (pthread_rwlock_trywrlock(&diskLifetimeLock_g) != 0) {
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    if (now.tv_sec - start.tv_sec >= DISK_CLOSE_LOCK_TIMEOUT_SEC) {
-      return false;
-    }
-    nanosleep(&poll, NULL);
-  }
-  return true;
-}
 
 static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
   RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
@@ -294,14 +273,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
       SlotCleanup_StopDiskJobs();
     }
     SearchDisk_StopMetrics();
-    if (!acquireDiskLifeTimeLock()) {
-      // An index is stuck mid-close. Closing the context under it would free what it still uses,
-      // so leave the context open: this runs at shutdown and the process is about to exit.
-      RedisModule_Log(ctx, "warning",
-                      "Timed out waiting for a disk index to finish closing, leaving the disk "
-                      "context open");
-      return;
-    }
+    pthread_rwlock_wrlock(&diskLifetimeLock_g);
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
     atomic_store(&asyncIOSupported_g, false);
