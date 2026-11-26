@@ -171,11 +171,11 @@ jobs:
           # rockylinux needs git pre-checkout dependencies
           for rocky_version in ['rockylinux:8', 'rockylinux:9', 'rockylinux/rockylinux:10']:
             pre_deps = "dnf update -y && dnf install -y git"
-            if rocky_version == 'rockylinux/rockylinux:10':
+            if rocky_version != 'rockylinux:8':
               # The image sets no PATH, so the runner builds the container PATH from $GITHUB_PATH
               # alone once anything appends to it (the uv installer does), and later steps lose bash.
               # Install uv into a directory already on PATH and keep it off $GITHUB_PATH.
-              pre_deps += " && { echo UV_INSTALL_DIR=/usr/local/bin; echo UV_NO_MODIFY_PATH=1; } >> $GITHUB_ENV"
+              pre_deps += ' && { echo UV_INSTALL_DIR=/usr/local/bin; echo UV_NO_MODIFY_PATH=1; } >> "$GITHUB_ENV"'
             if rocky_version in x86_platforms:
               x86_include.append({
                 'OS': rocky_version,
