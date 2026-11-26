@@ -40,9 +40,18 @@ base revision itself. The stage is then skipped, and `rust` opens straight into 
 states the C behavior in `c` and the Rust behavior in `rust`. Two fields are a port's own:
 
 - **`module`:** the C files being ported, sources and headers; `swap` deletes them.
-- **`symbols`:** every function the module's headers declare, with the Rust item that replaces
-  it, which `swap` exports under the C function's own name. The plugin reads the headers on the
-  base branch and rejects a plan that leaves one out.
+- **`symbols`:** every function the module's headers declare, with either the `rust` item that
+  replaces it or a `retired` reason when the swap removes the function. A replacement is
+  exported under the C function's own name; a retired function must not be declared in a
+  generated header. The plugin reads the headers on the base branch and rejects a plan that
+  leaves one out. Retire test-only APIs rather than adding exports for them, and migrate any
+  required test coverage to Rust.
+- **`replacedTests`:** every C and C++ test the swap deletes, as its `path` and `name`, with `by`:
+  the `path` and `name` of a test the contract or divergences cite that covers it instead. A
+  gtest is named `Suite.name`, a C test by the function its `TESTFUNC` or `MU_RUN_TEST`
+  registers. The plugin rejects a test the base branch does not define, one outside the swap's
+  `paths`, and a `by` the plan does not cite. Only the swap deletes C tests, and only those it
+  lists. Leave it empty when no C test goes.
 
 The plugin rejects a test named for its artifact (`contract`, `ABI`, `boundary`, `compat`).
 Name each crate a stage changes in its `paths`, files or directories that hold at most one
@@ -73,6 +82,13 @@ ticked.
     },
   ],
   "symbols": [{ "c": "GeoFilter_Validate", "rust": "geo::RadiusFilter::new" }],
+  "replacedTests": [
+    {
+      "path": "tests/cpptests/test_cpp_geo.cpp", // in the swap's paths
+      "name": "GeoTest.units",
+      "by": { "path": "tests/pytests/test_geo.py", "name": "testUnits" },
+    },
+  ],
   "structure": "shared structure, dependencies, and the handoff between the stages",
   "interfaces": "names, types, ownership and signatures swap depends on",
   "stages": {
@@ -110,7 +126,8 @@ ticked.
       "body": "...",
     },
     "swap": {
-      /* checks: test, miri, lint, and mutants if it adds Rust that is not an export */
+      /* paths: the FFI crate and the files of replacedTests; checks: test, miri, lint, and
+         mutants if it adds Rust that is not an export */
     },
   },
 }
@@ -140,9 +157,10 @@ Make the checks catch what CI would, as `port-c-module`'s _Verify as CI Does_ de
 ## House rules and the swap
 
 The house rules are `rust-review`'s, and a new crate needs `port-c-module`'s lint block. A swap
-claim is rejected until it meets the plan's `symbols`: every Rust replacement defined, every C
-function exported under its own name in a generated header, every `module` file deleted, and no
-C ABI export left that only tests call.
+claim is rejected until it meets the plan's `symbols` and `replacedTests`: every Rust
+replacement defined and exported under its C name in a generated header, every retired function
+absent from generated headers, every `module` file deleted, every replaced test and no other C
+test deleted, and no C ABI export left that only tests call.
 
 ## CI
 

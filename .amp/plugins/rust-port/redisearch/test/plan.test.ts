@@ -61,6 +61,7 @@ const plan: Plan<PortPlan> = {
     },
   ],
   symbols: [{ c: 'GeoFilter_Validate', rust: 'geo::RadiusFilter::new' }],
+  replacedTests: [],
   structure: 'A geo crate shared by all stages.',
   interfaces: 'GeoFilter_Validate(const GeoFilter *, QueryError *) -> int',
   stages: Object.fromEntries(
@@ -110,7 +111,7 @@ test('a port plan needs its module, symbols, PR template and behavior-named test
     'coverage test check selects flow tests with TEST= or QUICK=1; run them all',
     'divergences[0] test must be cited at rust or later',
     'module needs the C files being ported: sources and headers',
-    'symbols[0] needs c and rust',
+    'symbols[0] needs c and exactly one of rust or a retired reason',
     'tests/pytests/test_geo.py::testGeoContract is named for its artifact; name it for the behavior it asserts',
     'rust bench check filters the benchmarks (--); run them all',
   ]);

@@ -21,6 +21,7 @@ import {
   checkPortPlan,
   portReviewers,
   checkSwap,
+  deletedCTests,
   type PortPlan,
 } from '../c-to-rust/port.ts';
 import {
@@ -207,7 +208,11 @@ export const profile: Profile<PortPlan> = {
   ],
   checkClaim: async (o) => [
     ...multiCratePaths(o.plan.stages[o.stage].paths, await o.vcs.listFiles(o.candidate)),
-    ...(o.stage === 'swap' ? await checkSwap(layout, o) : []),
+    ...(o.stage === 'swap'
+      ? await checkSwap(layout, o)
+      : deletedCTests(layout, o.files).map(
+          (t) => `${t.path}::${t.name} is deleted; only swap deletes C tests, as replacedTests`,
+        )),
   ],
   describePlan: (plan) => describePortPlan(plan, 'swap'),
 };
