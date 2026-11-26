@@ -275,7 +275,9 @@ typedef struct {
   // Admit new disk SQ8 fields only after every node has upgraded; existing indexes still load.
   bool diskSq8Enabled;
   // Score-skipping mode of disk indexes created from now on, recorded in each index's
-  // `Index_DiskScoreSkipping` flag, which it keeps for its lifetime.
+  // `Index_DiskScoreSkipping` flag, which it keeps for its lifetime. A replica applying a
+  // replicated FT.CREATE takes its own value, so it must match the primary's; a full sync
+  // ships the flag.
   bool diskScoreSkipping;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
