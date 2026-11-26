@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
+#include <stdatomic.h>
 
 #include <string.h>
 #include <limits.h>
@@ -40,6 +41,36 @@
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+
+static bool denseNumericKnnConfigured;
+static atomic_bool denseNumericKnnEnabled;
+
+bool RSConfig_DenseNumericKnnEnabled(void) {
+  return atomic_load_explicit(&denseNumericKnnEnabled, memory_order_relaxed);
+}
+
+// Config setters run on the main thread. Query workers read their combined state atomically.
+static void publish_dense_numeric_knn_enabled(void) {
+  atomic_store_explicit(&denseNumericKnnEnabled,
+                        denseNumericKnnConfigured && RSGlobalConfig.enableUnstableFeatures,
+                        memory_order_relaxed);
+}
+
+static int get_dense_numeric_knn(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  return denseNumericKnnConfigured;
+}
+
+static int set_dense_numeric_knn(const char *name, int value, void *privdata,
+                                 RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  REDISMODULE_NOT_USED(err);
+  denseNumericKnnConfigured = value != 0;
+  publish_dense_numeric_knn_enabled();
+  return REDISMODULE_OK;
+}
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
@@ -336,6 +367,13 @@ static int set_bool_config(const char *name, int val, void *privdata,
   REDISMODULE_NOT_USED(err);
   *(bool *)privdata = val;
   return REDISMODULE_OK;
+}
+
+static int set_unstable_features_config(const char *name, int val, void *privdata,
+                                        RedisModuleString **err) {
+  int result = set_bool_config(name, val, privdata, err);
+  publish_dense_numeric_knn_enabled();
+  return result;
 }
 
 static void warnPartialIndexedDocsDeprecated(void) {
@@ -1418,8 +1456,16 @@ CONFIG_GETTER(getIndexCursorLimit) {
 }
 
 // ENABLE_UNSTABLE_FEATURES
-CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_SETTER(parse_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
+CONFIG_SETTER(set_EnableUnstableFeatures) {
+  int result = parse_EnableUnstableFeatures(config, ac, externalTriggerId, status);
+  if (result == REDISMODULE_OK && config == &RSGlobalConfig) {
+    publish_dense_numeric_knn_enabled();
+  }
+  return result;
+}
 
 // OPTIMIZE_PARTIAL_UPDATE
 CONFIG_BOOLEAN_SETTER(set_OptimizePartialUpdate, optimizePartialUpdate)
@@ -2765,10 +2811,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-enable-unstable-features", DEFAULT_UNSTABLE_FEATURES_ENABLE,
       REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
+      get_bool_config, set_unstable_features_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-_dense-numeric-knn", 0, REDISMODULE_CONFIG_UNPREFIXED,
+      get_dense_numeric_knn, set_dense_numeric_knn, NULL, NULL))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

@@ -17,6 +17,7 @@
 //! - [`find`]: Read path (range queries)
 //! - [`gc`][]: Maintenance (garbage collection, trimming, compaction)
 
+mod dense_values;
 mod find;
 mod gc;
 mod insert;

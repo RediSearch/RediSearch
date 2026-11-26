@@ -76,6 +76,12 @@ config_accessors! {
     hide_user_data_from_log() -> bool = hideUserDataFromLog;
 }
 
+/// Whether the dense numeric KNN filter is enabled.
+pub fn dense_numeric_knn() -> bool {
+    // SAFETY: the C accessor has no inputs and reads an atomic flag.
+    unsafe { ffi::RSConfig_DenseNumericKnnEnabled() }
+}
+
 /// The name of the configured default scorer (`DEFAULT_SCORER`), or [`None`] when unset.
 ///
 /// Reading the pointer is safe; dereferencing it is not. `FT.CONFIG SET DEFAULT_SCORER`
