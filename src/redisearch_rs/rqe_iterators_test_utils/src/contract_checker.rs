@@ -708,10 +708,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for ContractChecker<I> 
         self.inner.type_()
     }
 
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        self.inner.as_c_iterator()
-    }
-
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.inner
             .intersection_sort_weight(prioritize_union_children)

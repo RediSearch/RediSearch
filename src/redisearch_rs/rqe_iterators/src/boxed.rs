@@ -731,11 +731,6 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     }
 
     #[inline(always)]
-    fn as_c_iterator(&self) -> Option<&c2rust::CRQEIterator> {
-        self.0.as_c_iterator()
-    }
-
-    #[inline(always)]
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
     }

@@ -383,10 +383,6 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         self.type_
     }
 
-    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
-        Some(self)
-    }
-
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         let Some(callback) = self.IntersectionSortWeight else {
             return 1.0;

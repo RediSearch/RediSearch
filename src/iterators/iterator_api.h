@@ -178,9 +178,9 @@ typedef struct QueryIterator {
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 
-  /* Callbacks added after the others go last, so that adding them left the offsets of the
-   * earlier ones unchanged for iterators built outside this module, such as the disk API's.
-   * Such an iterator may leave them NULL; each says what NULL means. */
+  /* Callbacks added after the others go last, so that adding them leaves the offsets of the
+   * earlier ones unchanged. A header that never sets one (e.g. a zero-initialised C/C++
+   * iterator such as the test mocks) gets NULL; each callback says what NULL means. */
 
   /**
    * Called immediately before the spec read lock is released, to inform the iterator that it
