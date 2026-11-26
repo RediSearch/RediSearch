@@ -1907,7 +1907,7 @@ static void handleBadArguments(const char *badarg, bool unsupportedOption, Query
 
 int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
                            QueryError *status) {
-  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1, .diskScoreSkipping = -1};
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1};
   int dummy;
   size_t dummy2;
   int rc = AC_OK;
@@ -1925,8 +1925,6 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
     {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
                 Index_StoreTermOffsets | Index_StoreByteOffsets)},
     {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
-    {.name = SPEC_DISK_SCORE_SKIPPING_STR, .target = &options->diskScoreSkipping,
-     .type = AC_ARGTYPE_LLONG},
     {.name = NULL}
   };
   ACArgSpec non_flex_argopts[] = {
@@ -1959,11 +1957,6 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       return REDISMODULE_ERR;
     }
-  }
-  if (options->diskScoreSkipping < -1 || options->diskScoreSkipping > 1) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        SPEC_DISK_SCORE_SKIPPING_STR " must be 0 or 1");
-    return REDISMODULE_ERR;
   }
   if ((options->flags & Index_WideSchema) && !(options->flags & Index_StoreFieldFlags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
@@ -2041,9 +2034,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     if (!SearchDisk_CanCreateIndex(status)) {
       goto failure;
     }
-    const bool scoreSkipping = options.diskScoreSkipping >= 0 ? options.diskScoreSkipping
-                                                              : RSGlobalConfig.diskScoreSkipping;
-    if (scoreSkipping) {
+    if (RSGlobalConfig.diskScoreSkipping) {
       spec->flags |= Index_DiskScoreSkipping;
     }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
