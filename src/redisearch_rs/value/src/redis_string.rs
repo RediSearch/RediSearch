@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::context::redisearch_module_context;
 use redis_module::{RedisModule_FreeString, RedisModule_StringPtrLen, RedisModuleString};
 use std::ffi::c_char;
 use std::fmt;
@@ -65,13 +64,16 @@ impl RedisString {
 
 impl Drop for RedisString {
     fn drop(&mut self) {
-        // SAFETY: Accessing the global module context, which is valid for the module lifetime.
-        let ctx = unsafe { redisearch_module_context() };
         // SAFETY: Accessing a global function pointer initialized during module load.
         let free_string = unsafe { RedisModule_FreeString }.expect("Redis module not initialized");
-        // SAFETY: `ctx` is a valid module context and `self.ptr` is a valid `RedisModuleString`
-        // that we own and have not yet freed.
-        unsafe { free_string(ctx, self.ptr.cast_mut().cast()) };
+        // A null context frees the string the same way the module's detached context
+        // would, as that context does no automatic memory management. Naming no
+        // context keeps every value's drop free of the C library's `RSDummyContext`,
+        // which Rust test binaries that do not link the C library cannot resolve.
+        //
+        // SAFETY: `self.ptr` is a valid `RedisModuleString` that we own and have not
+        // yet freed, and `RedisModule_FreeString` accepts a null context.
+        unsafe { free_string(std::ptr::null_mut(), self.ptr.cast_mut().cast()) };
     }
 }
 
