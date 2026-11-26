@@ -158,7 +158,7 @@ fn metric_produces_ids_and_metrics_on_first_read() {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, expected_id);
         assert_eq!(res.as_numeric(), Some(expected_metric));
-        let entry = res.metrics_ref().get(0).expect("one metric entry");
+        let entry = res.yielded_values().get(0).expect("one metric entry");
         assert_eq!(entry.value(), expected_metric);
     }
     assert!(matches!(it.read(), Ok(None)));

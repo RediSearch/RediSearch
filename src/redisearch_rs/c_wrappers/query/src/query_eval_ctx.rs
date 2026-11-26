@@ -16,7 +16,7 @@ use std::{
 
 use c_trie::TermsTrie;
 use query_flags::QEFlags;
-use rlookup::{MetricRequest, RLookupKey, RLookupKeyHandle};
+use rlookup::{RLookupKey, RLookupKeyHandle, YieldRequest};
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorsConfig, not_reducer::TIMEOUT_CHECK_GRANULARITY, utils::AnyTimeoutContext,
@@ -25,8 +25,8 @@ use search_disk::SearchDiskHandle;
 
 use query_types::scorers::{BuiltInScorer, RequestedScorer};
 
-/// A reservation in the query's metric-request array, as
-/// [`QueryEvalContext::add_metric_request`] hands it out.
+/// A reservation in the query's yield-request array, as
+/// [`QueryEvalContext::add_yield_request`] hands it out.
 ///
 /// Reserving and binding are separate steps because the iterator whose key slot
 /// the request points at does not exist yet at reserve time. That split is what
@@ -39,14 +39,14 @@ use query_types::scorers::{BuiltInScorer, RequestedScorer};
 /// knows whether the search will yield a distance to bind, and leaves the
 /// request unbound when it does not.
 #[derive(Debug)]
-pub struct MetricRequestId(usize);
+pub struct YieldRequestId(usize);
 
-impl MetricRequestId {
+impl YieldRequestId {
     /// Where the reservation sits in
-    /// [`metric_requests`](QueryEvalContext::metric_requests).
+    /// [`yield_requests`](QueryEvalContext::yield_requests).
     ///
     /// Reading the index does not spend the reservation, and no
-    /// [`MetricRequestId`] can be rebuilt from one, so this weakens nothing.
+    /// [`YieldRequestId`] can be rebuilt from one, so this weakens nothing.
     pub const fn index(&self) -> usize {
         self.0
     }
@@ -83,7 +83,7 @@ impl QueryEvalContext {
     /// 1. `ptr` must point to a [valid], properly initialised
     ///    [`ffi::QueryEvalCtx`].
     /// 2. All pointer fields within the [`ffi::QueryEvalCtx`] (`sctx`, `opts`,
-    ///    `status`, `metricRequestsP`, `docTable`, `config`) and the nested
+    ///    `status`, `yieldRequestsP`, `docTable`, `config`) and the nested
     ///    `sctx.spec` pointer must themselves be valid, non-null pointers.
     ///    `sctx` must additionally stay valid, and at a stable address, for the
     ///    lifetime of every timeout context and iterator derived from this
@@ -109,11 +109,11 @@ impl QueryEvalContext {
     ///    non-null it must point to a valid NUL-terminated C string that stays
     ///    valid for at least the lifetime of the returned context (read by
     ///    [`scorer`](QueryEvalContext::scorer)).
-    ///    The head `metricRequestsP` points *at* must be either null — the
+    ///    The head `yieldRequestsP` points *at* must be either null — the
     ///    empty list — or a live `array.h` tracked array of initialised
-    ///    [`MetricRequest`]s, that being the only shape carrying the length
-    ///    header that [`metric_requests`](QueryEvalContext::metric_requests)
-    ///    reads back. A plain allocation holding one [`MetricRequest`] would
+    ///    [`YieldRequest`]s, that being the only shape carrying the length
+    ///    header that [`yield_requests`](QueryEvalContext::yield_requests)
+    ///    reads back. A plain allocation holding one [`YieldRequest`] would
     ///    satisfy every other clause here and still make that safe method read
     ///    outside it.
     ///    While evaluating deferred document keys, the caller must hold the
@@ -274,50 +274,47 @@ impl QueryEvalContext {
         self.as_ref().status
     }
 
-    /// Reserve a [`MetricRequest`] for `metric_name`, returning the
-    /// [`MetricRequestId`] that binds it.
+    /// Reserve a [`YieldRequest`] for `key_name`, returning the
+    /// [`YieldRequestId`] that binds it.
     ///
-    /// The reserved entry has a NULL [`key_handle`](MetricRequest::key_handle)
-    /// until [`bind_metric_request_key`](Self::bind_metric_request_key) fills
+    /// The reserved entry has a NULL [`key_handle`](YieldRequest::key_handle)
+    /// until [`bind_yield_request_key`](Self::bind_yield_request_key) fills
     /// it in; that is the state the pipeline reads as "the iterator was never
     /// created". An id stays valid for the whole evaluation: appending only
     /// ever grows the array past the existing entries.
     ///
-    /// `is_internal` is recorded as [`MetricRequest::is_internal`], which keeps
+    /// `is_internal` is recorded as [`YieldRequest::is_internal`], which keeps
     /// the metric out of the query response.
     ///
     /// # Safety
     ///
-    /// 1. `metric_name` must be non-null and point to a NUL-terminated C string.
+    /// 1. `key_name` must be non-null and point to a NUL-terminated C string.
     ///    Pipeline construction takes its length with `strlen` and looks the
     ///    name up in the schema, without checking either — so a null or
     ///    unterminated name is a crash or an out-of-bounds read at
     ///    `FT.SEARCH` / `FT.AGGREGATE` time, far from this call.
-    /// 2. The request stores `metric_name` as a *borrowed* pointer — nothing
+    /// 2. The request stores `key_name` as a *borrowed* pointer — nothing
     ///    ever frees it through the array, and the pipeline reads it back long
     ///    after this call. Its owner (for a vector query, the `VectorQuery`,
     ///    hence the AST) must outlive the array.
-    pub unsafe fn add_metric_request(
+    pub unsafe fn add_yield_request(
         &mut self,
-        metric_name: *const c_char,
+        key_name: *const c_char,
         is_internal: bool,
-    ) -> MetricRequestId {
-        debug_assert!(!metric_name.is_null(), "a metric request must have a name");
+    ) -> YieldRequestId {
+        debug_assert!(!key_name.is_null(), "a yield request must have a name");
 
-        let head = self
-            .as_mut()
-            .metricRequestsP
-            .cast::<*mut MetricRequest<'_>>();
-        let request = MetricRequest {
-            metric_name,
+        let head = self.as_mut().yieldRequestsP.cast::<*mut YieldRequest<'_>>();
+        let request = YieldRequest {
+            key_name,
             key_handle: std::ptr::null_mut(),
             is_internal,
         };
 
-        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+        // SAFETY: invariant (2) of `new` guarantees `yieldRequestsP` points to
         // a live head slot, and (3) gives us exclusive access to it.
         let current = unsafe { *head };
-        // SAFETY: `current` is a tracked array of `MetricRequest`s (null while
+        // SAFETY: `current` is a tracked array of `YieldRequest`s (null while
         // the array is still empty, which the callee treats as "allocate"), and
         // `request` is one live, correctly sized element to copy from.
         let grown = unsafe {
@@ -325,7 +322,7 @@ impl QueryEvalContext {
                 current.cast(),
                 (&raw const request).cast_mut().cast(),
                 1,
-                size_of::<MetricRequest<'_>>() as u16,
+                size_of::<YieldRequest<'_>>() as u16,
             )
         };
         // The append may reallocate, so the new head goes back through the
@@ -335,7 +332,7 @@ impl QueryEvalContext {
         unsafe { *head = grown.cast() };
         // SAFETY: `grown` is the tracked array the append just returned, so its
         // length header is valid — and non-zero, since it holds `request`.
-        MetricRequestId(unsafe { ffi::array_len_func(grown) as usize - 1 })
+        YieldRequestId(unsafe { ffi::array_len_func(grown) as usize - 1 })
     }
 
     /// Allocate the key handle of the request `id` reserved, pointing at
@@ -353,9 +350,9 @@ impl QueryEvalContext {
     ///
     /// # Safety
     ///
-    /// 1. `id` must come from [`add_metric_request`](Self::add_metric_request)
+    /// 1. `id` must come from [`add_yield_request`](Self::add_yield_request)
     ///    on *this* context. Taking it by value is what rules out binding one
-    ///    reservation twice, but a [`MetricRequestId`] records no context, so
+    ///    reservation twice, but a [`YieldRequestId`] records no context, so
     ///    which one it came from is still the caller's to get right.
     /// 2. `key_ptr` must be non-null and valid for writes until pipeline
     ///    construction has read the request — *not* merely for as long as the
@@ -372,26 +369,23 @@ impl QueryEvalContext {
     ///    Reserving and binding are separate calls because the iterator does not
     ///    exist yet at reserve time — that split is what makes this one easy to
     ///    miss, so it is stated rather than left to the shape of the API.
-    /// 4. The metric-request array must outlive every iterator holding one of
+    /// 4. The yield-request array must outlive every iterator holding one of
     ///    its handles. The handle is freed with the array when the AST is
     ///    destroyed, and an iterator freed after that would clear
     ///    [`is_valid`](RLookupKeyHandle::is_valid) through freed memory.
-    pub unsafe fn bind_metric_request_key<'a>(
+    pub unsafe fn bind_yield_request_key<'a>(
         &mut self,
-        id: MetricRequestId,
+        id: YieldRequestId,
         key_ptr: *mut *mut RLookupKey<'a>,
     ) -> NonNull<RLookupKeyHandle<'a>> {
         debug_assert!(
             !key_ptr.is_null(),
-            "a bound metric request must have a key slot"
+            "a bound yield request must have a key slot"
         );
         let idx = id.index();
 
-        let head_slot = self
-            .as_mut()
-            .metricRequestsP
-            .cast::<*mut MetricRequest<'a>>();
-        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+        let head_slot = self.as_mut().yieldRequestsP.cast::<*mut YieldRequest<'a>>();
+        // SAFETY: invariant (2) of `new` guarantees `yieldRequestsP` points to
         // a live head slot, and (3) gives us exclusive access to it.
         let head = unsafe { *head_slot };
         // An id proves a reservation happened, but not that it happened *here*,
@@ -402,11 +396,11 @@ impl QueryEvalContext {
         #[cfg(debug_assertions)]
         {
             // SAFETY: `head` is either null or the tracked array
-            // `add_metric_request` grew, and the length read accepts both.
+            // `add_yield_request` grew, and the length read accepts both.
             let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
             assert!(
                 idx < len,
-                "`id` must come from `add_metric_request` on this context"
+                "`id` must come from `add_yield_request` on this context"
             );
         }
 
@@ -441,18 +435,15 @@ impl QueryEvalContext {
         handle
     }
 
-    /// The metric requests reserved so far, in the order they were reserved.
+    /// The yield requests reserved so far, in the order they were reserved.
     ///
-    /// The read side of [`add_metric_request`](Self::add_metric_request), which
-    /// [`MetricRequestId::index`] indexes into.
+    /// The read side of [`add_yield_request`](Self::add_yield_request), which
+    /// [`YieldRequestId::index`] indexes into.
     /// The slice borrows this context for as long as it is held, and every
     /// append takes it exclusively, so none can run while it is alive.
-    pub fn metric_requests(&self) -> &[MetricRequest<'_>] {
-        let head_slot = self
-            .as_ref()
-            .metricRequestsP
-            .cast::<*mut MetricRequest<'_>>();
-        // SAFETY: invariant (2) of `new` guarantees `metricRequestsP` points to
+    pub fn yield_requests(&self) -> &[YieldRequest<'_>] {
+        let head_slot = self.as_ref().yieldRequestsP.cast::<*mut YieldRequest<'_>>();
+        // SAFETY: invariant (2) of `new` guarantees `yieldRequestsP` points to
         // a live head slot, and gives the head itself the tracked-array shape
         // the length read below depends on.
         let head = unsafe { *head_slot };
@@ -464,7 +455,7 @@ impl QueryEvalContext {
         // SAFETY: a non-null head points just past the length header of a
         // tracked array, which is what records how many elements follow it.
         let len = unsafe { ffi::array_len_func(head.cast()) } as usize;
-        // SAFETY: those `len` elements are initialised `MetricRequest`s, and
+        // SAFETY: those `len` elements are initialised `YieldRequest`s, and
         // the array lives as long as the context holding its head — which the
         // returned slice borrows, so nothing can append to it and move it out
         // from under the slice.

@@ -42,7 +42,7 @@ pub(crate) fn eval<'index>(
     // SAFETY: `field_ptr` points into the live spec's field array, which the
     // query's spec read lock keeps alive and unmodified throughout evaluation.
     // Going through the raw pointer detaches the borrow from `ctx`, which the
-    // metric-request bookkeeping below needs exclusively.
+    // yield-request bookkeeping below needs exclusively.
     let field = unsafe { &*field_ptr };
     debug_assert!(
         field.types() & ffi::FieldType_INDEXFLD_T_SPARSE_VECTOR != 0,
@@ -74,8 +74,8 @@ pub(crate) fn eval<'index>(
         // SAFETY: `dist_field` is non-null, per the guard above, and is the
         // NUL-terminated name the parser stored on the node's options. The
         // request borrows it; the node owns it, and the AST outlives the
-        // metric-request array.
-        unsafe { ctx.add_metric_request(dist_field, false) }
+        // yield-request array.
+        unsafe { ctx.add_yield_request(dist_field, false) }
     });
 
     // A field no document has written to yet has no index, and matches nothing.
@@ -95,10 +95,10 @@ pub(crate) fn eval<'index>(
         let wrapper =
             unsafe { RQEIteratorWrapper::<SparseVectorIterator<'_>>::mut_ref_from_header_ptr(ptr) };
         let own_key = wrapper.inner_mut().key_mut_ref() as *mut _;
-        // SAFETY: `id` was reserved by `add_metric_request` on this same
+        // SAFETY: `id` was reserved by `add_yield_request` on this same
         // context. `own_key` points into the heap-allocated iterator, which
         // clears the handle's validity flag when it is freed.
-        let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
+        let handle = unsafe { ctx.bind_yield_request_key(id, own_key) };
         // SAFETY: `handle` lives as long as the AST, which outlives the
         // iterator, and only this iterator writes its validity flag.
         unsafe { wrapper.inner_mut().set_handle(Some(handle)) };

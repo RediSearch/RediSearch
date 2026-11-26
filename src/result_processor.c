@@ -30,7 +30,7 @@
 #include "query_memory.h"
 
 #include "iterators_ffi.h"
-#include "metrics_ffi.h"
+#include "yielded_values_ffi.h"
 #include "rs_wall_clock.h"
 #include "util/references.h"
 #include "hybrid/hybrid_scoring.h"
@@ -880,9 +880,9 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
 
 typedef struct {
   ResultProcessor base;
-} RPMetrics;
+} RPYieldedValuesLoader;
 
-static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
+static int rpYieldedValuesLoaderNext(ResultProcessor *base, SearchResult *res) {
   int rc;
 
   rc = base->upstream->Next(base->upstream, res);
@@ -890,7 +890,7 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
     return rc;
   }
 
-  MetricsSlice slice = MetricsVec_AsSlice(&SearchResult_GetIndexResult(res)->metrics);
+  YieldedValuesSlice slice = YieldedValues_AsSlice(&SearchResult_GetIndexResult(res)->yieldedValues);
   for (size_t i = 0; i < slice.len; i++) {
     RLookup_WriteOwnKey(slice.data[i].key, SearchResult_GetRowDataMut(res), RSValue_NewNumber(slice.data[i].value));
   }
@@ -898,17 +898,17 @@ static int rpMetricsNext(ResultProcessor *base, SearchResult *res) {
   return rc;
 }
 
-/* Free implementation for RPMetrics */
-static void rpMetricsFree(ResultProcessor *rp) {
-  RPMetrics *self = (RPMetrics *)rp;
+/* Free implementation for RPYieldedValuesLoader */
+static void rpYieldedValuesLoaderFree(ResultProcessor *rp) {
+  RPYieldedValuesLoader *self = (RPYieldedValuesLoader *)rp;
   rm_free(self);
 }
 
-ResultProcessor *RPMetricsLoader_New() {
-  RPMetrics *ret = rm_calloc(1, sizeof(*ret));
-  ret->base.Next = rpMetricsNext;
-  ret->base.Free = rpMetricsFree;
-  ret->base.type = RP_METRICS;
+ResultProcessor *RPYieldedValuesLoader_New() {
+  RPYieldedValuesLoader *ret = rm_calloc(1, sizeof(*ret));
+  ret->base.Next = rpYieldedValuesLoaderNext;
+  ret->base.Free = rpYieldedValuesLoaderFree;
+  ret->base.type = RP_YIELDED_VALUES_LOADER;
   return &ret->base;
 }
 
@@ -1034,7 +1034,7 @@ static bool keepsScoreThreshold(const ResultProcessor *rp) {
     // Scores each row from its own candidate, which is what the candidate's bound bounds.
     case RP_SCORER:
     // Add fields to rows or drop them; the score is the upstream one.
-    case RP_METRICS:
+    case RP_YIELDED_VALUES_LOADER:
     case RP_PROJECTOR:
     case RP_FILTER:
     case RP_LOADER:

@@ -504,7 +504,7 @@ impl<'index> SparseVectorIterator<'index> {
         *result
             .as_numeric_mut()
             .expect("the sparse result is built as a sparse score") = value;
-        let metrics = result.metrics_mut();
+        let metrics = result.yielded_values_mut();
         metrics.reset();
         if !key.is_null() {
             // The metrics vector types the key the way C sees it: the header

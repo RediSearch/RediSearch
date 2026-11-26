@@ -272,7 +272,7 @@ impl<Shell, Elem, Resumed> Drop for FreeSuspendedShell<Shell, Elem, Resumed> {
 /// cost of keeping them is that a metric contributed by a child that has since
 /// been dropped stays; the alternative loses the surviving children's metrics
 /// too, to remove it. Should a union then re-settle,
-/// [`restore_gathered_metrics`] decides which of them it goes on publishing.
+/// [`restore_gathered_yielded_values`] decides which of them it goes on publishing.
 ///
 /// `doc_id` is the document the rebuild is *for*: the input to the contributor
 /// test rather than an output of it.
@@ -302,8 +302,8 @@ impl<Shell, Elem, Resumed> Drop for FreeSuspendedShell<Shell, Elem, Resumed> {
 ///
 /// [`freq`]: index_result::RawIndexResult::freq
 /// [`field_mask`]: index_result::RawIndexResult::field_mask
-/// [`metrics`]: index_result::RawIndexResult::metrics
-/// [`restore_gathered_metrics`]: crate::union::restore_gathered_metrics
+/// [`metrics`]: index_result::RawIndexResult::yielded_values
+/// [`restore_gathered_yielded_values`]: crate::union::restore_gathered_yielded_values
 pub(crate) fn repush_borrowed_entries<'a, 'child, R, const QUICK_EXIT: bool>(
     aggregate: &mut RawBorrowedAggregateResult<'a, Suspended>,
     doc_id: DocId,

@@ -19,7 +19,7 @@
 //! - If `false`, collects results from all children with the same document.
 
 use index_result::{
-    MetricsVec, RSIndexResult, RSResultKind, RawBorrowedAggregateResult, RawIndexResult,
+    RSIndexResult, RSResultKind, RawBorrowedAggregateResult, RawIndexResult, YieldedValues,
 };
 use ref_mode::{Ref, Suspended};
 use rqe_core::{DocId, FieldMask};
@@ -114,16 +114,16 @@ impl SettleOutcome {
 /// backer was dropped in the meantime, its metrics are still the ones
 /// published: they are the last record of what the union reported for this
 /// document.
-pub(crate) fn restore_gathered_metrics<'index, const QUICK_EXIT: bool>(
+pub(crate) fn restore_gathered_yielded_values<'index, const QUICK_EXIT: bool>(
     result: &mut RSIndexResult<'index>,
-    mut gathered: MetricsVec<'index>,
+    mut gathered: YieldedValues<'index>,
 ) {
     if QUICK_EXIT && !gathered.is_empty() {
-        result.metrics = gathered;
+        result.yielded_values = gathered;
         return;
     }
-    gathered.concat(&mut result.metrics);
-    result.metrics = gathered;
+    gathered.concat(&mut result.yielded_values);
+    result.yielded_values = gathered;
 }
 
 /// Whether `result` is a borrowed union aggregate, the only representation a

@@ -16,7 +16,7 @@ use std::ptr::NonNull;
 
 use crate::composite::FreeSuspendedShell;
 use crate::union::{
-    RebuildOutcome, SettleOutcome, rebuild_borrowed_entries, restore_gathered_metrics,
+    RebuildOutcome, SettleOutcome, rebuild_borrowed_entries, restore_gathered_yielded_values,
     result_is_borrowed_union,
 };
 use crate::utils::{DocIdMinHeap, HeapEntry};
@@ -259,7 +259,7 @@ where
     ) -> Result<SettleOutcome, RQEIteratorError> {
         // A move to another document publishes that document's metrics, drained
         // afresh by the rebuild; staying put has to restore these.
-        let gathered = std::mem::take(&mut self.result.metrics);
+        let gathered = std::mem::take(&mut self.result.yielded_values);
 
         let Some(mut min) = self.heap.peek() else {
             self.is_eof = true;
@@ -316,7 +316,7 @@ where
                     "staying put must leave the position untouched",
                 );
 
-                restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
+                restore_gathered_yielded_values::<QUICK_EXIT>(&mut self.result, gathered);
                 return Ok(SettleOutcome::Unchanged);
             }
 
@@ -345,7 +345,7 @@ where
                     "staying put must leave the position untouched",
                 );
 
-                restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
+                restore_gathered_yielded_values::<QUICK_EXIT>(&mut self.result, gathered);
                 return Ok(SettleOutcome::Unchanged);
             }
 
@@ -377,7 +377,7 @@ where
         }
 
         if self.last_doc_id() == original_last_doc_id {
-            restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
+            restore_gathered_yielded_values::<QUICK_EXIT>(&mut self.result, gathered);
             return Ok(SettleOutcome::Unchanged);
         }
 
@@ -532,14 +532,14 @@ where
         let result = &mut self.result;
         for_each_contributor(self.heap.as_slice(), min_id, |child_idx| {
             if let Some(child_result) = children[child_idx].current() {
-                let drained_metrics = std::mem::take(&mut child_result.metrics);
+                let drained_yielded_values = std::mem::take(&mut child_result.yielded_values);
                 let child_ptr: *const RSIndexResult<'index> = child_result;
                 // SAFETY: We need a raw pointer to decouple the borrow of the child's
                 // result from `&mut self.result`. This is sound because:
                 // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
                 // 2. The child is owned by `self`, so the 'index data remains valid.
                 let child_ref = unsafe { &*child_ptr };
-                result.push_borrowed(child_ref, drained_metrics);
+                result.push_borrowed(child_ref, drained_yielded_values);
             }
         });
     }
@@ -631,14 +631,14 @@ where
         self.result.doc_id = child.last_doc_id();
 
         if let Some(child_result) = child.current() {
-            let drained_metrics = std::mem::take(&mut child_result.metrics);
+            let drained_yielded_values = std::mem::take(&mut child_result.yielded_values);
             let child_ptr: *const RSIndexResult<'index> = child_result;
             // SAFETY: We need a raw pointer to decouple the borrow of the child's
             // result from `&mut self.result`. This is sound because:
             // 1. `self.children[i]` and `self.result` are disjoint fields — no aliasing.
             // 2. The child is owned by `self`, so the 'index data remains valid.
             let child_ref = unsafe { &*child_ptr };
-            self.result.push_borrowed(child_ref, drained_metrics);
+            self.result.push_borrowed(child_ref, drained_yielded_values);
         }
     }
 }

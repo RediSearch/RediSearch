@@ -325,7 +325,7 @@ TEST_F(HybridRequestParseTest, testHybridRequestImplicitLoad) {
   // Define expected pipelines for each request
   std::vector<std::vector<ResultProcessorType>> expectedPipelines = {
     {RP_SAFE_DEPLETER, RP_LOADER, RP_SORTER, RP_SCORER, RP_INDEX},  // First request pipeline
-    {RP_SAFE_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_METRICS, RP_INDEX}  // Other requests pipeline
+    {RP_SAFE_DEPLETER, RP_LOADER, RP_VECTOR_NORMALIZER, RP_YIELDED_VALUES_LOADER, RP_INDEX}  // Other requests pipeline
   };
 
   for (size_t i = 0; i < hybridReq->nrequests; i++) {

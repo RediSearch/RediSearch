@@ -480,7 +480,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.timeout.check_timeout()
     }
 
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r,
     {

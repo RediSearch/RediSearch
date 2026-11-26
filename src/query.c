@@ -671,17 +671,17 @@ void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
 
-  // Free the key handles in metric requests
-  if (q->metricRequests) {
-    for (size_t i = 0; i < array_len(q->metricRequests); i++) {
-      if (q->metricRequests[i].key_handle) {
-        rm_free(q->metricRequests[i].key_handle);
+  // Free the key handles in yield requests
+  if (q->yieldRequests) {
+    for (size_t i = 0; i < array_len(q->yieldRequests); i++) {
+      if (q->yieldRequests[i].key_handle) {
+        rm_free(q->yieldRequests[i].key_handle);
       }
     }
   }
 
-  array_free(q->metricRequests);
-  q->metricRequests = NULL;
+  array_free(q->yieldRequests);
+  q->yieldRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
   q->loadsValues = false;

@@ -1,5 +1,5 @@
 [package]
-name = "metrics_ffi"
+name = "yielded_values_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

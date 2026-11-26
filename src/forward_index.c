@@ -16,7 +16,7 @@
 #include "tokenize.h"
 #include "fnv_ffi.h"
 #include "rmalloc.h"
-#include "metrics_ffi.h"
+#include "yielded_values_ffi.h"
 #include "index_result_rs.h"
 #include "spec.h"
 #include "util/arr/arr.h"
@@ -341,7 +341,7 @@ AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, Forwar
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask,
                        .hasFieldExpiration = hasFieldExpiration,
-                       .metrics = MetricsVec_New()};
+                       .yieldedValues = YieldedValues_New()};
 
   if (ent->vw) {
     // VVW_GetByteData returns `const uint8_t *`; the Rust side stores

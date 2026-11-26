@@ -97,10 +97,10 @@ impl Drop for KeyHandleSlot<'_> {
 #[cheadergen::config(export)]
 #[repr(C)]
 #[derive(Debug)]
-pub struct MetricRequest<'a> {
+pub struct YieldRequest<'a> {
     /// The name of the metric field to register in the
     /// [`RLookup`] table (e.g. `"__vec_score"`).
-    pub metric_name: *const c_char,
+    pub key_name: *const c_char,
     /// Optional handle back to the iterator's
     /// [`RLookupKey`] slot. `NULL` when the iterator
     /// that requested this metric was not created (e.g. an early

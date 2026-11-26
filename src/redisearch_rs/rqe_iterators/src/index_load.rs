@@ -14,7 +14,7 @@
 //! This is the iterator half of the `$as` query attribute, an unstable
 //! feature. The value reaches the row the same way a vector range query's
 //! distance does: the decorator pushes it into the hit's
-//! [`metrics`](RSIndexResult::metrics_mut) under the [`RLookupKey`] the
+//! [`metrics`](RSIndexResult::yielded_values_mut) under the [`RLookupKey`] the
 //! pipeline resolved for the alias, and the metrics loader writes it into the
 //! row.
 
@@ -196,7 +196,7 @@ fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'inde
     let Some(value) = hit_value(result) else {
         return;
     };
-    let metrics = result.metrics_mut();
+    let metrics = result.yielded_values_mut();
     metrics.reset();
     metrics.push_with_key(key, value);
 }

@@ -22,7 +22,7 @@
 #include "rmutil/rm_assert.h"
 #include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
-#include "metrics_ffi.h"
+#include "yielded_values_ffi.h"
 #include "query_term_ffi.h"
 #include "search_disk.h"
 #include "spec.h"
@@ -220,7 +220,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
                                   bool hasFieldExpiration, IndexStats *stats, size_t *numRecords) {
   size_t sz;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .hasFieldExpiration = hasFieldExpiration, .metrics = MetricsVec_New()};
+                       .hasFieldExpiration = hasFieldExpiration, .yieldedValues = YieldedValues_New()};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
   uint32_t numDocs = InvertedIndex_NumDocs(iv);
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iv, &rec);

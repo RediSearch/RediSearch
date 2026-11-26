@@ -105,7 +105,7 @@ impl ScoreSource for PartialThenTimingOutSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r,
     {
@@ -172,7 +172,7 @@ impl ScoreSource for TimingOutSource {
         RSIndexResult::build_virt().doc_id(doc_id).build()
     }
 
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r,
     {
@@ -1031,7 +1031,7 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
-        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
         where
             Self: 'r,
         {
@@ -1268,7 +1268,7 @@ fn adhoc_timeout_propagated() {
         {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
-        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
         where
             Self: 'r,
         {
@@ -1542,12 +1542,12 @@ fn adhoc_trim_deep_results_yields_metric_only() {
 /// metrics (e.g. `AS`-yielded vector distances), which are explicit output/sort
 /// fields rather than part of the rich subtree.
 #[test]
-fn batches_trim_deep_results_preserves_child_metrics() {
+fn batches_trim_deep_results_preserves_child_yielded_values() {
     use rqe_iterators::IdList;
 
     // The scoring child, plus a yielded metric on top.
     let mut child_result = scoring_child_result();
-    child_result.metrics_mut().push_without_key(42.0);
+    child_result.yielded_values_mut().push_without_key(42.0);
     let child = IdList::<true>::with_result(vec![1, 2], child_result);
 
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
@@ -1564,7 +1564,7 @@ fn batches_trim_deep_results_preserves_child_metrics() {
 
     let mut emitted = Vec::new();
     while let Some(r) = it.read().unwrap() {
-        let metric = r.metrics_ref().get(0).map(|m| m.value());
+        let metric = r.yielded_values().get(0).map(|m| m.value());
         emitted.push((r.doc_id, r.freq, r.field_mask, metric));
     }
 

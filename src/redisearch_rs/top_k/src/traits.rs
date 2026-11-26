@@ -244,7 +244,7 @@ pub trait ScoreSource {
     /// [`AdhocBF`](crate::TopKMode::AdhocBF)) the iterator yields the **child's**
     /// `RSIndexResult` directly so its scoring inputs (frequency, field mask,
     /// term records) are preserved, and calls
-    /// [`attach_score_metric`](Self::attach_score_metric) instead — unless the
+    /// [`attach_yielded_score`](Self::attach_yielded_score) instead — unless the
     /// source opts out via [`yields_child_record`](Self::yields_child_record).
     ///
     /// # Obligation: no index-backed payload
@@ -285,12 +285,12 @@ pub trait ScoreSource {
     /// yields of the same child storage don't leak metrics across docs.
     ///
     /// [`TopKIterator`]: crate::TopKIterator
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r;
 
     /// Whether the filtered yield path should hand back the child's captured
-    /// `RSIndexResult` (with [`attach_score_metric`](Self::attach_score_metric)
+    /// `RSIndexResult` (with [`attach_yielded_score`](Self::attach_yielded_score)
     /// applied) rather than a source-built one.
     ///
     /// `true` preserves the child's scoring inputs for relevance scoring — the

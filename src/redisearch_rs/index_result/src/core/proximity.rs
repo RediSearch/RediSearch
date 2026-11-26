@@ -483,7 +483,7 @@ mod tests {
             field_mask: 0,
             freq: 0,
             data: wrap(crate::RawAggregateResult::Owned(agg)),
-            metrics: crate::MetricsVec::new(),
+            yielded_values: crate::YieldedValues::new(),
             weight: 0.0,
             has_field_expiration: false,
         }
@@ -547,7 +547,7 @@ mod tests {
             field_mask: 0,
             freq: 0,
             data: RawResultData::Union(RawAggregateResult::Owned(agg)),
-            metrics: crate::MetricsVec::new(),
+            yielded_values: crate::YieldedValues::new(),
             weight: 0.0,
             has_field_expiration: false,
         };

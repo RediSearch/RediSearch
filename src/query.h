@@ -44,7 +44,7 @@ typedef struct QueryAST {
   size_t udatalen;
 
   // array of additional metrics names in the AST.
-  MetricRequest *metricRequests;
+  YieldRequest *yieldRequests;
 
   // Owned copy of a dialect 1 query, whose parser unescapes field names in place. NULL for later
   // dialects, which parse the caller's string directly.

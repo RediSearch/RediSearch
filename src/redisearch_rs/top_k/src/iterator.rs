@@ -119,7 +119,7 @@ enum ChildCapture {
     Full,
     /// Only the child's yielded metrics (see
     /// [`with_trim_deep_results`](TopKIterator::with_trim_deep_results)).
-    Metrics,
+    YieldedValues,
     /// Nothing: the source builds every yielded result itself (see
     /// [`ScoreSource::yields_child_record`]).
     Nothing,
@@ -166,7 +166,7 @@ enum Phase {
 ///    because the records parked in them borrow nothing from the index: they are
 ///    produced exclusively by `capture_child_record` (whose
 ///    [`to_owned`](RSIndexResult::to_owned) copies the offset bytes and
-///    deep-copies aggregate children), by `capture_child_metrics` (a
+///    deep-copies aggregate children), by `capture_child_yielded_values` (a
 ///    metric-only result), or by [`ScoreSource::build_result`], whose contract
 ///    obliges every source to return such a record. What survives is
 ///    the shared `RSQueryTerm`s and the query's `RLookupKey`-backed
@@ -369,7 +369,7 @@ const _: () = {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
-        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
         where
             Self: 'r,
         {
@@ -491,7 +491,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// When `true`, the collection phase captures only each matching child's
     /// yielded metrics instead of deep-copying its whole record, and the yield
     /// phase hands those back with the source's score attached via
-    /// [`ScoreSource::attach_score_metric`].
+    /// [`ScoreSource::attach_yielded_score`].
     /// Leave `false` (the default) whenever a downstream scorer or highlighter
     /// reads the child's term records.
     pub fn with_trim_deep_results(mut self, trim: bool) -> Self {
@@ -529,7 +529,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         if !self.source.yields_child_record() {
             ChildCapture::Nothing
         } else if self.can_trim_deep_results {
-            ChildCapture::Metrics
+            ChildCapture::YieldedValues
         } else {
             ChildCapture::Full
         }
@@ -828,7 +828,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     if let Some(value) = result.as_numeric_mut() {
                         *value = score;
                     }
-                    self.source.attach_score_metric(&mut result, score);
+                    self.source.attach_yielded_score(&mut result, score);
                     self.current = Some(result);
                     return Ok(self.current.as_mut());
                 }
@@ -845,7 +845,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     continue;
                 }
                 self.last_doc_id = doc_id;
-                self.source.attach_score_metric(&mut record, score);
+                self.source.attach_yielded_score(&mut record, score);
                 self.current = Some(record);
                 return Ok(self.current.as_mut());
             }
@@ -1253,7 +1253,7 @@ impl ChildCapture {
     fn apply<'index>(self, record: &RSIndexResult<'index>) -> Option<RSIndexResult<'index>> {
         match self {
             Self::Full => Some(capture_child_record(record)),
-            Self::Metrics => Some(capture_child_metrics(record)),
+            Self::YieldedValues => Some(capture_child_yielded_values(record)),
             Self::Nothing => None,
         }
     }
@@ -1283,11 +1283,11 @@ fn capture_child_record<'index>(record: &RSIndexResult<'index>) -> RSIndexResult
 /// carried. Cloning copies each metric entry by value; the `RLookupKey`s they
 /// reference are owned by the query and stay valid for `'index`, so the copy
 /// outlives subsequent child reads.
-fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResult<'index> {
+fn capture_child_yielded_values<'index>(record: &RSIndexResult<'index>) -> RSIndexResult<'index> {
     let mut owned = RSIndexResult::build_metric(0.0)
         .doc_id(record.doc_id)
         .build();
-    owned.metrics = record.metrics.clone();
+    owned.yielded_values = record.yielded_values.clone();
     owned
 }
 
@@ -1447,7 +1447,7 @@ impl<'index, S: ScoreSource + 'index, O: ScoreOrdering + 'index>
 
 #[cfg(test)]
 mod tests {
-    use index_result::{MetricsVec, RSOffsetSlice, RSQueryTerm};
+    use index_result::{RSOffsetSlice, RSQueryTerm, YieldedValues};
     use rqe_iterators::Empty;
     use rqe_iterators_test_utils::MockContext;
 
@@ -1514,7 +1514,7 @@ mod tests {
                 .build()
         }
 
-        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
         where
             Self: 'r,
         {
@@ -1572,7 +1572,7 @@ mod tests {
             RSIndexResult::build_virt().doc_id(doc_id).build()
         }
 
-        fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+        fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
         where
             Self: 'r,
         {
@@ -1713,7 +1713,7 @@ mod tests {
     fn borrowed_aggregate_is_rejected() {
         let leaf = leaf_term_record();
         let mut union = RSIndexResult::build_union(1).doc_id(1).build();
-        union.push_borrowed(&leaf, MetricsVec::new());
+        union.push_borrowed(&leaf, YieldedValues::new());
 
         assert!(!carries_no_index_borrow(&union));
     }
@@ -1724,12 +1724,12 @@ mod tests {
         let virt = RSIndexResult::build_virt().doc_id(1).build();
 
         let mut term_union = RSIndexResult::build_union(1).doc_id(1).build();
-        term_union.push_borrowed(&leaf, MetricsVec::new());
+        term_union.push_borrowed(&leaf, YieldedValues::new());
         let term_union = term_union.to_owned();
         assert!(carries_no_index_borrow(&term_union));
 
         let mut virt_union = RSIndexResult::build_union(1).doc_id(1).build();
-        virt_union.push_borrowed(&virt, MetricsVec::new());
+        virt_union.push_borrowed(&virt, YieldedValues::new());
         let mut virt_union = virt_union.to_owned();
         assert!(carries_no_index_borrow(&virt_union));
 

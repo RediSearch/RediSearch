@@ -1102,7 +1102,7 @@ impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
         // This is NOT sound for every `DiskWildcardIterator`: safe code can box any iterator as
         // one, and an iterator holding a `'query`-typed sink outside the box (e.g. a
         // `&'query mut Vec<&'query RLookupKey>` it fills on drop) would receive data that only
-        // lives for `'a`, such as a key pushed into `current().metrics`. It holds for the
+        // lives for `'a`, such as a key pushed into `current().yielded_values`. It holds for the
         // iterators the disk backend returns, which have no such sink. Known gap, to be closed
         // by resuming through the backend's own suspended form instead of retyping it.
         let mut active = unsafe { Box::from_raw(raw as *mut DiskWildcardIterator<'a>) };

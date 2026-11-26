@@ -28,7 +28,7 @@
 #include "info/global_stats.h"
 #include "gc/gc.h"
 #include "doc_id_meta.h"
-#include "metrics_ffi.h"
+#include "yielded_values_ffi.h"
 #include "module.h"
 #include "util/workers.h"
 #include "vecsim/vec_sim.h"
@@ -522,7 +522,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
     // Add docId to inverted index
     t_docId docId = aCtx->doc->docId;
     RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                         .metrics = MetricsVec_New()};
+                         .yieldedValues = YieldedValues_New()};
     AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(iiMissingDocs, &rec);
     aCtx->spec->stats.invertedSize += r.mem_growth;
     IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);
@@ -545,7 +545,7 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
   t_docId docId = aCtx->doc->docId;
   RSIndexResult rec = {.data.tag = RSResultData_Virtual, .docId = docId, .freq = 0,
-                       .metrics = MetricsVec_New()};
+                       .yieldedValues = YieldedValues_New()};
   AddRecordOutcome r = InvertedIndex_WriteEntryGeneric(sctx->spec->existingDocs, &rec);
   aCtx->spec->stats.invertedSize += r.mem_growth;
   IndexStats_BlockCountAdd(&aCtx->spec->stats, r.blocks_added);

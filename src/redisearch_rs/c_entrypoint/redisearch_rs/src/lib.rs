@@ -29,7 +29,6 @@ pub use index_gc_ffi as index_gc;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use language_ffi as language;
-pub use metrics_ffi as metrics;
 pub use module_init_ffi as tracing_redismodule;
 pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
@@ -52,5 +51,6 @@ pub use ttl_table_ffi as ttl_table;
 pub use types_ffi as types;
 pub use value_ffi as value;
 pub use varint_ffi as varint;
+pub use yielded_values_ffi as yielded_values;
 
 include!(concat!(env!("OUT_DIR"), "/link_guard.rs"));

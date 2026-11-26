@@ -1431,13 +1431,13 @@ fn revalidate_ok_leaves_the_aggregate_readable() {
 /// rebuilding its entries must keep the metrics, frequency and field mask the
 /// aggregate already gathered.
 #[test]
-fn revalidate_ok_keeps_the_aggregate_metrics() {
+fn revalidate_ok_keeps_the_aggregate_yielded_values() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child0: Mock<'_, 2> = Mock::new([10, 20]);
     let child1: Mock<'_, 2> = Mock::new([10, 20]);
     let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
     let current = ii.read().expect("read").expect("doc 10");
-    current.metrics.push_without_key(0.5);
+    current.yielded_values.push_without_key(0.5);
     let (freq, field_mask) = (current.freq, current.field_mask);
 
     let status = ii
@@ -1446,8 +1446,8 @@ fn revalidate_ok_keeps_the_aggregate_metrics() {
     assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
 
     let current = ii.current().expect("not at EOF");
-    assert_eq!(current.metrics.len(), 1);
-    assert_eq!(current.metrics.get(0).expect("a metric").value, 0.5);
+    assert_eq!(current.yielded_values.len(), 1);
+    assert_eq!(current.yielded_values.get(0).expect("a metric").value, 0.5);
     assert_eq!(current.freq, freq);
     assert_eq!(current.field_mask, field_mask);
 }
@@ -1784,7 +1784,7 @@ mod via_resume {
     /// moved them out of the children, so they cannot be re-gathered. Losing them
     /// would drop `__vector_score` from a hybrid query's reply.
     #[test]
-    fn resume_keeps_the_metrics_the_aggregate_gathered() {
+    fn resume_keeps_the_yielded_values_the_aggregate_gathered() {
         use rqe_iterators::metric::MetricSortedById;
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -1802,7 +1802,7 @@ mod via_resume {
         let first = ii.read().expect("read").expect("doc 100");
         assert_eq!(first.doc_id, 100);
         assert_eq!(
-            first.metrics.len(),
+            first.yielded_values.len(),
             1,
             "the aggregate gathered the scored child's metric",
         );
@@ -1815,7 +1815,7 @@ mod via_resume {
         let current = ii.current().expect("still on doc 100");
         assert_eq!(current.doc_id, 100);
         assert_eq!(
-            current.metrics.len(),
+            current.yielded_values.len(),
             1,
             "the metric must survive a rebuild of the document it was gathered for",
         );
@@ -2629,7 +2629,7 @@ mod via_resume {
             freq: r.freq,
             field_mask: r.field_mask,
             entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
-            metrics: r.metrics.len(),
+            metrics: r.yielded_values.len(),
         })
     }
 

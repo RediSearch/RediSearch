@@ -10,11 +10,11 @@
 mod aggregate;
 mod core;
 mod kind;
-mod metrics;
 mod offsets;
 mod result_data;
 mod shared_term;
 mod term_record;
+mod yielded_values;
 
 pub use query_term::RSQueryTerm;
 
@@ -27,8 +27,8 @@ pub use aggregate::{
     RawAggregateResult, RawBorrowedAggregateResult, RawOwnedAggregateResult,
 };
 pub use kind::{RSResultKind, RSResultKindMask};
-pub use metrics::{MetricEntry, MetricsSlice, MetricsVec};
 pub use offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 pub use result_data::{RSResultData, RawResultData};
 pub use shared_term::SharedQueryTerm;
 pub use term_record::{RSTermRecord, RawTermRecord};
+pub use yielded_values::{YieldedValue, YieldedValues, YieldedValuesSlice};

@@ -494,19 +494,19 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             // set up before reading any results and keeps alive for at least `'r`. The cast
             // is valid because `RLookupKey<'idx>` starts with a `#[repr(C)]` `ffi::RLookupKey`.
             let key: &'r ffi::RLookupKey = unsafe { &*(*self.own_key as *const ffi::RLookupKey) };
-            result.metrics.push_with_key(key, score);
+            result.yielded_values.push_with_key(key, score);
         }
         result
     }
 
-    fn attach_score_metric<'r>(&self, result: &mut RSIndexResult<'r>, score: f64)
+    fn attach_yielded_score<'r>(&self, result: &mut RSIndexResult<'r>, score: f64)
     where
         Self: 'r,
     {
         if (*self.own_key).is_null() {
             return;
         }
-        // SAFETY: `own_key` is set by `getAdditionalMetricsRP` in pipeline_construction.c
+        // SAFETY: `own_key` is set by `getYieldedValuesLoaderRP` in pipeline_construction.c
         // before any reads occur, and the key lives in the query's RLookup structure for
         // at least `'index` (the query lifetime).
         let key: &'r ffi::RLookupKey = unsafe { &*(*self.own_key as *const ffi::RLookupKey) };
@@ -515,10 +515,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // previous yield may already exist for our key. Update in place when
         // present; push otherwise. Any non-matching metrics from the child's
         // own subtree are left untouched.
-        if let Some(entry) = result.metrics.find_by_key_mut(key) {
+        if let Some(entry) = result.yielded_values.find_by_key_mut(key) {
             entry.set_value(score);
         } else {
-            result.metrics.push_with_key(key, score);
+            result.yielded_values.push_with_key(key, score);
         }
     }
 

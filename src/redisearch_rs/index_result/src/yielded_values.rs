@@ -9,11 +9,11 @@
 
 //! Yieldable metrics attached to query results.
 //!
-//! A [`MetricsVec`] holds a dynamic array of [`MetricEntry`] values, each
+//! A [`YieldedValues`] holds a dynamic array of [`YieldedValue`] values, each
 //! pairing a borrowed [`RLookupKey`] with a numeric value.
 //!
 //! Backed by [`ThinVec`] (pointer-sized, no-alloc on construction),
-//! `MetricsVec` is `repr(transparent)` and can be embedded directly in
+//! `YieldedValues` is `repr(transparent)` and can be embedded directly in
 //! `repr(C)` structs like [`super::RSIndexResult`].
 use ffi::RLookupKey;
 use std::ptr;
@@ -23,7 +23,7 @@ use thin_vec::ThinVec;
 #[derive(Debug)]
 #[repr(C)]
 #[cheadergen::config(export)]
-pub struct MetricEntry<'query> {
+pub struct YieldedValue<'query> {
     /// Borrowed reference to the lookup key that identifies this metric,
     /// or `None` when the metric has no associated key.
     ///
@@ -43,15 +43,15 @@ pub struct MetricEntry<'query> {
     pub value: f64,
 }
 
-impl Copy for MetricEntry<'_> {}
+impl Copy for YieldedValue<'_> {}
 
-impl Clone for MetricEntry<'_> {
+impl Clone for YieldedValue<'_> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'a> MetricEntry<'a> {
+impl<'a> YieldedValue<'a> {
     /// Creates a metric entry with an associated key.
     pub const fn with_key(key: &'a RLookupKey, value: f64) -> Self {
         Self {
@@ -71,7 +71,7 @@ impl<'a> MetricEntry<'a> {
     }
 }
 
-impl MetricEntry<'_> {
+impl YieldedValue<'_> {
     /// Returns the metric value.
     pub const fn value(&self) -> f64 {
         self.value
@@ -88,7 +88,7 @@ impl MetricEntry<'_> {
 // comparison anyway: two metric entries refer to "the same key" when their
 // pointers match, regardless of the key's content. Restricted to the
 // `Active` instantiation since [`Suspended`] pointers may be stale.
-impl<'a> PartialEq for MetricEntry<'a> {
+impl<'a> PartialEq for YieldedValue<'a> {
     fn eq(&self, other: &Self) -> bool {
         let Self { key, value } = self;
         let Self {
@@ -101,21 +101,21 @@ impl<'a> PartialEq for MetricEntry<'a> {
     }
 }
 
-/// A dynamically-sized collection of [`MetricEntry`] values.
+/// A dynamically-sized collection of [`YieldedValue`] values.
 ///
 /// Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
-/// the allocation header. `MetricsVec::new()` does not allocate.
+/// the allocation header. `YieldedValues::new()` does not allocate.
 ///
 /// `repr(transparent)` over `ThinVec` means this type is pointer-sized
 /// and can be embedded directly in `repr(C)` structs.
 #[derive(Debug)]
 #[repr(transparent)]
 #[cheadergen::config(export)]
-pub struct MetricsVec<'query> {
-    inner: ThinVec<MetricEntry<'query>>,
+pub struct YieldedValues<'query> {
+    inner: ThinVec<YieldedValue<'query>>,
 }
 
-impl Clone for MetricsVec<'_> {
+impl Clone for YieldedValues<'_> {
     fn clone(&self) -> Self {
         let Self { inner } = self;
         Self {
@@ -124,7 +124,7 @@ impl Clone for MetricsVec<'_> {
     }
 }
 
-impl<'a> PartialEq for MetricsVec<'a> {
+impl<'a> PartialEq for YieldedValues<'a> {
     fn eq(&self, other: &Self) -> bool {
         let Self { inner } = self;
         let Self { inner: o_inner } = other;
@@ -132,23 +132,23 @@ impl<'a> PartialEq for MetricsVec<'a> {
     }
 }
 
-/// A read-only, C-visible slice view over the entries of a [`MetricsVec`].
+/// A read-only, C-visible slice view over the entries of a [`YieldedValues`].
 ///
-/// Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
+/// Returned by [`YieldedValues::as_c_slice`] for zero-copy iteration
 /// from C. The pointed-to data is valid as long as the originating
-/// [`MetricsVec`] is not mutated or dropped.
+/// [`YieldedValues`] is not mutated or dropped.
 #[repr(C)]
 #[cheadergen::config(export)]
-pub struct MetricsSlice<'query> {
-    /// Pointer to the first [`MetricEntry`].  May be dangling (but not null)
+pub struct YieldedValuesSlice<'query> {
+    /// Pointer to the first [`YieldedValue`].  May be dangling (but not null)
     /// when `len == 0`.
-    pub data: *const MetricEntry<'query>,
+    pub data: *const YieldedValue<'query>,
 
     /// Number of entries.
     pub len: usize,
 }
 
-impl<'query> MetricsVec<'query> {
+impl<'query> YieldedValues<'query> {
     /// Creates an empty metrics collection. Does not allocate.
     pub const fn new() -> Self {
         Self {
@@ -177,9 +177,9 @@ impl<'query> MetricsVec<'query> {
     }
 
     /// Returns a C-compatible slice view for zero-copy iteration.
-    pub fn as_metrics_slice(&self) -> MetricsSlice<'query> {
+    pub fn as_c_slice(&self) -> YieldedValuesSlice<'query> {
         let slice = self.inner.as_slice();
-        MetricsSlice {
+        YieldedValuesSlice {
             data: slice.as_ptr(),
             len: slice.len(),
         }
@@ -187,24 +187,24 @@ impl<'query> MetricsVec<'query> {
 
     /// Returns a reference to the entry at `index`, or `None` if out of
     /// bounds.
-    pub fn get(&self, index: usize) -> Option<&MetricEntry<'query>> {
+    pub fn get(&self, index: usize) -> Option<&YieldedValue<'query>> {
         self.inner.as_slice().get(index)
     }
 
     /// Returns a mutable reference to the entry at `index`, or `None` if
     /// out of bounds.
-    pub fn get_mut(&mut self, index: usize) -> Option<&mut MetricEntry<'query>> {
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut YieldedValue<'query>> {
         self.inner.as_mut_slice().get_mut(index)
     }
 
     /// Returns an iterator over the entries.
-    pub fn iter(&self) -> impl Iterator<Item = &MetricEntry<'query>> {
+    pub fn iter(&self) -> impl Iterator<Item = &YieldedValue<'query>> {
         self.inner.as_slice().iter()
     }
 
     /// Finds the first entry whose key matches `key` (pointer equality)
     /// and returns a mutable reference to it.
-    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut MetricEntry<'query>> {
+    pub fn find_by_key_mut(&mut self, key: &RLookupKey) -> Option<&mut YieldedValue<'query>> {
         let needle = key as *const RLookupKey;
         self.inner
             .as_mut_slice()
@@ -213,19 +213,19 @@ impl<'query> MetricsVec<'query> {
     }
 }
 
-impl<'a> MetricsVec<'a> {
+impl<'a> YieldedValues<'a> {
     /// Appends a metric entry with an associated key.
     pub fn push_with_key(&mut self, key: &'a RLookupKey, value: f64) {
-        self.inner.push(MetricEntry::with_key(key, value));
+        self.inner.push(YieldedValue::with_key(key, value));
     }
 
     /// Appends a metric entry without an associated key.
     pub fn push_without_key(&mut self, value: f64) {
-        self.inner.push(MetricEntry::without_key(value));
+        self.inner.push(YieldedValue::without_key(value));
     }
 }
 
-impl Default for MetricsVec<'_> {
+impl Default for YieldedValues<'_> {
     fn default() -> Self {
         Self::new()
     }

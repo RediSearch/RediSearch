@@ -10,7 +10,7 @@
 //! QN_VECTOR → vector similarity iterator.
 //!
 //! The node settles the score (distance) field between the two syntaxes that can
-//! name it and reserves a metric request for it, then runs the similarity search
+//! name it and reserves a yield request for it, then runs the similarity search
 //! — and what the search answers with decides whether that request gets bound to
 //! a lookup key or stays as reserved.
 //!
@@ -152,7 +152,7 @@ enum Child {
     /// Another `QN_VECTOR` node — a range query on the same field, as
     /// `@v:[VECTOR_RANGE r $b]=>{$YIELD_DISTANCE_AS:...}=>[KNN ...]` produces.
     ///
-    /// The only child that *reserves a metric request of its own*, and it does
+    /// The only child that *reserves a yield request of its own*, and it does
     /// so while the parent's reservation is already outstanding. That is what
     /// makes the parent's index matter: the list it must bind into is no longer
     /// one entry long, and the entry it reserved is no longer the last.
@@ -270,7 +270,7 @@ struct VectorOptions {
     /// this is the case where the query named the field twice.
     dist_field: Option<&'static [u8]>,
     /// Whether the node is flagged to keep the distance field out of the
-    /// response, which the reserved metric request must record.
+    /// response, which the reserved yield request must record.
     hide_distance_field: bool,
     /// The child to attach to the node. [`None`] is the child-less
     /// `*=>[KNN ...]` shape and the common one in production; a [`Child`] builds
@@ -286,7 +286,7 @@ struct VectorOptions {
     /// field without an index at all.
     ///
     /// This decides whether the search answers with an iterator, and so whether
-    /// the node gets as far as binding its metric request to one. Without an
+    /// the node gets as far as binding its yield request to one. Without an
     /// index the search declines, and evaluation ends yielding nothing — but
     /// only *after* the score field and the request are settled, which is why
     /// the tests that care about neither use that cheaper shape.
@@ -307,7 +307,7 @@ struct VectorFixture {
     /// by every [`TestContext`]. Carried purely for that side effect.
     _guard: GlobalGuard,
     /// The evaluation context under test. Also carries the query status and the
-    /// metric requests, which is where the assertions read the node's effects.
+    /// yield requests, which is where the assertions read the node's effects.
     ///
     /// Declared before the [`TestContext`] it borrows from, so that it is the
     /// first of the two to drop.
@@ -356,7 +356,7 @@ impl VectorFixture {
         );
 
         // SAFETY: `context.qctx()` returns a valid, exclusively-owned
-        // `QueryEvalCtx` (with real `status`, `config` and metric-request head),
+        // `QueryEvalCtx` (with real `status`, `config` and yield-request head),
         // upholding the `QueryEvalContext::new` invariants.
         let ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
@@ -441,7 +441,7 @@ impl VectorFixture {
         }
 
         // A vector child shares the root's field, index and query blob — what
-        // it contributes is a *second* metric request, appended while the
+        // it contributes is a *second* yield request, appended while the
         // root's is already outstanding. Sharing keeps the difference between
         // this fixture and a single-node one down to exactly that.
         let child_vq = if let Some(Child::Vector {
@@ -559,9 +559,9 @@ impl VectorFixture {
         (!ptr.is_null()).then(|| unsafe { read_module_string(ptr) })
     }
 
-    /// The metric requests the query has accumulated.
-    fn metric_requests(&self) -> &[rlookup::MetricRequest<'_>] {
-        self.ctx.metric_requests()
+    /// The yield requests the query has accumulated.
+    fn yield_requests(&self) -> &[rlookup::YieldRequest<'_>] {
+        self.ctx.yield_requests()
     }
 }
 
@@ -586,7 +586,7 @@ impl Drop for VectorFixture {
     }
 }
 
-/// Assert `fixture` reserved exactly one metric request under `name` and bound a
+/// Assert `fixture` reserved exactly one yield request under `name` and bound a
 /// lookup-key handle to the iterator that yields it.
 ///
 /// Reserving and binding are two steps: the name is recorded before the search
@@ -594,8 +594,8 @@ impl Drop for VectorFixture {
 /// to. Both must have happened, and the iterator must have been pointed back at
 /// the handle — which is what clears its validity flag when it is freed, as it
 /// has been by the time this reads it.
-fn assert_bound_metric_request(fixture: &VectorFixture, name: &[u8]) {
-    let requests = fixture.metric_requests();
+fn assert_bound_yield_request(fixture: &VectorFixture, name: &[u8]) {
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
     assert_bound_to_a_freed_iterator(&requests[0], name, "an iterator that yields a metric");
 }
@@ -608,10 +608,10 @@ fn assert_bound_metric_request(fixture: &VectorFixture, name: &[u8]) {
 /// validity flag when the iterator is freed — as it has been by the time this
 /// reads it. A handle that was merely stored on the request still reads as
 /// valid, so the flag is the only thing here that tells the two apart.
-fn assert_bound_to_a_freed_iterator(request: &rlookup::MetricRequest<'_>, name: &[u8], what: &str) {
+fn assert_bound_to_a_freed_iterator(request: &rlookup::YieldRequest<'_>, name: &[u8], what: &str) {
     // SAFETY: the request names the score field, a live string owned by the
     // vector query that reserved it.
-    assert_eq!(unsafe { read_module_string(request.metric_name) }, name);
+    assert_eq!(unsafe { read_module_string(request.key_name) }, name);
 
     let handle = request.key_handle;
     assert!(
@@ -628,14 +628,14 @@ fn assert_bound_to_a_freed_iterator(request: &rlookup::MetricRequest<'_>, name: 
     );
 }
 
-/// The names of the metric requests `fixture` reserved, in reservation order.
+/// The names of the yield requests `fixture` reserved, in reservation order.
 fn metric_names(fixture: &VectorFixture) -> Vec<Vec<u8>> {
     fixture
-        .metric_requests()
+        .yield_requests()
         .iter()
         // SAFETY: each request names the score field of the vector query that
         // reserved it, a live string that query owns.
-        .map(|request| unsafe { read_module_string(request.metric_name) })
+        .map(|request| unsafe { read_module_string(request.key_name) })
         .collect()
 }
 
@@ -731,13 +731,13 @@ fn eval_vector_distance_field_named_twice_is_an_error() {
     assert_eq!(fixture.score_field().as_deref(), Some(&b"score"[..]));
     assert_eq!(fixture.dist_field().as_deref(), Some(&b"score2"[..]));
     assert!(
-        fixture.metric_requests().is_empty(),
-        "a rejected query must not reserve a metric request"
+        fixture.yield_requests().is_empty(),
+        "a rejected query must not reserve a yield request"
     );
 }
 
 #[test]
-fn eval_vector_reserves_a_metric_request_for_the_score_field() {
+fn eval_vector_reserves_a_yield_request_for_the_score_field() {
     // The request is reserved up front, under the resolved score field. Its
     // lookup-key slot stays empty because no iterator was built to fill it, and
     // that emptiness is what tells the AST teardown there is no handle to free.
@@ -747,11 +747,11 @@ fn eval_vector_reserves_a_metric_request_for_the_score_field() {
     });
     fixture.eval_yielding_nothing();
 
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
     // SAFETY: the request names the score field, a live string owned by the
     // vector query.
-    let name = unsafe { read_module_string(requests[0].metric_name) };
+    let name = unsafe { read_module_string(requests[0].key_name) };
     assert_eq!(name, USER_SCORE_FIELD);
     assert!(
         requests[0].key_handle.is_null(),
@@ -764,7 +764,7 @@ fn eval_vector_reserves_a_metric_request_for_the_score_field() {
 }
 
 #[test]
-fn eval_vector_hidden_distance_field_reserves_an_internal_metric_request() {
+fn eval_vector_hidden_distance_field_reserves_an_internal_yield_request() {
     // The node is flagged to hide the distance field, as it is for the name the
     // parser generates and the user never asked for, so the request is marked
     // internal: computed, but kept out of the response.
@@ -775,19 +775,19 @@ fn eval_vector_hidden_distance_field_reserves_an_internal_metric_request() {
     });
     fixture.eval_yielding_nothing();
 
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
     assert!(requests[0].is_internal);
 }
 
 #[test]
-fn eval_vector_without_a_score_field_reserves_no_metric_request() {
+fn eval_vector_without_a_score_field_reserves_no_yield_request() {
     // Nothing to bind to a lookup key, so nothing is reserved.
     let mut fixture = VectorFixture::new(VectorOptions::default());
     fixture.eval_yielding_nothing();
 
     assert_eq!(fixture.score_field(), None);
-    assert!(fixture.metric_requests().is_empty());
+    assert!(fixture.yield_requests().is_empty());
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
 }
 
@@ -805,7 +805,7 @@ fn eval_vector_with_a_child_that_yields_nothing_yields_nothing() {
 
     assert_eq!(fixture.score_field().as_deref(), Some(USER_SCORE_FIELD));
     assert_eq!(fixture.dist_field(), None);
-    assert_eq!(fixture.metric_requests().len(), 1);
+    assert_eq!(fixture.yield_requests().len(), 1);
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
 }
 
@@ -824,12 +824,12 @@ fn eval_vector_frees_the_child_iterator_the_search_declined_to_take() {
 
     assert_eq!(fixture.score_field().as_deref(), Some(USER_SCORE_FIELD));
     assert_eq!(fixture.dist_field(), None);
-    assert_eq!(fixture.metric_requests().len(), 1);
+    assert_eq!(fixture.yield_requests().len(), 1);
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
 }
 
 #[test]
-fn eval_vector_binds_the_metric_request_to_the_hybrid_iterator_a_knn_query_yields() {
+fn eval_vector_binds_the_yield_request_to_the_hybrid_iterator_a_knn_query_yields() {
     // An indexed field, so the search answers with an iterator — which is what
     // the reserved request was waiting for. The node allocates the lookup-key
     // handle, stores it on the request, and points the iterator back at it so the
@@ -847,11 +847,11 @@ fn eval_vector_binds_the_metric_request_to_the_hybrid_iterator_a_knn_query_yield
     assert_eq!(ids, [8, 7, 6]);
 
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
-    assert_bound_metric_request(&fixture, USER_SCORE_FIELD);
+    assert_bound_yield_request(&fixture, USER_SCORE_FIELD);
 }
 
 #[test]
-fn eval_vector_binds_the_metric_request_to_the_metric_iterator_a_range_query_yields() {
+fn eval_vector_binds_the_yield_request_to_the_metric_iterator_a_range_query_yields() {
     // The same binding against the other kind of iterator. A range query keeps
     // its lookup key elsewhere than a hybrid one, so the node reaches it through
     // a different accessor and setter — the arm the KNN tests never take. What
@@ -874,7 +874,7 @@ fn eval_vector_binds_the_metric_request_to_the_metric_iterator_a_range_query_yie
     assert_eq!(ids, (1..=INDEXED_VECTORS as DocId).collect::<Vec<_>>());
 
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
-    assert_bound_metric_request(&fixture, USER_SCORE_FIELD);
+    assert_bound_yield_request(&fixture, USER_SCORE_FIELD);
 }
 
 #[test]
@@ -897,7 +897,7 @@ fn eval_vector_hands_the_child_iterator_to_a_search_that_takes_it() {
     assert_eq!(ids, [3, 2, 1]);
 
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
-    assert_bound_metric_request(&fixture, USER_SCORE_FIELD);
+    assert_bound_yield_request(&fixture, USER_SCORE_FIELD);
 }
 
 #[test]
@@ -917,7 +917,7 @@ fn eval_vector_without_a_score_field_binds_nothing_to_the_iterator() {
     assert_eq!(ids, [8, 7, 6]);
 
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
-    assert!(fixture.metric_requests().is_empty());
+    assert!(fixture.yield_requests().is_empty());
 }
 
 #[test]
@@ -939,7 +939,7 @@ fn eval_vector_binds_no_handle_to_an_iterator_that_yields_no_distance() {
     assert_eq!(kind, IteratorType::Empty);
     assert!(ids.is_empty());
 
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
     assert!(
         requests[0].key_handle.is_null(),
@@ -982,13 +982,13 @@ fn eval_vector_keeps_the_error_a_declining_search_reported() {
 
     // Reserved before the search ran and left unbound because it never answered
     // — the same shape as when there was no index to ask.
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 1);
     assert!(requests[0].key_handle.is_null());
 }
 
 #[test]
-fn eval_vector_binds_the_metric_request_to_a_score_ordered_range_iterator() {
+fn eval_vector_binds_the_yield_request_to_a_score_ordered_range_iterator() {
     // The same range query asked back nearest-first: a different iterator type
     // again. A type dropped from the family the binding step accepts would bind
     // nothing and lose the distance from the response, while every other test
@@ -1014,7 +1014,7 @@ fn eval_vector_binds_the_metric_request_to_a_score_ordered_range_iterator() {
     );
 
     assert_eq!(fixture.ctx.status().code(), QueryErrorCode::Ok);
-    assert_bound_metric_request(&fixture, USER_SCORE_FIELD);
+    assert_bound_yield_request(&fixture, USER_SCORE_FIELD);
 }
 
 #[test]
@@ -1115,7 +1115,7 @@ fn eval_vector_binds_each_node_to_the_request_it_reserved() {
     // nothing and the root yields the same nearest neighbours it does alone.
     assert_eq!(ids, [8, 7, 6]);
 
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert_eq!(requests.len(), 2, "each vector node reserves one request");
     assert_eq!(
         metric_names(&fixture),
@@ -1172,7 +1172,7 @@ fn eval_vector_leaves_its_childs_binding_alone_when_its_own_search_declines() {
         [USER_SCORE_FIELD, CHILD_SCORE_FIELD]
     );
 
-    let requests = fixture.metric_requests();
+    let requests = fixture.yield_requests();
     assert!(
         requests[0].key_handle.is_null(),
         "the root never got an iterator, so its own entry stays unbound"

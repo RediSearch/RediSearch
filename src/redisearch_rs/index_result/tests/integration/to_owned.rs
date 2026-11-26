@@ -14,7 +14,7 @@
 //! usually reads back the old values.
 
 use index_result::{
-    MetricsVec, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
+    RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord, YieldedValues,
 };
 
 const OFFSETS: &[u8] = &[1, 2, 3];
@@ -155,7 +155,7 @@ fn an_aggregate_copy_outlives_the_children_it_borrowed() {
     let mut union = RSIndexResult::build_union(1).build();
     // SAFETY: `union` is dropped before `leaf`; the copy reads only what it owns once both
     // are gone.
-    union.push_borrowed(unsafe { detach(&leaf) }, MetricsVec::new());
+    union.push_borrowed(unsafe { detach(&leaf) }, YieldedValues::new());
 
     let copy = union.to_owned();
     // The scenario the copy exists for: a composite iterator drops a child, and with it
@@ -178,15 +178,15 @@ fn a_nested_copy_equals_its_source_and_owns_every_term() {
     let mut intersection = RSIndexResult::build_intersect(2).build();
     // SAFETY: `intersection` is dropped before both children; the copy reads only what it
     // owns once all of them are gone.
-    intersection.push_borrowed(unsafe { detach(&term_child) }, MetricsVec::new());
+    intersection.push_borrowed(unsafe { detach(&term_child) }, YieldedValues::new());
     // SAFETY: as above.
-    intersection.push_borrowed(unsafe { detach(&numeric_child) }, MetricsVec::new());
+    intersection.push_borrowed(unsafe { detach(&numeric_child) }, YieldedValues::new());
 
     let mut source = RSIndexResult::build_hybrid_metric().build();
     source.push_boxed(Box::new(intersection.to_owned()));
     source.push_boxed(Box::new(RSIndexResult::build_metric(0.5).doc_id(7).build()));
     source.push_boxed(Box::new(RSIndexResult::build_virt().doc_id(7).build()));
-    source.metrics.push_without_key(0.75);
+    source.yielded_values.push_without_key(0.75);
 
     let copy = source.to_owned();
     assert!(copy == source, "the copy holds the same data as its source");
@@ -201,7 +201,7 @@ fn a_nested_copy_equals_its_source_and_owns_every_term() {
     drop(numeric_child);
 
     assert_all_terms_owned(&copy);
-    assert_eq!(copy.metrics.get(0).map(|m| m.value()), Some(0.75));
+    assert_eq!(copy.yielded_values.get(0).map(|m| m.value()), Some(0.75));
     let nested = copy.get(0).expect("the intersection is copied along");
     assert_is_detached_foo(
         nested

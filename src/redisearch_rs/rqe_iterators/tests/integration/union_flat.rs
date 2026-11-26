@@ -622,7 +622,7 @@ mod via_resume {
     /// good, taking `__vector_score` out of a hybrid query's reply on every
     /// suspend/resume cycle.
     #[test]
-    fn resume_keeps_the_metrics_the_aggregate_gathered() {
+    fn resume_keeps_the_yielded_values_the_aggregate_gathered() {
         use rqe_iterators::metric::MetricSortedById;
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -640,7 +640,7 @@ mod via_resume {
         let first = union.read().expect("read failed").expect("doc 100");
         assert_eq!(first.doc_id, 100);
         assert_eq!(
-            first.metrics.len(),
+            first.yielded_values.len(),
             1,
             "the aggregate gathered the scored child's metric",
         );
@@ -653,7 +653,7 @@ mod via_resume {
         let current = union.current().expect("still on doc 100");
         assert_eq!(current.doc_id, 100);
         assert_eq!(
-            current.metrics.len(),
+            current.yielded_values.len(),
             1,
             "the metric must survive a rebuild of the document it was gathered for",
         );
@@ -683,14 +683,14 @@ mod via_resume {
     /// through the settle rather than keeping its aggregate. The union stays on
     /// its document, and the metric it gathered there must stay with it.
     #[track_caller]
-    fn assert_settling_back_keeps_the_metrics<'index, U>(mut union: Box<U>)
+    fn assert_settling_back_keeps_the_yielded_values<'index, U>(mut union: Box<U>)
     where
         U: RQEIteratorBoxed<'index>,
     {
         let first = union.read().expect("read failed").expect("doc 100");
         assert_eq!(first.doc_id, 100);
         assert_eq!(
-            first.metrics.len(),
+            first.yielded_values.len(),
             1,
             "the aggregate gathered the scored child's metric",
         );
@@ -704,22 +704,22 @@ mod via_resume {
         let current = resumed.current().expect("still on doc 100");
         assert_eq!(current.doc_id, 100);
         assert_eq!(
-            current.metrics.len(),
+            current.yielded_values.len(),
             1,
             "the metric must survive the settle",
         );
     }
 
     #[test]
-    fn settling_back_onto_the_same_document_keeps_the_metrics() {
-        assert_settling_back_keeps_the_metrics(Box::new(UnionFullFlat::new(
+    fn settling_back_onto_the_same_document_keeps_the_yielded_values() {
+        assert_settling_back_keeps_the_yielded_values(Box::new(UnionFullFlat::new(
             children_settling_back_onto_100(),
         )));
     }
 
     #[test]
-    fn quick_settling_back_onto_the_same_document_keeps_the_metrics() {
-        assert_settling_back_keeps_the_metrics(Box::new(UnionQuickFlat::new(
+    fn quick_settling_back_onto_the_same_document_keeps_the_yielded_values() {
+        assert_settling_back_keeps_the_yielded_values(Box::new(UnionQuickFlat::new(
             children_settling_back_onto_100(),
         )));
     }
@@ -1381,7 +1381,7 @@ mod via_resume {
             freq: r.freq,
             field_mask: r.field_mask,
             entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
-            metrics: r.metrics.len(),
+            metrics: r.yielded_values.len(),
         })
     }
 

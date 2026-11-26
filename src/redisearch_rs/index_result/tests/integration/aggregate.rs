@@ -17,7 +17,7 @@
 //!
 //! [`RawAggregateResult::push_borrowed_ptr_from_ref`]: index_result::RawAggregateResult::push_borrowed_ptr_from_ref
 
-use index_result::{MetricsVec, RSIndexResult};
+use index_result::{RSIndexResult, YieldedValues};
 
 /// Hands `child`'s allocation through a by-value [`Box`], reproducing what
 /// transitioning a child does to it: the function-entry retag invalidates every
@@ -35,7 +35,7 @@ fn retag<T>(child: Box<T>) -> Box<T> {
 fn push_borrowed<'a>(
     parent: &mut RSIndexResult<'a>,
     child: &RSIndexResult<'a>,
-    metrics: MetricsVec<'a>,
+    yielded_values: YieldedValues<'a>,
 ) {
     let child: *const RSIndexResult<'a> = child;
     // SAFETY: every caller below keeps the child alive for as long as `parent`,
@@ -65,10 +65,10 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
     );
 
     let mut parent = RSIndexResult::build_intersect(2).build();
-    let mut metrics = MetricsVec::new();
+    let mut metrics = YieldedValues::new();
     metrics.push_without_key(0.5);
     push_borrowed(&mut parent, &child0, metrics);
-    push_borrowed(&mut parent, &child1, MetricsVec::new());
+    push_borrowed(&mut parent, &child1, YieldedValues::new());
 
     let (doc_id, freq, field_mask) = (parent.doc_id, parent.freq, parent.field_mask);
     assert_eq!(freq, 8, "the frequencies of both children accumulated");
@@ -118,7 +118,7 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
          caller's to maintain",
     );
     assert_eq!(
-        parent.metrics.get(0).map(|m| m.value()),
+        parent.yielded_values.get(0).map(|m| m.value()),
         Some(0.5),
         "the metrics moved out of the children when the aggregate was first \
          built are still here — `reset_aggregate` would have lost them",
@@ -134,8 +134,8 @@ fn a_rebuild_can_drop_a_child_by_not_pushing_it() {
     let departing = Box::new(RSIndexResult::build_numeric(2.0).doc_id(7).build());
 
     let mut parent = RSIndexResult::build_intersect(2).build();
-    push_borrowed(&mut parent, &survivor, MetricsVec::new());
-    push_borrowed(&mut parent, &departing, MetricsVec::new());
+    push_borrowed(&mut parent, &survivor, YieldedValues::new());
+    push_borrowed(&mut parent, &departing, YieldedValues::new());
 
     let mut suspended = parent.into_suspended();
     let survivor = retag(survivor);
