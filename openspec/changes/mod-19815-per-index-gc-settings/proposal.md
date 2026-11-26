@@ -36,7 +36,7 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
 - At least one setting, each at most once, in any order. Setting one keeps the others.
 - `SET` is required, so the shortest command, `FT.ALTER idx GC SET RUN_INTERVAL 10`, has
   six words, the same minimum as `FT.ALTER ... SCHEMA ADD`. `FT.ALTER` keeps its
-  declared arity, so the Redis Software proxy, which checks it, needs no change.
+  declared arity of `-6`.
 - The overrides apply under both policies. An index without an override uses the active
   policy's global value and follows later `CONFIG SET` changes: the `search-thread-gc-*`
   settings under THREAD, the `search-fork-gc-*` ones under FORK. `DEFAULT` removes the
@@ -108,4 +108,5 @@ Designed here (`design.md`, Phase 2) and shipped after tasks 0–5:
   unchanged.
 - Stopping or bounding a cycle that is already running
   ([MOD-19577](https://redislabs.atlassian.net/browse/MOD-19577)).
-- Backport below 8.12.
+- Backports to OSS lines older than 8.12. The 8.12 backport is FORK only, and saves at
+  version 32 on RAM nodes only (see `design.md`, Backports).

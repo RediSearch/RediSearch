@@ -7,13 +7,12 @@ connects the arm-time interval read to the effective-value helper (2.2). 3 needs
 2; 4 needs 3. 5 needs 3 and 4, and Product sign-off (0.5). It can be dropped or shipped
 in a later release without changing 1–4, because the RDB block (2.4) already takes new
 settings without a version bump. Phase 2: 6 needs 1–4 (and 5 for the ratio on disk); 7
-needs 2 and 3, and its Flex path needs 6.
+needs 2 and 3, and its Flex path needs 6. 9 needs 1–4 merged on master.
 
 ## 0. Spec review ([MOD-20259](https://redislabs.atlassian.net/browse/MOD-20259))
 
 - [ ] 0.1 Product sign-off on the user-facing behavior (Confluence §3)
 - [ ] 0.2 Dev sign-off on this design and the open questions in `design.md`
-- [ ] 0.3 Confirm Active-Active behavior with RS/DMC; the proxy needs no change
 - [x] 0.4 Sync MOD-19815, T0–T5 and the Confluence page with the review decisions
 - [ ] 0.5 Product sign-off on T5 (decision 13)
 - [x] 0.6 Note on MOD-20523 that per-index `POLICY` is postponed, with the RDB and
@@ -184,3 +183,15 @@ needs 2 and 3, and its Flex path needs 6.
       fork-slot warning for threshold 0 with short intervals under FORK, `deny-oom` and
       partial apply in a cluster, the coordinator's FT.INFO showing the first shard, how
       the clean ratio combines with `CLEAN_THRESHOLD` (both must be met)
+
+## 9. Backport to 8.12, FORK only (`design.md`, Backports)
+
+- [ ] 9.1 Backport T1–T4 and MOD-21060 with `/pr-backport`, without the THREAD parts
+- [ ] 9.2 Register `ft_index0` at 32 on RAM nodes and at 29 on Flex nodes; load files up
+      to 32 in both modes; reserve 30 and 31 as numbers only
+- [ ] 9.3 Refuse an SST file at 30 or above, and field type bits 8.12 doesn't know
+- [ ] 9.4 Flex: keep overrides loaded from a RAM file in memory, with one notice that
+      the next save drops them
+- [ ] 9.5 Tests: an 8.12 RAM RDB at 32 with overrides loads on master with them; master's
+      RAM RDB at 32 without sparse fields loads on 8.12; an 8.12 Flex node saves at 29;
+      a RAM RDB at 32 with overrides loads on an 8.12 Flex node

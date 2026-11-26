@@ -42,8 +42,7 @@ declared arity of at least six words. This requirement covers RAM indexes. On a 
 - **AND** neither setting of `idx` SHALL change
 
 #### Scenario: Shortest form
-- **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 10`, directly or through
-  the Redis Software proxy
+- **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 10`
 - **THEN** the reply SHALL be `OK`
 
 #### Scenario: Rejected forms

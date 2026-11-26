@@ -1,11 +1,9 @@
 # Design: per-index GC settings
 
-The full design, with the product decision table, is on Confluence:
-[Per-index fork GC settings (FT.ALTER GC) — Design & Breakdown](https://redislabs.atlassian.net/wiki/spaces/DX/pages/6926172171).
-This file is the reviewable copy of the engineering part. Task numbers T1–T5 match the
-Jira tasks under [MOD-19815](https://redislabs.atlassian.net/browse/MOD-19815). T5, the
-per-index clean ratio ([MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691)), is
-pending Product sign-off (decision 13).
+This file is the reviewable copy of the engineering part of the design. Task numbers
+T1–T5 match the Jira tasks under [MOD-19815](https://redislabs.atlassian.net/browse/MOD-19815).
+T5, the per-index clean ratio ([MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691)),
+is pending Product sign-off (decision 13).
 
 ## Current behavior
 
@@ -149,6 +147,41 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   overrides, silently (confirmed on the bench VM). That is a mixed-version cluster,
   which is not supported for this command (see Edge cases).
 
+## Backports
+
+The GC block is version 32 on every line that carries it, with master's layout. No line
+gives it another number, so an RDB at 32 means the same bytes everywhere.
+
+- **The next release from master** carries it natively. A line cut again from master
+  after T1–T4 merge gets versions 30, 31 and 32 together, with no backport.
+- **8.12 (version 29), FORK only,** after T1–T4 merge on master (task 9):
+  - A RAM node registers the index type at 32. Versions 30 and 31 add no bytes to a RAM
+    index: the TAG dictionaries (30) are written only for a disk index in an SST RDB
+    (`sp->diskSpec` and `REDISMODULE_CTX_FLAGS_SST_RDB`), and the sparse vector
+    attributes (31) only for `INDEXFLD_T_SPARSE_VECTOR` fields, a type 8.12 doesn't have.
+    So an 8.12 RAM file at 32 holds what master writes for the same index. 30 and 31 are
+    reserved as numbers, with no code.
+  - A Flex node keeps registering at 29. Its SST saves carry no TAG dictionaries, and
+    master reads one per TAG field of a disk index in an SST RDB at 30 or above. Flex
+    mode is known before the type is registered: `isFlex` is set from `bigredis-enabled`
+    at the start of `RediSearch_InitModuleInternal`, before `Indexes_RegisterType`.
+    Nothing is lost, because `FT.ALTER` is rejected on Flex until task 6.
+  - Both modes load files up to 32 and read the GC block from 32. A Flex node that
+    loads a file saved by a RAM node, with overrides, keeps them in memory, where
+    they have no effect, and logs one notice that its next save drops them. It refuses
+    an SST file at 30 or above, which only master's Flex writes. Both modes refuse a
+    field type bit 8.12 doesn't know, because its field loader doesn't check the bits
+    and would misread master's sparse vector attributes. Both refusals happen only on a
+    downgrade.
+  - Flex moves to 32 once the line has the disk TAG dictionaries
+    ([#12385](https://github.com/RediSearch/RediSearch/pull/12385),
+    [#12410](https://github.com/RediSearch/RediSearch/pull/12410)), by backport or by
+    cutting the line again. Task 6 needs that on any line.
+- **Older lines** (8.10 at 27, 8.8 and 8.6 at 26, 8.4 and 8.2 at 25) are not
+  planned. Each would need the same check of the versions between its own and 32.
+- Version 31 needs no disk condition. Its guard is the field type, and sparse vector
+  fields exist on RAM indexes too.
+
 ## Scheduler (T1)
 
 Implemented in [#12234](https://github.com/RediSearch/RediSearch/pull/12234)
@@ -267,9 +300,8 @@ override of it, under both policies, is simpler and keeps the two policies consi
 - `FT.ALTER` keeps its declared arity of `-6`. `SET` makes the shortest command,
   `FT.ALTER idx GC SET RUN_INTERVAL 10`, six words long, so a shorter form gets the arity
   error from Redis before the handler runs. The handler's own `argc < 5` check stays.
-  The Redis Software proxy checks the same arity and hard-codes `-6` for `FT.ALTER`.
-  Proxies already deployed can't change, and the module runs on them, so the minimum
-  can't go below six words.
+  Clients and tools that check the declared arity keep working, so the minimum stays
+  at six words.
 - The index name resolves aliases, as every `FT.ALTER` does today. `FT.ALTER <alias> GC`
   changes the index the alias points to at that moment.
 - `SKIPINITIALSCAN` followed by `GC` is an error. `SKIPINITIALSCAN` only applies to
@@ -357,8 +389,7 @@ override of it, under both policies, is simpler and keeps the two policies consi
   binary can't load a version-32 RDB (see Persistence). Until the upgrade completes,
   only GC timing differs between shards; queries are unaffected. Re-running after the
   upgrade makes all shards agree. Known gap: the coordinator's FT.INFO shows the first
-  shard's values, so a mismatch shows only in each shard's own FT.INFO. Upgrade order
-  and downgrade guidance belong in the Enterprise notes, not here.
+  shard's values, so a mismatch shows only in each shard's own FT.INFO.
 - **Very large intervals:** the longest accepted, `GC_MAX_INTERVAL_SEC`, means
   "practically never". A timer past `INT_MAX` ms is armed in steps.
 - **Threshold 0 under THREAD:** the ratio still applies, so a large index still waits
@@ -393,7 +424,7 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | Keep the original arm time and jitter, run at once if the new deadline passed | Needs stored state per index, deadline math, and a run-now path that repeats `timerCallback`. The restart is simpler, and repeats still can't postpone GC. Cost: a lowered long interval runs one to two new intervals after the command instead of at once. |
 | Leave the waiting timer alone | A lowered long interval first waits out the old one. |
 | Also restart timers on `CONFIG SET` | Changes existing behavior and walks every index. Not needed. |
-| `GC` with no verb (`FT.ALTER idx GC RUN_INTERVAL 10`) | Five words, below `FT.ALTER`'s arity of `-6`. The Redis Software proxy enforces that arity and hard-codes it, and proxies already deployed can't change. |
+| `GC` with no verb (`FT.ALTER idx GC RUN_INTERVAL 10`) | Five words, below `FT.ALTER`'s arity of `-6`, so it would need an arity change. |
 | `SET` and `RESET` verbs instead of `DEFAULT` | `GC RESET RUN_INTERVAL` is five words, so it hits the same limit. `DEFAULT` also lets one command set one setting and clear another. |
 | A fixed RDB layout per setting | Every new GC setting would need another version bump. |
 | Setting values as fixed 64-bit numbers in the RDB block | A loader could skip an unknown id only if its value had that size. A string buffer lets a later setting hold any value. |
@@ -410,15 +441,13 @@ The spec delta describes the recommended answer to each.
 1. **FT.INFO field names (settled).** The names in FT.INFO (T4) above, with no per-node
    GC flag. Whether GC runs on a node is already visible through
    `CONFIG GET search-no-gc`.
-2. **Schema fingerprint.** Leave the overrides out of `schemaFingerprint`. They are
+2. **Schema fingerprint (settled).** Leave the overrides out of `schemaFingerprint`. They are
    operational tuning, not schema. Fingerprints are compared only between nodes on the
    same encoding version, so mixed versions are not the concern. Cost:
    `FT._LIST WITHCLUSTERSTATE` won't flag a shard that missed the change in a partial
    fan-out. The comment above `IndexSpec_RdbSave` asks for schema-defining members to
    be mirrored in the fingerprint; a line next to the new block says it is not one.
-3. **Enterprise.** The proxy needs no change: it already sends `FT.ALTER` to every
-   shard, and the six-word minimum passes its arity check (see Command). To confirm
-   with RS/DMC: Active-Active needs nothing beyond what `FT.ALTER ... SCHEMA ADD` gets.
+3. **Backports (settled).** Version 32 everywhere, with master's layout; see Backports.
 
 ## Testing strategy
 
