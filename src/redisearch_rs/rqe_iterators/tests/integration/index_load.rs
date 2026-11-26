@@ -489,6 +489,178 @@ fn union_keeps_the_value_when_a_sibling_changes_on_resume(
     assert_eq!(sole_yielded_value(result), (key.as_yielded_key(), 10.0));
 }
 
+/// The single value `result` yields, which must be a tag under `key`.
+fn sole_tag(result: &RSIndexResult<'_>, key: &FakeKey) -> Vec<u8> {
+    let values = result.yielded_values();
+    assert_eq!(values.len(), 1, "expected exactly one yielded value");
+    let entry = values.get(0).unwrap();
+    assert_eq!(
+        entry.key().map(|key| key as *const _),
+        Some(key.as_yielded_key())
+    );
+    let YieldedData::String(tag) = entry.value() else {
+        panic!("expected a tag, got {:?}", entry.value());
+    };
+    tag.as_bytes().to_vec()
+}
+
+/// A reader of the tag `value` decorated to load it under `key`, as a TAG
+/// clause decorates each of its readers.
+fn tag_reader<'index, I: RQEIterator<'index>>(
+    child: I,
+    key: &KeyCell<'index>,
+    value: &[u8],
+) -> IndexLoad<'index, I, index_result::SharedString> {
+    IndexLoad::with_source(
+        child,
+        key.clone(),
+        index_load::shared_string(value.to_vec()),
+    )
+    .unwrap()
+}
+
+#[test]
+fn tag_source_attaches_its_tag_on_reads_and_skips() {
+    let mut key = FakeKey::new();
+    let mut it = tag_reader(Mock::new([2, 5, 9]), &KeyCell::new(), b"red");
+    bind(&mut it, &mut key);
+    let mut it = ContractChecker::new(it);
+
+    assert_eq!(sole_tag(it.read().unwrap().unwrap(), &key), b"red");
+    let Some(SkipToOutcome::Found(result)) = it.skip_to(5).unwrap() else {
+        panic!("doc 5 is in the child");
+    };
+    assert_eq!(sole_tag(result, &key), b"red");
+    let Some(SkipToOutcome::NotFound(result)) = it.skip_to(7).unwrap() else {
+        panic!("doc 9 follows doc 7");
+    };
+    assert_eq!(sole_tag(result, &key), b"red");
+}
+
+/// No keyless value is ever attached: the yielded values loader writes every
+/// value through its key.
+#[test]
+fn tag_source_with_no_key_bound_pushes_nothing() {
+    let mut it = tag_reader(Mock::new([1]), &KeyCell::new(), b"red");
+    assert!(it.read().unwrap().unwrap().yielded_values().is_empty());
+}
+
+/// Each hit holds a clone of the decorator's one string, which the next hit's
+/// replaces.
+#[test]
+fn tag_hits_share_one_string() {
+    let mut key = FakeKey::new();
+    let mut it = tag_reader(Mock::new([1, 2]), &KeyCell::new(), b"red");
+    bind(&mut it, &mut key);
+    for _ in 0..2 {
+        let result = it.read().unwrap().unwrap();
+        let YieldedData::String(tag) = result.yielded_values().get(0).unwrap().value() else {
+            panic!("expected a tag");
+        };
+        assert_eq!(index_load::shared_value_refcount(tag), Some(2));
+    }
+}
+
+/// The shape a loading TAG clause builds: a full union of readers sharing one
+/// key cell. A document under both values carries both tags under the one key,
+/// and the handle stays valid until the last reader is freed.
+#[test]
+fn readers_of_one_clause_share_the_key_cell() {
+    let mut key = FakeKey::new();
+    let mut handle = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+    let cell = cell_tracked_by(&mut handle);
+    let reader = |docs, value: &[u8]| {
+        let child = CRQEIterator::from_rust_leaf(Mock::new(docs));
+        // SAFETY: (1)–(4) `boxed_new` returns a valid, owning iterator handle.
+        unsafe { CRQEIterator::new(index_load::boxed_new(tag_reader(child, &cell, value))) }
+    };
+    let readers = vec![reader([1, 3], b"red"), reader([2, 3], b"blue")];
+    // SAFETY: the slot is the cell's live heap cell, and nothing reads it
+    // while it is written.
+    unsafe { *cell.slot().as_ptr() = key.as_ptr() };
+    drop(cell);
+    let union = build_union(readers, false, 20, QueryNodeType::Tag, 1.0);
+    // SAFETY: (1)–(4) `build_union` returns a valid, owning iterator handle.
+    let mut it = unsafe { CRQEIterator::new(union) };
+
+    for (doc_id, tags) in [
+        (1, vec![&b"red"[..]]),
+        (2, vec![b"blue"]),
+        (3, vec![b"red", b"blue"]),
+    ] {
+        let result = it.read().unwrap().unwrap();
+        assert_eq!(result.doc_id, doc_id);
+        let mut loaded = result
+            .yielded_values()
+            .iter()
+            .map(|entry| {
+                assert_eq!(
+                    entry.key().map(|key| key as *const _),
+                    Some(key.as_yielded_key())
+                );
+                let YieldedData::String(tag) = entry.value() else {
+                    panic!("expected a tag, got {:?}", entry.value());
+                };
+                tag.as_bytes().to_vec()
+            })
+            .collect::<Vec<_>>();
+        loaded.sort();
+        let mut tags = tags.into_iter().map(<[u8]>::to_vec).collect::<Vec<_>>();
+        tags.sort();
+        assert_eq!(loaded, tags, "doc {doc_id}");
+    }
+    assert!(handle.is_valid, "the readers still hold the cell");
+    drop(it);
+    assert!(!handle.is_valid, "the last reader invalidates the handle");
+}
+
+#[test]
+fn tag_revalidate_moved_reattaches() {
+    let mock_ctx = MockContext::new(0, 0);
+    let mut key = FakeKey::new();
+    let child = Mock::new([1, 2, 3]);
+    let mut data = child.data();
+    let mut it = tag_reader(child, &KeyCell::new(), b"red");
+    bind(&mut it, &mut key);
+
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    data.set_revalidate_result(MockRevalidateResult::Move);
+    let RQEValidateStatus::Moved {
+        current: Some(result),
+    } = it.revalidate(&mock_ctx.spec_read()).unwrap()
+    else {
+        panic!("the child moved onto doc 2");
+    };
+    assert_eq!(result.doc_id, 2);
+    assert_eq!(sole_tag(result, &key), b"red");
+}
+
+#[test]
+fn tag_resume_moved_reattaches() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let mut key = FakeKey::new();
+    let child = Mock::new([1, 2, 3]);
+    let mut data = child.data();
+    let mut it = Box::new(tag_reader(child, &KeyCell::new(), b"red"));
+    bind(&mut it, &mut key);
+
+    // A parent takes the yielded values of the hit it consumed.
+    let result = it.read().unwrap().unwrap();
+    drop(std::mem::take(result.yielded_values_mut()));
+
+    data.set_revalidate_result(MockRevalidateResult::Move);
+    let ResumeOutcome::Moved(mut it) = it.suspend().resume(&guard).unwrap() else {
+        panic!("the child moved onto doc 2");
+    };
+    let result = it.current().unwrap();
+    assert_eq!(result.doc_id, 2);
+    assert_eq!(sole_tag(result, &key), b"red");
+}
+
 #[test]
 fn string_value_holds_its_bytes_and_no_number() {
     let value = YieldedData::String(index_load::shared_string(b"tag\xff".to_vec()));

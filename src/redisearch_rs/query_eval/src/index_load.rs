@@ -7,15 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Evaluation of index loading, the `$as` query attribute on a numeric clause.
+//! Evaluation of index loading, the `$as` query attribute on a numeric or tag
+//! clause.
 //!
 //! The parser marks a loading node with [`QueryNodeFlags::LoadsValue`] and
 //! stores the alias on its
 //! [`dist_field`](query_types::QueryNodeOptions::dist_field), and admits it
-//! only on numeric nodes while unstable features are enabled. Evaluation
+//! only on numeric and tag nodes while unstable features are enabled. Evaluation
 //! reserves a yield request under the alias and wraps the clause's iterator
-//! in an [`IndexLoad`] decorator bound
-//! to it.
+//! in an [`IndexLoad`] decorator bound to it. A tag clause instead decorates
+//! each of its tag readers, all bound to one [`KeyCell`].
 
 use std::{ffi::c_char, ptr::NonNull};
 

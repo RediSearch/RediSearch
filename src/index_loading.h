@@ -15,8 +15,8 @@
 #include "query_error.h"
 #include "query_node.h"
 
-/* Index loading: the `$as` query attribute names the value a NUMERIC clause
- * matched, so the pipeline reads it as a field of each result instead of
+/* Index loading: the `$as` query attribute names the value a NUMERIC or TAG
+ * clause matched, so the pipeline reads it as a field of each result instead of
  * loading it from the document. An unstable feature, gated on
  * `search-enable-unstable-features`.
  *

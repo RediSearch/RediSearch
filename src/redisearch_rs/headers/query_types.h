@@ -160,7 +160,7 @@ enum QueryNodeFlags
   /**
    * The node loads the value it matched under the alias stored in
    * [`QueryNodeOptions::dist_field`] (the `as` query attribute, an
-   * unstable feature). Only set on numeric nodes.
+   * unstable feature). Only set on numeric and tag nodes.
    */
   QueryNodeFlags_LoadsValue = 0x80,
 };
@@ -497,7 +497,7 @@ typedef struct QueryNodeOptions {
   /**
    * Name of the per-hit value to emit in results: the distance of a vector
    * node (`yield_distance_as`), the score of a sparse vector node
-   * (`yield_score_as`), or the value a numeric node matched (`as`, an
+   * (`yield_score_as`), or the value a numeric or tag node matched (`as`, an
    * unstable feature). Owned null-terminated C string, freed with `rm_free`
    * when the query node is destroyed. `NULL` when no value is requested.
    */

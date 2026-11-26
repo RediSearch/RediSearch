@@ -9,28 +9,12 @@
 result as `alias`, read from the index rather than the document. An unstable feature."""
 
 from common import *
+from index_loading_utils import (aggregate_rows, iterators_profile, set_unstable_features,
+                                 with_unstable_features)
 
 # id -> (n, t). doc:3's value is spelled with a trailing zero, which the index does not keep.
 DOCS = {i: (str(i * 10), 'a' if i % 2 else 'b') for i in range(1, 9)}
 DOCS[3] = ('30.50', 'a')
-
-
-def set_unstable_features(env, on):
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features',
-                              'yes' if on else 'no')
-
-
-def with_unstable_features(test):
-    """Runs `test` with unstable features on, and turns them back off after it, so no other test
-    in the file inherits them."""
-    @wraps(test)
-    def wrapper(env, *args, **kwargs):
-        set_unstable_features(env, True)
-        try:
-            return test(env, *args, **kwargs)
-        finally:
-            set_unstable_features(env, False)
-    return wrapper
 
 
 def setup_hash_index(env, index_all=False):
@@ -44,13 +28,6 @@ def setup_hash_index(env, index_all=False):
         conn.execute_command('HSET', f'doc:{i}', 'n', n, 'm', str(100 + i), 'id', str(i), 't', t,
                              'title', 'hello', 'g', '1,1')
     return conn
-
-
-def aggregate_rows(env, query, *args):
-    """FT.AGGREGATE rows as dicts, after the leading count (which a cluster may report
-    differently)."""
-    res = env.cmd('FT.AGGREGATE', 'idx', query, *args)
-    return [to_dict(row) for row in res[1:]]
 
 
 @with_unstable_features
@@ -261,8 +238,8 @@ def testReservedAliasPrefix(env):
 @skip(cluster=True)
 @with_unstable_features
 def testAliasErrors(env):
-    """An invalid property name, and `$as` on anything but a single NUMERIC clause, are rejected
-    at parse time."""
+    """An invalid property name, and `$as` on anything but a single NUMERIC or TAG clause, are
+    rejected at parse time."""
     setup_hash_index(env)
     for name in ['a b', 'a.b', '@v', 'a-b', 'a\tb', 'a\x01b', 'a\x7fb']:
         env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: $name}', 'PARAMS', '2', 'name', name,
@@ -270,10 +247,10 @@ def testAliasErrors(env):
     # The parser rejects an empty attribute value before `$as` sees it.
     env.expect('FT.AGGREGATE', 'idx', '@n:[15 25] => {$as: $name}', 'PARAMS', '2', 'name', '',
                'DIALECT', '2').error().contains('Invalid value () for `as`')
-    for query in ['@title:hello => {$as: v}', '@t:{a} => {$as: v}', '@g:[1 1 10 km] => {$as: v}',
+    for query in ['@title:hello => {$as: v}', '@g:[1 1 10 km] => {$as: v}',
                   '(@n:[15 25] @t:{b}) => {$as: v}', '@n != 20 => {$as: v}']:
         env.expect('FT.AGGREGATE', 'idx', query).error() \
-            .contains('`$as` is supported only on NUMERIC clauses')
+            .contains('`$as` is supported only on NUMERIC and TAG clauses')
 
 
 @skip(cluster=True)
@@ -285,7 +262,7 @@ def testRejectedOnVectorClause(env):
                'DISTANCE_METRIC', 'L2').ok()
     blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
     env.expect('FT.AGGREGATE', 'idx', '@vec:[VECTOR_RANGE 1 $b] => {$as: v}', 'PARAMS', '2', 'b', blob) \
-        .error().contains('`$as` is supported only on NUMERIC clauses')
+        .error().contains('`$as` is supported only on NUMERIC and TAG clauses')
 
 
 @skip(cluster=True)
@@ -426,28 +403,6 @@ def testProfileIteratorTreeIsUnchanged(env):
     """The index-loading decorator is invisible in FT.PROFILE: the iterator tree is the one the
     clause builds without `$as`."""
     setup_hash_index(env)
-
-    def without_time(node):
-        if not isinstance(node, list):
-            return node
-        out, i = [], 0
-        while i < len(node):
-            if node[i] == 'Time':
-                i += 2
-                continue
-            out.append(without_time(node[i]))
-            i += 1
-        return out
-
-    def iterators_profile(reply):
-        if isinstance(reply, list):
-            for i, item in enumerate(reply):
-                if item == 'Iterators profile':
-                    return without_time(reply[i + 1])
-                found = iterators_profile(item)
-                if found is not None:
-                    return found
-        return None
 
     for query in ['@n:[25 75]', '@t:{a} @n:[25 75]', '@n:[25 35] | @t:{b}']:
         plain = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query)

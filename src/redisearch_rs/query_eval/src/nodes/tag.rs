@@ -23,6 +23,7 @@ use query_types::QueryNodeType;
 use rqe_core::FieldIndex;
 use rqe_iterators::{
     c2rust::CRQEIterator,
+    index_load::{IndexLoad, KeyCell, boxed_new, shared_string},
     union_opaque::{build_union, build_union_with_q_str},
 };
 use string_utils::{tag::unescape, unicode::tolower_bytes};
@@ -33,7 +34,8 @@ use trie_rs::{
 
 use super::wildcard_query::below_min_term_prefix;
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, into_child_iterator,
+    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, index_load,
+    into_child_iterator,
 };
 
 /// Run a TAG walk with a stop callback that cannot outlive the evaluation context.
@@ -76,6 +78,10 @@ fn suffix_reader_should_stop(ctx: &mut QueryEvalContext, remaining: &mut u32) ->
 
 /// `QN_TAG` — evaluate exact values and tag-specific expansions against a tag
 /// field's own index.
+///
+/// On a node with a `$as` alias, each tag reader is decorated to load its tag
+/// under the alias, all through one [`KeyCell`]; see [`index_load::reserve`]
+/// for when the alias is rejected instead.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
@@ -100,11 +106,15 @@ pub(crate) fn eval<'index>(
         field.types() & ffi::FieldType_INDEXFLD_T_TAG != 0,
         "a tag node must reference a tag field"
     );
+
+    let load = index_load::reserve(ctx, &node)?;
+
     // SAFETY: the field is a tag field (asserted above), so `tagOpts` is the active union member.
     let index = NonNull::new(unsafe { field.__bindgen_anon_1.tagOpts.tagIndex })?;
+    let key = load.map(|request| index_load::bind(ctx, request));
     // SAFETY: the tag index belongs to the field; the query's spec read lock keeps
     // it alive and excludes writers, so it is not restructured during evaluation.
-    let index = unsafe { TagIndexRef::new(index) };
+    let index = unsafe { TagIndexRef::new(index, key.as_ref()) };
 
     let weight = node.opts().weight;
     let min_term_prefix = ctx.config().min_term_prefix as usize;
@@ -161,7 +171,7 @@ pub(crate) fn eval<'index>(
 #[expect(clippy::too_many_arguments)]
 fn eval_child<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     child: QueryNodeMut<'_>,
     weight: f64,
     field: &ffi::FieldSpec,
@@ -227,7 +237,7 @@ fn eval_child<'index>(
 /// Evaluate a `@tag:{value}` child: a single exact-value lookup.
 fn eval_token<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     mut child: QueryNodeMut<'_>,
     effective_weight: f64,
     field: &ffi::FieldSpec,
@@ -243,13 +253,13 @@ fn eval_token<'index>(
         .as_ref()
         .as_bytes()
         .expect("a tag token must carry a string");
-    open_reader(ctx, index, value, effective_weight, field.index).map(Evaluated::C)
+    open_reader(ctx, index, value, effective_weight, field.index)
 }
 
 /// Evaluate a `@tag:{multi word}` child as one exact value, its words joined by a space.
 fn eval_phrase<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     mut child: QueryNodeMut<'_>,
     effective_weight: f64,
     field: &ffi::FieldSpec,
@@ -280,14 +290,14 @@ fn eval_phrase<'index>(
     // own token strings, for readers that forward it as a token.
     value.push(0);
     let value = &value[..value.len() - 1];
-    open_reader(ctx, index, value, effective_weight, field.index).map(Evaluated::C)
+    open_reader(ctx, index, value, effective_weight, field.index)
 }
 
 /// Evaluate a `@tag:{pat*}`, `{*pat}` or `{*pat*}` child as a union of every matching value.
 #[expect(clippy::too_many_arguments)]
 fn eval_prefix<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     mut child: QueryNodeMut<'_>,
     effective_weight: f64,
     field: &ffi::FieldSpec,
@@ -357,7 +367,7 @@ fn eval_prefix<'index>(
 #[expect(clippy::too_many_arguments)]
 fn eval_lex_range<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     child: QueryNodeMut<'_>,
     effective_weight: f64,
     field: &ffi::FieldSpec,
@@ -453,7 +463,7 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
 /// Open one reader per matching value, subject to the request limits and expansion cap.
 fn collect_range_readers(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     filter: RangeFilter<'_>,
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
@@ -481,7 +491,7 @@ fn collect_range_readers(
 #[expect(clippy::too_many_arguments)]
 fn eval_wildcard<'index>(
     ctx: &'index mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     mut child: QueryNodeMut<'_>,
     effective_weight: f64,
     field: &ffi::FieldSpec,
@@ -581,7 +591,7 @@ fn eval_wildcard<'index>(
 /// Open a reader for each matching value, subject to the request limits and expansion cap.
 fn collect_filtered_readers(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     values: PatternLendingIter<'_, '_, *mut c_void>,
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
@@ -611,7 +621,7 @@ fn collect_filtered_readers(
 /// via the suffix trie.
 fn collect_suffix_readers(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     pattern: &[u8],
     contains: bool,
     field_index: ffi::t_fieldIndex,
@@ -663,7 +673,7 @@ fn collect_suffix_readers(
 /// Open a reader for each tag value the suffix trie matched against a wildcard pattern.
 fn collect_wildcard_suffix_readers(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     matches: &[*mut std::ffi::c_char],
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
@@ -685,7 +695,7 @@ fn collect_wildcard_suffix_readers(
 /// Open readers from one suffix match bucket. Return false once expansion must stop.
 fn extend_suffix_readers(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     matches: &[*mut std::ffi::c_char],
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
@@ -711,17 +721,23 @@ fn extend_suffix_readers(
 }
 
 /// Open a reader over one tag value, or `None` when the value has no index.
-fn open_reader(
+///
+/// On a clause that [loads values](TagIndexRef::key), the reader is decorated
+/// to load `value` for each of its hits, unless the decorator may not report
+/// its type. `TagIndex_OpenReader` returns only tag readers, and
+/// [`Empty`](rqe_iterators::Empty) ones where the disk has nothing to read,
+/// which the decorator may report.
+fn open_reader<'index>(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     value: &[u8],
     weight: f64,
     field_index: ffi::t_fieldIndex,
-) -> Option<NonNull<ffi::QueryIterator>> {
+) -> Option<Evaluated<'index>> {
     // SAFETY: `index` is live by its type invariant, `ctx` supplies a live
     // search context and status, and `value` is length-delimited and readable
     // for the call.
-    NonNull::new(unsafe {
+    let reader = NonNull::new(unsafe {
         ffi::TagIndex_OpenReader(
             index.as_ptr(),
             ctx.sctx_ptr(),
@@ -731,6 +747,17 @@ fn open_reader(
             field_index,
             ctx.status_ptr(),
         )
+    })?;
+    let Some(key) = index.key() else {
+        return Some(Evaluated::C(reader));
+    };
+    // SAFETY: (1)–(4) `TagIndex_OpenReader` returns an owning query iterator
+    // with all the callbacks `CRQEIterator` requires.
+    let reader = unsafe { CRQEIterator::new(reader) };
+    let value = shared_string(value.to_vec());
+    Some(match IndexLoad::with_source(reader, key.clone(), value) {
+        Ok(decorator) => Evaluated::RustCompound(boxed_new(decorator)),
+        Err(refused) => Evaluated::C(refused.into_child().into_raw()),
     })
 }
 
@@ -739,34 +766,48 @@ fn open_reader(
 /// Expansion readers carry unit weight: the enclosing union applies the node's.
 fn open_reader_child(
     ctx: &mut QueryEvalContext,
-    index: TagIndexRef,
+    index: TagIndexRef<'_>,
     value: &[u8],
     field_index: ffi::t_fieldIndex,
 ) -> Option<CRQEIterator> {
     let reader = open_reader(ctx, index, value, 1.0, field_index)?;
-    // SAFETY: `TagIndex_OpenReader` returns an owning query iterator with all
-    // the callbacks `CRQEIterator` requires.
-    Some(unsafe { CRQEIterator::new(reader) })
+    // SAFETY: `into_c_iterator` yields a valid, owning iterator handle with
+    // all callbacks populated — exactly the precondition of `CRQEIterator::new`.
+    Some(unsafe { CRQEIterator::new(reader.into_c_iterator()) })
 }
 
-/// A tag index that stays alive for the whole query evaluation.
+/// A tag index that stays alive for the whole query evaluation, as one clause
+/// reads it.
 #[derive(Clone, Copy)]
-struct TagIndexRef(NonNull<ffi::TagIndex>);
+struct TagIndexRef<'key> {
+    index: NonNull<ffi::TagIndex>,
+    key: Option<&'key KeyCell<'static>>,
+}
 
-impl TagIndexRef {
-    /// Wrap a tag index pointer.
+impl<'key> TagIndexRef<'key> {
+    /// Wrap a tag index pointer, for a clause that loads the tag values it
+    /// matches (`$as`) under `key`, if any.
     ///
     /// # Safety
     ///
     /// `index` must point to a tag index that stays alive and is not
     /// restructured for as long as the query is being evaluated.
-    const unsafe fn new(index: NonNull<ffi::TagIndex>) -> Self {
-        Self(index)
+    const unsafe fn new(
+        index: NonNull<ffi::TagIndex>,
+        key: Option<&'key KeyCell<'static>>,
+    ) -> Self {
+        Self { index, key }
     }
 
     /// The raw pointer to the tag index.
     const fn as_ptr(self) -> *mut ffi::TagIndex {
-        self.0.as_ptr()
+        self.index.as_ptr()
+    }
+
+    /// The cell of the key the clause loads the tag values it matches under,
+    /// or `None` when it loads nothing.
+    const fn key(self) -> Option<&'key KeyCell<'static>> {
+        self.key
     }
 
     /// The index's values trie, mapping each tag value to its postings.
