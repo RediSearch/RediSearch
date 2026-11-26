@@ -1721,6 +1721,7 @@ booleanConfigs = [
 configOnlyBooleanConfigs = [
     # configName, defaultValue
     ('search-_info-on-zero-indexes', 'no'),
+    ('search-_hnsw-adhoc-shortcut', 'no'),
     ('search-internal-resp-schema', 'no'),
 ]
 

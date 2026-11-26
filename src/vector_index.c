@@ -205,6 +205,35 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
+static bool hnswPrefersAdhocShortcut(const VecSimIndexBasicInfo *info, const QueryIterator *filter,
+                                      uint64_t documents, size_t k) {
+  if (!k || k > 4000 || info->isDisk || info->isMulti || info->algo != VecSimAlgo_HNSWLIB ||
+      info->metric != VecSimMetric_Cosine) {
+    return false;
+  }
+  // Keep the shortcut inside the index shapes used to measure the cutoff.
+  bool grid32 = info->type == VecSimType_FLOAT32 && info->dim == 32 &&
+                documents >= 5000 && documents <= 1000000;
+  bool grid96 = info->type == VecSimType_FLOAT32 && info->dim == 96 &&
+                documents >= 32000 && documents <= 80000;
+  bool customer = info->type == VecSimType_FLOAT16 && info->dim == 1024 && documents == 57000;
+  if (!grid32 && !grid96 && !customer) {
+    return false;
+  }
+  switch (filter->type) {
+    case INV_IDX_NUMERIC_ITERATOR:
+    case INV_IDX_TERM_ITERATOR:
+    case INV_IDX_TAG_ITERATOR:
+    case INTERSECT_ITERATOR:
+    case UNION_ITERATOR:
+      break;
+    default:
+      return false;
+  }
+  uint64_t estimate = MIN(filter->NumEstimated(filter), documents);
+  return estimate > 1886 && estimate * 1000 / k <= 13460;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
@@ -258,6 +287,15 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
+      }
+      if (child_it && RSConfig_HnswAdhocShortcutEnabled() && !qParams.searchMode &&
+          !qParams.batchSize && !qParams.hnswRuntimeParams.efRuntime &&
+          hnswPrefersAdhocShortcut(&info, child_it, ctx->spec->stats.scoring.numDocuments, vq->knn.k)) {
+        VecSimRawParam exact = {"HYBRID_POLICY", sizeof("HYBRID_POLICY") - 1,
+                                VECSIM_POLICY_ADHOC_BF, sizeof(VECSIM_POLICY_ADHOC_BF) - 1};
+        if (VecSim_ResolveQueryParams(vecsim, &exact, 1, &qParams, queryType, q->status) != VecSim_OK) {
+          return NULL;
+        }
       }
       RS_ASSERT(q->sctx->limits);
       return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,

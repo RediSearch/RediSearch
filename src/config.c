@@ -10,6 +10,7 @@
 
 #include <string.h>
 #include <limits.h>
+#include <stdatomic.h>
 #include <unistd.h>
 #include <strings.h>
 #include <sys/param.h>
@@ -41,6 +42,28 @@
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
+
+static atomic_bool hnswAdhocShortcut;
+
+bool RSConfig_HnswAdhocShortcutEnabled(void) {
+  return RSGlobalConfig.enableUnstableFeatures &&
+         atomic_load_explicit(&hnswAdhocShortcut, memory_order_relaxed);
+}
+
+static int get_hnsw_adhoc_shortcut(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  return atomic_load_explicit(&hnswAdhocShortcut, memory_order_relaxed);
+}
+
+static int set_hnsw_adhoc_shortcut(const char *name, int value, void *privdata,
+                                    RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  REDISMODULE_NOT_USED(err);
+  atomic_store_explicit(&hnswAdhocShortcut, value, memory_order_relaxed);
+  return REDISMODULE_OK;
+}
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
@@ -2650,6 +2673,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.defaultScorer)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-_hnsw-adhoc-shortcut", 0, REDISMODULE_CONFIG_UNPREFIXED,
+      get_hnsw_adhoc_shortcut, set_hnsw_adhoc_shortcut, NULL, NULL))
 
   // Enum parameters
   RM_TRY(
