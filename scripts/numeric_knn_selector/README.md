@@ -192,3 +192,35 @@ HNSW configurations, it adds direct exact when the filter estimate
 exceeds 1,886 and `floor(1000 * estimate / K) <= 13460`. The initial
 exact decision uses existing query paths and respects explicit query
 options.
+
+### Native unified A/B
+
+The AWS run used the same Redis module and loaded graph for all three
+policy settings in each scenario. The 1,990 historical cases ran all
+six policy orders at one client. The table uses the mean of the
+per-case latency medians. Unified-exact changed the profiled mode
+in 49 cases and was 50.85% faster than early-exact on those cases.
+It gained 355 ground-truth hits and lost zero against either Redis
+control in the historical suite.
+
+| Historical Redis policy | Mean case latency (ms) | Mean Recall@K |
+| --- | ---: | ---: |
+| Legacy AUTO | 14.910 | 79.8954% |
+| Early-exact | 14.909 | 79.8954% |
+| Unified-exact | 14.670 | 79.9061% |
+
+The published case used the same million-document, K=25 workload
+as above, at 100 clients and six Redis Search workers. The table
+reports median per-trial QPS and recall, and mean client latency
+across four counterbalanced trials of 10,000 requests per arm.
+
+| Published arm | QPS | Mean latency (ms) | Recall@25 |
+| --- | ---: | ---: | ---: |
+| Redis legacy AUTO | 98.00 | 1,016.99 | 99.6808% |
+| Redis early-exact | 105.38 | 945.11 | 99.7040% |
+| Redis unified-exact | 105.29 | 944.24 | 99.7040% |
+| OpenSearch | 243.07 | 413.55 | 99.6532% |
+
+Unified-exact and early-exact returned identical ranked IDs and
+scores on all 10,000 published queries. Unified-exact retained every
+legacy ground-truth hit and added 58.
