@@ -20,7 +20,11 @@ import { fakeForge, fakeHost, plan, profile } from './fakes.ts';
 const WORKER = 'T-worker';
 
 /** A checkout on `main` whose commits write files, and a job on it, kept outside it. */
-async function setup(host: Host = fakeHost().host, judges: Profile['judges'] = {}) {
+async function setup(
+  host: Host = fakeHost().host,
+  judges: Profile['judges'] = {},
+  planned: typeof plan = plan,
+) {
   const root = await mkdtemp(join(tmpdir(), 'engine-'));
   const dir = await mkdtemp(join(tmpdir(), 'engine-state-'));
   const sh = (args: string[]) => git(root, args);
@@ -46,9 +50,36 @@ async function setup(host: Host = fakeHost().host, judges: Profile['judges'] = {
     port.operations.find((o) => o.name === name)!.run(input, thread, new AbortController().signal);
   const state = async (): Promise<State> =>
     JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
-  await run('plan', { plan });
-  return { port, run, commit, state, published, linked, forge, dir };
+  await run('plan', { plan: planned });
+  return { port, run, commit, state, published, linked, forge, dir, root };
 }
+
+test('a stage that changes nothing is skipped for free, and the next opens into the base branch', async () => {
+  const { host, started } = fakeHost();
+  const later = structuredClone(plan);
+  later.contract[0].tests[0] = { path: 'b/t.txt', name: 'pins', stage: 'b' };
+  const { port, run, commit, state, published, root } = await setup(host, {}, later);
+  const base = (await state()).job.plan.baseBranch;
+  const a = await git(root, ['rev-parse', 'HEAD']);
+  assert.match(
+    await run('claim', { stage: 'a', revision: a }),
+    /changes nothing, so it was skipped/,
+  );
+  assert.equal(published.length, 0);
+  // Nothing ran: no assessment was charged and no reviewer started.
+  assert.equal((await state()).job.used, 0);
+  assert.equal(started.length, 0);
+  assert.equal(await port.endTurn(WORKER), undefined);
+  const { owner } = (await state()).job;
+  assert.equal(owner, started.find((s) => !s.role)!.id);
+
+  const b = await commit({ 'b/t.txt': 'pins\n' });
+  assert.match(await run('claim', { stage: 'b', revision: b }, owner), /Stage b admitted/);
+  assert.deepEqual(
+    published.map((p) => [p.branch, p.base]),
+    [['p-b', base]],
+  );
+});
 
 test('admitting the first stage publishes it and hands the job to a fresh worker', async () => {
   const { host, started, sent } = fakeHost();

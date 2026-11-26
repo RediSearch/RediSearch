@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import type { PortPlan } from '../../c-to-rust/port.ts';
 import { validatePlan, pullRequest, type Plan } from '../../core/plan.ts';
-import { reviewBrief } from '../../core/review.ts';
+import { reviewBrief, reviewersOf } from '../../core/review.ts';
 import type { Vcs } from '../../core/ports.ts';
 import { profile } from '../profile.ts';
 
@@ -23,6 +26,7 @@ const LINT =
 const NOTES = '- [ ] This PR requires release notes\n- [x] This PR does not require release notes';
 const unitsTest = { path: 'tests/pytests/test_geo.py', name: 'testUnits', stage: 'rust' };
 const checks = {
+  coverage: ['./build.sh RUN_PYTEST COV=1'],
   rust: [
     'test',
     'cargo miri nextest run -p geo',
@@ -33,6 +37,7 @@ const checks = {
   swap: ['test', 'cargo miri nextest run -p geo_ffi', LINT],
 };
 const kinds = {
+  coverage: ['test'],
   rust: ['test', 'miri', 'mutants', 'lint', 'bench'],
   swap: ['test', 'miri', 'lint'],
 };
@@ -59,7 +64,7 @@ const plan: Plan<PortPlan> = {
   structure: 'A geo crate shared by all stages.',
   interfaces: 'GeoFilter_Validate(const GeoFilter *, QueryError *) -> int',
   stages: Object.fromEntries(
-    (['rust', 'swap'] as const).map((s) => [
+    (['coverage', 'rust', 'swap'] as const).map((s) => [
       s,
       {
         deliverable: `${s} deliverable`,
@@ -82,7 +87,7 @@ test('a plan needs tested contract items and divergences, and the stage checks',
   broken.stages.swap.checks[1].command += ' || true';
   assert.deepEqual(validatePlan(broken, profile), [
     'contract[0] needs the tests that pin it',
-    'divergences[0] needs a test: { path, name, stage }, stage one of rust, swap',
+    'divergences[0] needs a test: { path, name, stage }, stage one of coverage, rust, swap',
     'rust needs a bench check running `cargo bench`',
     'swap miri check chains commands with something other than `&&`',
     'swap needs a lint check running `make lint` and running `make fmt CHECK=1` and running ' +
@@ -98,13 +103,48 @@ test('a port plan needs its module, symbols, PR template and behavior-named test
   broken.stages.swap.body = NOTES.replace('[ ]', '[x]');
   broken.contract[0].tests[0].name = 'testGeoContract';
   broken.stages.rust.checks[4].command += ' -- small';
+  broken.stages.coverage.checks[0].command += ' test=test_geo';
+  broken.divergences[0].test.stage = 'coverage';
   assert.deepEqual(await inspect(broken), [
     'swap body needs both release-notes boxes of the PR template, exactly one of them ticked',
+    'coverage test check selects flow tests with TEST= or QUICK=1; run them all',
+    'divergences[0] test must be cited at rust or later',
     'module needs the C files being ported: sources and headers',
     'symbols[0] needs c and rust',
     'tests/pytests/test_geo.py::testGeoContract is named for its artifact; name it for the behavior it asserts',
     'rust bench check filters the benchmarks (--); run them all',
   ]);
+});
+
+test('the coverage stage runs the flow tests measuring coverage', () => {
+  const broken = structuredClone(plan);
+  broken.stages.coverage.checks[0].command = './build.sh RUN_PYTEST';
+  assert.deepEqual(validatePlan(broken, profile), [
+    'coverage needs a test check running `RUN_PYTEST` and running `COV=1`',
+  ]);
+});
+
+test('coverage is judged only while the module sources are in the checkout', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'profile-'));
+  const check = { kind: 'test', command: './build.sh RUN_PYTEST COV=1', exitCode: 0 };
+  const judge = (command: string) =>
+    profile.judges.test({
+      check: { ...check, command, started: 0, ms: 0, log: '' },
+      ...{ log: '', root, plan },
+    });
+  // Deleted by the swap: nothing to measure.
+  assert.deepEqual(await judge(check.command), {});
+  await mkdir(join(root, 'src'));
+  await writeFile(join(root, 'src/geo_index.c'), '');
+  assert.match((await judge(check.command)).problem!, /no fresh coverage/);
+  assert.deepEqual(await judge('./build.sh RUN_PYTEST'), {});
+});
+
+test('the flow tests reviewer reviews the coverage stage, the port reviewers the Rust', () => {
+  const names = (stage: string) => reviewersOf(profile, stage).map((r) => r.name);
+  assert.deepEqual(names('coverage'), ['Flow tests']);
+  assert.deepEqual(names('rust'), ['Correctness', 'Idiomatic Rust']);
+  assert.deepEqual(names('swap'), ['Correctness', 'Idiomatic Rust']);
 });
 
 test('a plan names where it publishes', () => {
@@ -129,7 +169,7 @@ test('every PR lists the divergences, then folds away the plan and the run recor
 });
 
 test('the brief renders the stage, its limits and the plan as prose, not JSON', () => {
-  const text = reviewBrief(profile.reviewers[0], {
+  const text = reviewBrief(reviewersOf(profile, 'rust')[0], {
     plan,
     profile,
     stage: 'rust',
@@ -140,7 +180,7 @@ test('the brief renders the stage, its limits and the plan as prose, not JSON', 
     lines: 120,
   });
   for (const expected of [
-    '# rust / Correctness review, stage 1 of 2',
+    '# rust / Correctness review, stage 2 of 3',
     'rust deliverable',
     'It may change only `src/redisearch_rs/geo/`, and adds 120 lines.',
     'Later stages: `swap`: swap deliverable',

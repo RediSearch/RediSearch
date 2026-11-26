@@ -15,6 +15,7 @@ import { execa } from 'execa';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import type { Plan } from './plan.ts';
 import type { Judge, Vcs } from './ports.ts';
 
 export const ENV = { GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1' };
@@ -43,7 +44,9 @@ export interface CheckEnv {
   vcs: Vcs;
   signal: AbortSignal;
   vars: Record<string, string>;
-  judges: Record<string, Judge>;
+  /** The plan the checks run under, as the judges read it. */
+  plan: Plan<any>;
+  judges: Record<string, Judge<any>>;
   debug: (message: string) => void;
 }
 
@@ -70,6 +73,7 @@ export async function runChecks(run: CheckEnv, checks: Check[]): Promise<CheckRe
               check: result,
               log: await readLog(log),
               root: run.root,
+              plan: run.plan,
             });
     Object.assign(result, verdict);
     run.debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);

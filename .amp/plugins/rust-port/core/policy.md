@@ -68,7 +68,9 @@ Otherwise the call blocks while the stage's checks run and, if they pass, the re
 edit meanwhile. After the first review the same reviewers review only what changed since, and
 remember what they raised and how you answered; a plan amendment starts fresh ones. A rebase that
 leaves the stage's patch unchanged keeps its reviews. An admitted stage gets its PR opened or
-updated, stacked on the stage before it.
+updated, stacked on the stage before it. A stage with nothing to change is claimed at its base
+revision: it is skipped at no cost, with no checks, no review and no PR, and the next stage stacks
+on the closest stage before it that has a PR.
 
 If the workspace root has a `.jj/` directory, it is a jj checkout colocated with git: use `jj`
 for every version-control operation, never `git commit`, `checkout`, `switch`, `rebase`,

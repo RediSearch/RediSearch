@@ -8,10 +8,14 @@
  */
 
 /** Everything specific to RediSearch: its layout, checks, CI and house rules. */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { CI } from '../core/github.ts';
 import type { Rule } from '../core/gates.ts';
 import type { Profile } from '../core/ports.ts';
+import type { Reviewer } from '../core/review.ts';
 import { multiCratePaths, cargoJudges, isTestCommand } from '../c-to-rust/cargo.ts';
+import { judgeCoverage } from '../c-to-rust/coverage.ts';
 import {
   describePortPlan,
   checkPortPlan,
@@ -36,9 +40,15 @@ const GUIDES =
   '.skills/rust-tests-guidelines and .skills/rust-docs-guidelines';
 /** How much slower than C, in percent, Rust may be in any benchmark. */
 const SLOWDOWN_PERCENT = 5;
+/** Where `./build.sh RUN_PYTEST COV=1` writes the flow tests' lcov tracefile. */
+const FLOW_COVERAGE = 'bin/flow_standalone.info';
+/** What makes a flow test run measure coverage. */
+const COVERAGE_RUN = /(^|\s)COV=1(\s|$)/i;
+/** What makes a flow test run cover part of the suite; build.sh reads arguments in any case. */
+const SUBSET_RUN = /(^|\s)(TEST=|QUICK=1(\s|$))/i;
 const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
 
-// Miri runs in every stage, because nothing tells reliably whether a change reaches `unsafe` code.
+// Miri runs in every stage that writes Rust, because nothing tells reliably whether a change reaches `unsafe` code.
 // cargo mutants skips `unsafe extern` functions, so only a swap that adds other Rust needs it.
 // CI's lint job also checks formatting, which `make lint` does not.
 const LINT = [
@@ -113,10 +123,34 @@ export const RULES: Rule[] = [
 
 const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
 
-/** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
+/** Reviews the stage that pins the C's behavior before any Rust is written. */
+const FLOW_TESTS_REVIEWER: Reviewer = {
+  name: 'Flow tests',
+  stages: ['coverage'],
+  instructions: `Review a stage that changes no reachable behavior: it adds Python flow tests
+reaching C the tests left uncovered, and replaces unreachable defensive C with assertions, so the
+port that follows keeps every behavior a test pins. Go through .skills/write-flow-tests and the
+assertion rules of .skills/improve-flow-coverage rule by rule, checking the diff against each.
+A test must assert what the command returns: a reply, an error, the results. A test that only
+executes lines, or repeats an existing test, breaks .skills/write-flow-tests: cite the rule's
+line, since a deletion patch of a test is never confirmed. An assertion must guard a state no
+command can reach. One that an FT.* command, a cluster or coordinator run, a disk-only path or
+the C module API can reach turns an error into a crash, and into undefined behavior in release
+builds, where assertions compile out: its repro is a flow test that reaches it, which crashes the
+debug build. The coverage measures standalone runs only, so code it shows uncovered may still run
+in a cluster. A guard that frees resources, such as after a failed allocation, keeps its cleanup
+under an LCOV exclusion. Any other change to the C is a defect of this stage.`,
+};
+
+/**
+ * A port lands as three stacked PRs: the flow tests that pin the C, the Rust, then the swap that
+ * deletes the C.
+ */
 export const profile: Profile<PortPlan> = {
   name: 'rust-port',
   stages: [
+    // A coverage run is a debug build, so the assertions the stage adds hold under every flow test.
+    { name: 'coverage', checks: { test: ['RUN_PYTEST', 'COV=1'] } },
     {
       name: 'rust',
       checks: {
@@ -146,11 +180,28 @@ export const profile: Profile<PortPlan> = {
   ruleFiles: RULE_FILES,
   testRunners: RUNNERS,
   isTestCommand: (command) => isTestCommand(RUNNERS, command),
-  judges: cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
-  reviewers: portReviewers(GUIDES, RULE_FILES),
+  judges: {
+    ...cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
+    // Only the sources still in the checkout: the swap deletes them.
+    test: ({ check, root, plan }) => {
+      const sources = plan.module.filter((p) => p.endsWith('.c') && existsSync(join(root, p)));
+      return COVERAGE_RUN.test(check.command) && sources.length
+        ? judgeCoverage(join(root, FLOW_COVERAGE), sources, check.started, root)
+        : {};
+    },
+  },
+  reviewers: [FLOW_TESTS_REVIEWER, ...portReviewers(GUIDES, RULE_FILES, ['rust', 'swap'])],
   checkPlan: async (plan, o) => [
     ...Object.entries(plan.stages).flatMap(([s, { body }]) =>
       releaseNoteErrors(body).map((e) => `${s} body ${e}`),
+    ),
+    // Coverage of a subset of the flow tests reads as gaps the full suite does not have.
+    ...plan.stages.coverage.checks
+      .filter((c) => c.kind === 'test' && SUBSET_RUN.test(c.command))
+      .map(() => 'coverage test check selects flow tests with TEST= or QUICK=1; run them all'),
+    // At `coverage` a test runs against the C, so it cannot show the Rust's divergent behavior.
+    ...plan.divergences.flatMap((d, i) =>
+      d.test.stage === 'coverage' ? [`divergences[${i}] test must be cited at rust or later`] : [],
     ),
     ...(await checkPortPlan(plan, profile.stages, { ...o, workspace: WORKSPACE })),
   ],

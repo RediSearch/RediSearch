@@ -256,12 +256,13 @@ export async function orphanedExports(
 }
 
 /**
- * The reviewers of a C-to-Rust port: correctness against the plan, and idiomatic Rust checked
- * against `guides` rule by rule, citing `ruleFiles`.
+ * The reviewers of the `stages` that write Rust: correctness against the plan, and idiomatic Rust
+ * checked against `guides` rule by rule, citing `ruleFiles`.
  */
-export const portReviewers = (guides: string, ruleFiles: string): Reviewer[] => [
+export const portReviewers = (guides: string, ruleFiles: string, stages: Stage[]): Reviewer[] => [
   {
     name: 'Correctness',
+    stages,
     instructions: `Review correctness against the plan: its contract, its divergences from C, what
 replaces each C function, the stage's deliverable and the recorded interfaces. C behavior the
 contract does not list may change, provided the plan lists the divergence.
@@ -282,6 +283,7 @@ outlive what it points to), and ownership (who frees it, with which allocator, e
   },
   {
     name: 'Idiomatic Rust',
+    stages,
     instructions: `Review only the Rust: idiomatic, small, readable code, documentation and tests.
 Make two passes. First bugs and bloat, which matter most: look hardest for code the stage does
 not need, and give each such finding a deletion patch. Then design and house style: go through
