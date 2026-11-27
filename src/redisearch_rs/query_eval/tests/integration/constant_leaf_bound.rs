@@ -10,6 +10,7 @@
 //! [`constant_leaf_bound`] is at least what `ext/default.c` gives a document for the results of
 //! a disk tag or numeric leaf.
 
+use proptest::prelude::*;
 use query_eval::{
     constant_leaf_bound::{ConstantLeaf, constant_leaf_bound},
     scorers::BuiltInScorer,
@@ -137,6 +138,54 @@ fn bound_covers_every_document_the_leaf_can_score() {
                 }
             }
         }
+    }
+}
+
+fn bounded_scorer() -> impl Strategy<Value = BuiltInScorer> {
+    proptest::sample::select(BOUNDED.to_vec())
+}
+
+fn leaf_result() -> impl Strategy<Value = (ConstantLeaf, LeafResult)> {
+    prop_oneof![
+        (0.0f64..1e6).prop_map(|weight| (
+            ConstantLeaf::Tag,
+            LeafResult {
+                is_virtual: true,
+                freq: 0,
+                weight,
+            }
+        )),
+        Just((
+            ConstantLeaf::Numeric,
+            LeafResult {
+                is_virtual: false,
+                freq: 1,
+                weight: 1.0,
+            }
+        )),
+    ]
+}
+
+/// A finite document score, negative ones included, and a maximum at least as large.
+fn score_and_max() -> impl Strategy<Value = (f32, f32)> {
+    (-1e6f32..1e6, 0.0f32..1e6).prop_map(|(score, headroom)| (score, score.max(0.0) + headroom))
+}
+
+proptest! {
+    #[test]
+    fn bound_covers_generated_documents(
+        scorer in bounded_scorer(),
+        (leaf, r) in leaf_result(),
+        (score, max_doc_score) in score_and_max(),
+        max_term_freq in any::<u32>(),
+        doc_len in any::<u32>(),
+        avg_doc_len in 0.0f64..1e9,
+    ) {
+        let bound = constant_leaf_bound(scorer, leaf, f64::from(max_doc_score), avg_doc_len)
+            .expect("a bounded scorer");
+        let doc = Doc { score, max_term_freq, doc_len };
+        let reference = reference_score(scorer, r, doc, avg_doc_len);
+        prop_assert!(reference <= bound, "{reference} > {bound}");
     }
 }
 
