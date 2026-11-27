@@ -38,6 +38,9 @@ header_name = "ttl_table"
 # Named `language.h` so the existing `#include "language.h"` lines in C resolve to it.
 header_name = "language"
 
+[package.toksep_ffi]
+header_name = "toksep"
+
 [c]
 cpp_compat = true
 

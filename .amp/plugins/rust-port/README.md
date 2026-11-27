@@ -12,8 +12,8 @@ amp  --drives-->  core  --configured by, calls hooks in-->  redisearch  --compos
 | Directory     | What it owns                                                                                                                                                                                                                                                                                                                                                    |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `core/`       | The workflow, independent of agent host, language and project. `ports.ts` declares everything it needs from outside: `Host`, `Forge`, `Vcs` and `Profile`. `engine.ts` runs the job: operations, claims, assessment, publication and handoff. `git.ts` and `github.ts` are the `Vcs` and `Forge` it ships with; the engine reaches them only through the ports. |
-| `c-to-rust/`  | What any port of C to Rust in a Cargo workspace shares: Rust source scanning, Cargo judges, the plan's `module` and `symbols`, the swap gate, and the reviewers.                                                                                                                                                                                                |
-| `redisearch/` | The `Profile`: RediSearch's stages, checks, layout, house rules, CI gate and PR template.                                                                                                                                                                                                                                                                       |
+| `c-to-rust/`  | What any port of C to Rust in a Cargo workspace shares: Rust source scanning, Cargo judges, the C's lcov coverage, the plan's `module` and `symbols`, the swap gate, and the reviewers.                                                                                                                                                                         |
+| `redisearch/` | The `Profile`: RediSearch's stages (`coverage`, `rust`, `swap`), checks, layout, house rules, CI gate and PR template.                                                                                                                                                                                                                                          |
 | `amp/`        | `Host` on Amp threads, and the plugin: tools, the grant command, the turn hooks and the status item.                                                                                                                                                                                                                                                            |
 
 Porting another repository means writing another profile; another language, another library
@@ -62,12 +62,15 @@ The thread that calls `port_plan` owns the job; hooks ignore every other thread.
    keeps the tests passing, or it cites a rule.
 4. **Admission**, if the evidence passed and no blocking finding holds the stage: the stage PR is
    opened or updated, stacked on the one before it. Admitting the stage a worker started on
-   hands the job to a fresh thread for the next stage, briefed with the plan and the outstanding
+   hands the job, at turn end, to a fresh thread for the next stage, briefed with the plan and the outstanding
    findings, because every request re-reads its thread's history. Former workers own nothing.
 
 Evidence is keyed by stage, candidate, base and plan hash, so passing evidence is reused and an
 amendment invalidates every admission. Everything left to do is a finding; the worker closes
 reviewer findings and comments, and failed checks and CI close themselves.
+
+A `coverage` stage's test check reports each module source's flow test coverage and the lines
+still uncovered on its PR, the same way.
 
 The benchmark check saves each fresh C/Rust pair's Criterion medians and percentage time
 difference with that evidence. The Rust PR shows the table outside the folded run record,

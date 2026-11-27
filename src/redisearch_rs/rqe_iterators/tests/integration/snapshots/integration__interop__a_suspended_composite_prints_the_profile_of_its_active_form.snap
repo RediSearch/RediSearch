@@ -1,0 +1,8 @@
+---
+source: rqe_iterators/tests/integration/interop.rs
+expression: suspended
+---
+{
+  "Type": "INTERSECT",
+  "Child iterators": [{"Type": "EMPTY"}, {"Type": "MOCK"}]
+}

@@ -178,23 +178,37 @@ typedef struct QueryIterator {
    * report bounds: one that does must implement this. */
   IteratorStatus (*ReadWithThreshold)(struct QueryIterator *self, double minCompetitiveScore);
 
+  /* Callbacks added after the others go last, so that adding them leaves the offsets of the
+   * earlier ones unchanged. A header that never sets one (e.g. a zero-initialised C/C++
+   * iterator such as the test mocks) gets NULL; each callback says what NULL means. */
+
   /**
    * Called immediately before the spec read lock is released, to inform the iterator that it
    * must drop any state that depends on the lock being held (in particular, borrows into
-   * inverted-index data). After `Suspend` returns, the only callback that may be invoked on
-   * the iterator (until the lock is re-acquired and `Revalidate` is called) is `Free`.
+   * inverted-index data). After `Suspend` returns, and until the lock is re-acquired and
+   * `Revalidate` is called, the only callbacks that may be invoked on the iterator are `Free`,
+   * `PrintProfile`, which `FT.PROFILE` calls after the lock was released, and `NumEstimated`.
+   * `PrintProfile` and `NumEstimated` must therefore read only query-owned state, never index
+   * data.
    *
-   * Iterators with no lock-dependent state install `Default_Suspend` (a no-op). Not every
-   * iterator installs a callback yet, so `Suspend` may be NULL and must not be called until
-   * they all do.
+   * It may also run late: an iterator left active across an unlock is suspended at the start of
+   * `Revalidate`, and a parent suspends its children whenever it is itself suspended. By then the
+   * lock-dependent state may point into freed index data, so `Suspend` must drop it without
+   * reading through it.
+   *
+   * It may be called again on an already suspended iterator, and must then do nothing.
+   *
+   * Every iterator must install a callback; those with no lock-dependent state use
+   * `Default_Suspend` (a no-op).
    *
    * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
    * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
-   *
-   * Last in the struct so that adding it left the offsets of the other callbacks unchanged for
-   * iterators built outside this module, such as the disk API's.
    */
   void (*Suspend)(struct QueryIterator *self);
+
+  /* The weight an intersection multiplies this child's `NumEstimated` by to order its children:
+   * the lowest product goes first. NULL means 1.0, a neutral weight. */
+  double (*IntersectionSortWeight)(const struct QueryIterator *self, bool prioritizeUnionChildren);
 } QueryIterator;
 
 static inline ValidateStatus Default_Revalidate(struct QueryIterator *base, struct IndexSpec *spec) {
