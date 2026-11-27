@@ -14,6 +14,7 @@
 #include <stddef.h>
 
 #include "disk_asm_import_window.h"
+#include "disk_asm_import_rebuild.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -143,13 +144,13 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
   // The key may hold the docIds of a slot migration's source, which can name unrelated documents
   // here, so it deletes none. Its metadata is freed with it, so nothing is left to invalidate.
   // See disk_asm_import_window.h.
-  if (SearchDisk_IsEnabled() && ctx &&
-      DiskASM_IsKeyBeingImported(RedisModule_GetKeyNameFromOptCtx(ctx))) {
+  const RedisModuleString *keyName = ctx ? RedisModule_GetKeyNameFromOptCtx(ctx) : NULL;
+  if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(keyName)) {
+    RS_LOG_ASSERT(!DiskASM_ImportRebuild_IsRebuildingKey(keyName),
+                  "ASM import: a delete reached a slot being rebuilt");
     return;
   }
 
-  // Resolved lazily: only an index that still references the key needs it.
-  const RedisModuleString *keyName = NULL;
   dictIterator *iter = dictGetIterator(specIdToEntry);
   dictEntry *de;
   while ((de = dictNext(iter))) {
@@ -538,22 +539,28 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
   return result;
 }
 
+int DocIdMeta_ClearWithOpenKey(RedisModuleKey *key) {
+  uint64_t meta = 0;
+  // GetKeyMeta fails for a key that carries no metadata of the class.
+  if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK || meta == 0) {
+    return REDISMODULE_OK;
+  }
+  // See docIdMetaResetIfEmpty: detach first, then release ourselves.
+  int rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0);
+  RS_LOG_ASSERT(rc == REDISMODULE_OK, "DocIdMeta: failed to clear metadata");
+  if (rc == REDISMODULE_OK) {
+    dictRelease((dict *)meta);
+  }
+  return rc;
+}
+
 int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
   RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
-  uint64_t meta = 0;
-  int rc = RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta);
-  if (rc == REDISMODULE_OK && meta != 0) {
-    // See docIdMetaResetIfEmpty: detach first, then release ourselves.
-    rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0);
-    RS_LOG_ASSERT(rc == REDISMODULE_OK, "DocIdMeta: failed to clear metadata");
-    if (rc == REDISMODULE_OK) {
-      dictRelease((dict *)meta);
-    }
-  }
+  int rc = DocIdMeta_ClearWithOpenKey(key);
   RedisModule_CloseKey(key);
   return rc;
 }

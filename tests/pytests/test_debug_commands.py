@@ -132,6 +132,7 @@ class TestDebugCommands(object):
             'YIELDS_COUNTER',
             'GC_TIMER_ARMS',
             'ASM_IMPORT_WINDOW',
+            'ASM_SST_MODE',
             'INDEXER_SLEEP_BEFORE_YIELD_MICROS',
             'QUERY_CONTROLLER',
             'DUMP_SCHEMA',

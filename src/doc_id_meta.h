@@ -109,6 +109,8 @@ int DocIdMeta_GetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *doc
 int DocIdMeta_GetEntryWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t *docId,
                                   uint32_t *docLen);
 int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId);
+// Open-key variant of DocIdMeta_Clear.
+int DocIdMeta_ClearWithOpenKey(RedisModuleKey *key);
 
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks
 // become no-ops. Called from notifications.c during persistence events.

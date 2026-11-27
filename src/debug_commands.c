@@ -3055,6 +3055,36 @@ DEBUG_COMMAND(ASMImportWindow) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG ASM_SST_MODE ON|OFF
+ *
+ * Lets Flex choose the SST mode for the slot migrations that start from now on, so tests can drive
+ * the disk import rebuild (disk_asm_import_rebuild.h) through real migrations.
+ */
+DEBUG_COMMAND(ASMSSTMode) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!SearchDisk_IsEnabled()) {
+    return RedisModule_ReplyWithError(ctx, "The ASM SST mode is only used with search on disk");
+  }
+  size_t len;
+  const char *mode = RedisModule_StringPtrLen(argv[2], &len);
+  bool enabled;
+  if (STR_EQCASE(mode, len, "ON")) {
+    enabled = true;
+  } else if (STR_EQCASE(mode, len, "OFF")) {
+    enabled = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Expected ON or OFF");
+  }
+  ASM_SetKeyspaceSSTModeForTests(ctx, enabled);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
   return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
@@ -4291,6 +4321,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
                                {"ASM_IMPORT_WINDOW", ASMImportWindow},
+                               {"ASM_SST_MODE", ASMSSTMode},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
