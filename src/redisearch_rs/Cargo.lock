@@ -1544,6 +1544,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "nested_index"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "compound_index",
+ "index_result",
+ "inverted_index",
+ "nested_index",
+ "numeric_range_tree",
+ "proptest",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "tag_index",
+ "thiserror",
+ "timeout",
+ "workspace_hack",
+]
+
+[[package]]
 name = "never-say-never"
 version = "6.6.666"
 source = "registry+https://github.com/rust-lang/crates.io-index"

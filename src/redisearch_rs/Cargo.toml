@@ -17,6 +17,7 @@ members = [
     "inverted_index",
     "inverted_index_bencher",
     "language",
+    "nested_index",
     "nul_terminated_bytes",
     "over_aligned_alloc",
     "numeric_range_tree",
@@ -147,6 +148,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 language = { path = "./language" }
+nested_index = { path = "./nested_index" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
 over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }

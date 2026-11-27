@@ -208,8 +208,8 @@ The index has two layers:
   enum Terminal {
       /// Last level NUMERIC: an ordinary range tree.
       Numeric(NumericRangeTree),
-      /// Last level TAG: one doc-id posting list per value.
-      Tag(TrieMap<InvertedIndex /* DocIdsOnly */>),
+      /// Last level TAG: one doc-id posting list per value, as a TAG field's index.
+      Tag(TagIndex<InMemoryMode>),
   }
   ```
   `Terminal` owns the post half of route, then post: one method adds a doc id with the element's
@@ -503,10 +503,14 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    with their limits, path insert that checks before mutating, `check_paths` for a whole
    document, and the constraint walk with its terminal bound and timeout check. Pure Rust,
    tested under `miri`, with property tests against brute-force filters.
-2. **Terminals**: the `Terminal` type over `NumericRangeTree` and tag posting lists, inserting an
-   element's terminal value, the iterator builders (one numeric filter iterator or tag iterator
-   per terminal, UNIONed), and the per-terminal stats the planner uses. Rust tests linked against
-   the C bundle.
+2. **Terminals**: the `nested_index` crate. `Terminal` is a `NumericRangeTree`, the tree
+   top-level NUMERIC fields use, or the Rust `TagIndex<InMemoryMode>`. Top-level TAG fields still
+   use the C tag index, so reading tag terminals in the read side (4) is the first production use
+   of the Rust `TagIndex` reader and iterator. `NestedIndex`
+   pairs the routing layer with its terminal kind, and `index_document` checks every element of a
+   document (value type, NaN, all paths together with `check_paths`) before writing any of them.
+   Rust tests linked against the C bundle. Opening iterators on terminals needs the search
+   context and a revalidation design, so it moves to the read side (4).
 3. **Write side: schema and ingest**:
    - `INDEXFLD_T_NESTED`, `nestedOpts`, and the FFI crate `c_entrypoint/compound_index_ffi`.
    - `FT.CREATE` parsing and validation (`NESTED`, `INDEX`, `MAXCARD`, `RANGE`), and
@@ -520,8 +524,12 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
 4. **Read side: parser, planner and eval**:
    - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
      a non-NESTED field must keep today's text meaning.
-   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, the walk's bounds and the request timeout, the
-     UNION of terminal iterators, estimates and profile output.
+   - Opening iterators on terminals: `NumericIteratorVariant::from_tree` on a numeric terminal's
+     tree, `TagIndex::open_reader` on a tag terminal, both needing `sctx` and the NESTED field's
+     index. Revalidation after GC must also detect a terminal freed by GC (see the
+     follow-ups below).
+   - `query_eval/src/nodes/nested.rs`: normalisation into `Constraint`s, DNF, the walk's bounds and the
+     request timeout, the UNION of terminal iterators, estimates and profile output.
    - Python correctness tests against a brute-force evaluator on random documents, for every
      shape in the §5 table.
    - Benchmarks in the PR description: shard-sized data (about 55K docs × 280 elements), a full
@@ -536,7 +544,10 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 
 | Follow-up | Owner |
 |---|---|
-| An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Terminals (2) |
+| An insert under a tag level does three trie lookups (find, insert, find). Add an entry-style API to `TrieMap` | Write side (3), where ingest cost is measured |
+| Float compression is fixed when a `NestedIndex` is created, from `TerminalKind`. A top-level NUMERIC field reads the global setting when its tree is first created. Decide whether NESTED follows the field rule (read the setting per new terminal) or the index rule (fix it at `FT.CREATE`) | Write side (3) |
+| Reading tag terminals is the first production use of the Rust `TagIndex` reader and iterator, `open_reader` and `TrieLookup`. Budget test coverage for it | Read side (4) |
+| A suspended query holds iterators on terminals, and GC can free a whole terminal while it is suspended, a use-after-free. Revalidation must detect it, for example with a revision counter on the compound index that GC bumps when it drops a terminal, checked before an iterator touches its terminal | Read side (4), with GC (5) bumping the counter |
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
 | Pass the request timeout (`rqe_iterators`' `TimeoutContextRequest`) to `collect_terminals`, map `CollectError::TimedOut` to the query's timeout error, and drop `max_nodes` from `NestedLimits`. Keep the terminal, reader and branch bounds as internal constants, not `FT.CONFIG` | Read side (4) |
 | Whether to support a second numeric attribute (§2, "Numeric attributes: only the terminal"): an adaptive numeric routing level or a filter attribute | After Terminals (2), driven by workloads with two numeric attributes |
