@@ -903,11 +903,6 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
         "Disk index does not support %s vector type", typeName);
       return 0;
     }
-    if (hnswParams->multi) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
-        "Disk index does not support multi-value vectors");
-      return 0;
-    }
     if (!mandM) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
         "Disk HNSW index requires M parameter");
