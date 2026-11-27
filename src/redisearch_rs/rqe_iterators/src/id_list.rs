@@ -17,8 +17,8 @@ use std::cmp::Ordering;
 use std::ptr::NonNull;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{resume_owned_result_in_place, suspend_owned_result_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::OwnedSlice,
@@ -283,6 +283,20 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
 }
 
 impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SORTED_BY_ID> {
+    type Suspended = SuspendedIdList<'index, SORTED_BY_ID>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let active = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+
+        // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
+        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
+        let suspended_ptr = unsafe { IdList::<'index, SORTED_BY_ID>::suspend_in_place(active) };
+
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
+        // address is unchanged and every field is now valid at the suspended type.
+        unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
@@ -443,22 +457,6 @@ impl<'index, const SORTED: bool> IdList<'index, SORTED> {
         // 1. Caller contracts 1 and 2.
         // 2. `result` is the only `Rf`-dependent field; see the `const _` proof.
         unsafe { suspend_owned_result_in_place(slot, |it| &mut it.result) }
-    }
-}
-
-impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdList<'index, SORTED> {
-    type Suspended = SuspendedIdList<'index, SORTED>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
-
-        // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
-        // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
-        let suspended_ptr = unsafe { IdList::<'index, SORTED>::suspend_in_place(active) };
-
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
-        // address is unchanged and every field is now valid at the suspended type.
-        unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
     }
 }
 

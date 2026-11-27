@@ -24,8 +24,8 @@ use inverted_index::RepairContext;
 #[cfg(not(miri))]
 use proptest::prelude::*;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
-    SkipToOutcome, TypeErasedRQEIterator,
+    IteratorType, RQEIterator, RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    TypeErasedRQEIterator,
 };
 #[cfg(not(miri))]
 use rqe_iterators_test_utils::assert_suspended_prints_as_active;

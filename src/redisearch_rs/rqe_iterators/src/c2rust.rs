@@ -18,8 +18,8 @@ use ffi::{
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     interop::RQEIteratorWrapper,
     profile_print,
     profile_print::ProfilePrint,
@@ -72,7 +72,7 @@ pub struct CRQEIterator {
     header: NonNull<QueryIterator>,
     /// The estimate taken by [`CRQEIterator::new`] and served by [`CRQESuspendedIterator`]: once
     /// the read lock is released, the C `NumEstimated` callback may read index memory that has
-    /// been freed. Taken at construction rather than in [`RQEIteratorBoxed::suspend`], which may
+    /// been freed. Taken at construction rather than in [`RQEIterator::suspend`], which may
     /// itself run after the lock was released, mirroring the inverted-index leaves.
     ///
     /// Unused while active; it lives here because both forms must have the same size.
@@ -197,7 +197,7 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I: RQEIterator<'index> + ProfilePrint + 'index,
         I::Suspended: crate::RQESuspendedIterator<'index, Resumed<'index> = I>,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
@@ -260,6 +260,23 @@ impl CRQEIterator {
 }
 
 impl<'index> RQEIterator<'index> for CRQEIterator {
+    type Suspended = CRQESuspendedIterator;
+
+    /// Forward the suspension to the wrapped iterator's `Suspend` callback, the only way a Rust
+    /// iterator lowered under a [`CRQEIterator`] leaves its active state.
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Not `unwrap_unchecked`: iterators built outside this crate are only trusted to install
+        // `Suspend`.
+        let callback = self
+            .Suspend
+            .expect("The `Suspend` callback is a NULL function pointer");
+        // SAFETY: the handle is unique (consumed by value into `self`), and the callback can be
+        // called per invariant 4. of [`CRQEIterator::header`].
+        unsafe { callback(self.header.as_ptr()) };
+        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
+        unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
+    }
+
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Read.unwrap_unchecked() };
@@ -508,25 +525,6 @@ impl profile_print::ProfilePrint for CRQEIterator {
     }
 }
 
-impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
-    type Suspended = CRQESuspendedIterator;
-
-    /// Forward the suspension to the wrapped iterator's `Suspend` callback, the only way a Rust
-    /// iterator lowered under a [`CRQEIterator`] leaves its active state.
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Not `unwrap_unchecked`: iterators built outside this crate are only trusted to install
-        // `Suspend`.
-        let callback = self
-            .Suspend
-            .expect("The `Suspend` callback is a NULL function pointer");
-        // SAFETY: the handle is unique (consumed by value into `self`), and the callback can be
-        // called per invariant 4. of [`CRQEIterator::header`].
-        unsafe { callback(self.header.as_ptr()) };
-        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
-        unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
-    }
-}
-
 /// The suspended form of a [`CRQEIterator`].
 ///
 /// Exposes only the [`RQESuspendedIterator`] API and
@@ -541,6 +539,20 @@ impl CRQESuspendedIterator {
     /// Ownership rules are those of [`CRQEIterator::as_raw`].
     pub const fn as_raw(&self) -> NonNull<QueryIterator> {
         self.0.as_raw()
+    }
+}
+
+/// Printing goes through the iterator's `PrintProfile` callback, as the active form does. That
+/// is sound on a suspended iterator because every such callback reads only query-owned data: a
+/// Rust-wrapped iterator prints whichever form it holds, and C iterators print their own fields
+/// and recurse into their children.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
 
@@ -588,19 +600,5 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
     fn num_estimated(&self) -> usize {
         // Not a call into C: see the field.
         self.0.num_estimated_snapshot
-    }
-}
-
-/// Printing goes through the iterator's `PrintProfile` callback, as the active form does. That
-/// is sound on a suspended iterator because every such callback reads only query-owned data: a
-/// Rust-wrapped iterator prints whichever form it holds, and C iterators print their own fields
-/// and recurse into their children.
-impl profile_print::ProfilePrint for CRQESuspendedIterator {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut profile_print::ProfilePrintCtx<'_>,
-    ) {
-        self.0.print_profile(map, ctx);
     }
 }

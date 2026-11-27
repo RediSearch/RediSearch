@@ -67,8 +67,8 @@ pub mod utils;
 pub mod wildcard;
 
 pub use boxed::{
-    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
-    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+    RQEDynIterator, RQEDynSuspendedIterator, RQESuspendedIterator, TypeErasedRQEIterator,
+    TypeErasedRQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
 pub use empty::Empty;
@@ -140,7 +140,41 @@ pub enum RQEIteratorError {
 }
 
 /// Trait providing the iterators API.
-pub trait RQEIterator<'index> {
+///
+/// Every iterator is also [`ProfilePrint`](profile_print::ProfilePrint), so a
+/// type-erased iterator can report its real `FT.PROFILE` output through the
+/// [`RQEDynIterator`] vtable rather than a generic placeholder.
+pub trait RQEIterator<'index>: profile_print::ProfilePrint + 'index {
+    /// The suspended counterpart of this iterator. Carries no live
+    /// references into the *index* (those are weakened to raw pointers on
+    /// suspend), but may still borrow query-pipeline data for `'index` — see
+    /// the `'query` parameter on [`RQESuspendedIterator`]. It can therefore be
+    /// held across a lock release/reacquire cycle: the index pointers are
+    /// re-validated on resume, while the query-pipeline borrows stay live.
+    type Suspended: RQESuspendedIterator<'index> + 'index;
+
+    /// Transition to the suspended state.
+    ///
+    /// Must be called while the spec read lock is still held: an implementation may still read
+    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
+    ///
+    /// # Implementation
+    ///
+    /// Implementations must reuse the heap allocation: preserving its address
+    /// is what keeps composite aggregate-result pointers valid across the
+    /// cycle. How depends on what the iterator holds:
+    ///
+    /// - A leaf whose `Rf`-dependent fields are all
+    ///   [`SharedPtr`](ref_mode::SharedPtr) (a `#[repr(transparent)]` `NonNull`)
+    ///   relabels the box as its suspended type with a pointer cast, backed by a
+    ///   compile-time proof that the two layouts match.
+    /// - A composite must first suspend each child in place with
+    ///   [`suspend_child_slot_in_place`](boxed::suspend_child_slot_in_place),
+    ///   and only then relabel the box. A bare cast would leave a type-erased
+    ///   child carrying its active vtable, and the resume would then dispatch
+    ///   through the wrong one.
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
+
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///
     /// Calls to [`read`](Self::read) and [`skip_to`](Self::skip_to) also return
@@ -321,79 +355,6 @@ pub trait RQEIterator<'index> {
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         self.read()
     }
-}
-
-/// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
-///
-/// All methods delegate through the vtable to the concrete type's implementation.
-impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for Box<I> {
-    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        (**self).current()
-    }
-
-    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read()
-    }
-
-    fn skip_to(
-        &mut self,
-        doc_id: DocId,
-    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        (**self).skip_to(doc_id)
-    }
-
-    fn rewind(&mut self) {
-        (**self).rewind()
-    }
-
-    fn num_estimated(&self) -> usize {
-        (**self).num_estimated()
-    }
-
-    fn last_doc_id(&self) -> DocId {
-        (**self).last_doc_id()
-    }
-
-    fn at_eof(&self) -> bool {
-        (**self).at_eof()
-    }
-
-    #[inline(always)]
-    fn type_(&self) -> IteratorType {
-        (**self).type_()
-    }
-
-    fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        (**self).intersection_sort_weight(prioritize_union_children)
-    }
-
-    fn reports_score_bounds(&self) -> bool {
-        (**self).reports_score_bounds()
-    }
-
-    fn current_max_score(&self) -> f64 {
-        (**self).current_max_score()
-    }
-
-    fn current_block_bound(&self) -> Option<score_bound::BlockBound> {
-        (**self).current_block_bound()
-    }
-
-    fn read_with_threshold(
-        &mut self,
-        min_competitive_score: score_bound::MinCompetitiveScore,
-    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        (**self).read_with_threshold(min_competitive_score)
-    }
-}
-
-/// Combined trait for iterators that implement both [`RQEIterator`] and
-/// [`ProfilePrint`](profile_print::ProfilePrint).
-pub trait RQEIteratorPrintable<'index>: RQEIterator<'index> + profile_print::ProfilePrint {}
-
-impl<'index, T> RQEIteratorPrintable<'index> for T where
-    T: RQEIterator<'index> + profile_print::ProfilePrint
-{
 }
 
 /// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`

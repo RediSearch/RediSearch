@@ -38,7 +38,7 @@ use ffi::{
     VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
     VecSimQueryParams, VecSimType_VecSimType_FLOAT32,
 };
-use rqe_iterators::{IdList, RQEIterator};
+use rqe_iterators::{IdList, RQEIterator, TypeErasedRQEIterator};
 use rqe_iterators_test_utils::MockExpirationChecker;
 use top_k::{Ascending, TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
@@ -166,7 +166,7 @@ fn run_rust(
     let mut source = source;
     *source.own_key = (&raw mut own_key).cast();
 
-    let child: Box<dyn RQEIterator> = Box::new(IdList::<true>::new(ids.to_vec()));
+    let child = TypeErasedRQEIterator::new(Box::new(IdList::<true>::new(ids.to_vec())));
     // Capture only the child's yielded metrics on a match, rather than
     // deep-copying its whole scoring subtree.
     let mut it = TopKIterator::new_with_mode(source, Some(child), k, Ascending, mode)

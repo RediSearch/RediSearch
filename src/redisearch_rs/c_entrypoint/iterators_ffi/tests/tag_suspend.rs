@@ -16,7 +16,7 @@ use index_result::{RSIndexResult, RSQueryTerm};
 use inverted_index::{DecodedBy, Encoder, InvertedIndex, RepairContext};
 use iterators_ffi::inverted_index::{CTagIndexLookup, TagIterator};
 use rqe_core::DocId;
-use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 use rqe_iterators_test_utils::{DocIdEncoding, GlobalGuard, TestContext};
 use rstest::rstest;
 

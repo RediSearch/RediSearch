@@ -379,7 +379,7 @@ fn union_variant_print(
 fn bare_union_variant_print() {
     fn profile<I>(it: I) -> ReplyValue
     where
-        I: rqe_iterators::RQEIteratorBoxed<'static> + ProfilePrint,
+        I: rqe_iterators::RQEIterator<'static>,
     {
         assert_suspended_prints_as_active(Box::new(it))
     }
@@ -784,8 +784,6 @@ fn numeric_variant_geo() {
 /// profile is the backend's, before and after a suspend.
 #[test]
 fn disk_wildcard_prints_its_backend() {
-    use rqe_iterators::RQEIteratorBoxed;
-
     let mut replier = init();
     let backend = rqe_iterators::id_list::IdListSorted::new(vec![1, 2, 3]);
     let expected = print(&mut replier, &backend, false);

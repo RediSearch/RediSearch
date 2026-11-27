@@ -29,7 +29,7 @@ use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
 use rqe_iterators::{
-    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
+    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError,
     RQESuspendedIterator, ResumeOutcome, Wildcard,
     c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
