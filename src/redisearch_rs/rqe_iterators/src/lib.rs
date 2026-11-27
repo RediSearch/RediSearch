@@ -42,6 +42,7 @@ pub mod expiration_checker;
 pub mod geo_shape;
 pub mod id_list;
 pub mod id_list_lazy;
+pub mod index_load;
 pub mod interop;
 pub mod intersection;
 pub mod inverted_index;

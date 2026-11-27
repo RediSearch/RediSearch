@@ -710,7 +710,9 @@ extern "C" fn current_block_bound<'index, I: RQEIteratorBoxed<'index> + 'index>(
 /// — profiling is a one-shot pass.
 ///
 /// Panics if the iterator is suspended.
-extern "C" fn rust_profile_children<'index, I>(base: *mut QueryIterator) -> *mut QueryIterator
+pub(crate) extern "C" fn rust_profile_children<'index, I>(
+    base: *mut QueryIterator,
+) -> *mut QueryIterator
 where
     I: ProfileChildren<'index> + ProfilePrint,
     I::Suspended: RQESuspendedIterator<'index, Resumed<'index> = I>,

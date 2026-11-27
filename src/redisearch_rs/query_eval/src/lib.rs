@@ -39,6 +39,7 @@ use scorers::{BuiltInScorer, RequestedScorer};
 mod config;
 mod disk;
 mod expansion;
+mod index_load;
 mod nodes;
 
 pub use config::Config;
@@ -147,8 +148,8 @@ impl<'index> Evaluated<'index> {
             Evaluated::C(it) | Evaluated::RustCompound(it) => {
                 // SAFETY: both handle variants hold a valid, owning `QueryIterator`
                 // with all required callbacks populated — `Evaluated::C` came from
-                // a C iterator constructor, `Evaluated::RustCompound` from
-                // `RQEIteratorWrapper::boxed_new_compound` — exactly the
+                // a C iterator constructor, `Evaluated::RustCompound` from an
+                // `RQEIteratorWrapper` constructor — exactly the
                 // preconditions of `CRQEIterator::new`.
                 Box::new(unsafe { CRQEIterator::new(it) })
             }
@@ -335,7 +336,7 @@ fn eval_node_with_offsets<'index>(
         QueryNode::Not => Some(not::eval(ctx, node, config)),
         QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config, offsets),
         QueryNode::Union => Some(union::eval(ctx, node, config, offsets)),
-        QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
+        QueryNode::Numeric { nf } => numeric::eval(ctx, &node, nf, config),
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
         QueryNode::Token { tok } => token::eval(ctx, &node, tok, config, offsets),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),

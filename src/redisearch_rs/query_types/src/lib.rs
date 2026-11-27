@@ -197,6 +197,10 @@ pub enum QueryNodeFlags {
     /// no explicit `AS` alias is provided for the vector score field, so
     /// the internally generated name is hidden from the user.
     HideVectorDistanceField = 0x40,
+    /// The node loads the value it matched under the alias stored in
+    /// [`QueryNodeOptions::dist_field`] (the `as` query attribute, an
+    /// unstable feature). Only set on numeric nodes.
+    LoadsValue = 0x80,
 }
 
 /// Phonetic matching mode for a query node.
@@ -244,7 +248,8 @@ pub struct QueryNodeOptions {
     /// Phonetic matching mode for this node.
     pub phonetic: PhoneticMode,
     /// Name of the distance field to emit in results (set via the
-    /// `yield_distance_as` query attribute on vector nodes). Owned
+    /// `yield_distance_as` query attribute on vector nodes), or of the value a
+    /// numeric node loads (see [`QueryNodeFlags::LoadsValue`]). Owned
     /// null-terminated C string, freed with `rm_free` when the query
     /// node is destroyed. `NULL` when no distance field is requested.
     pub dist_field: *mut c_char,

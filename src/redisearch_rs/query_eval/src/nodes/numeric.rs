@@ -18,7 +18,7 @@ use rqe_core::RS_INVALID_FIELD_INDEX;
 use rqe_iterators::build_numeric_filter_iterator;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext};
+use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, index_load};
 
 /// `QN_NUMERIC` — a numeric range filter on a numeric field.
 ///
@@ -26,10 +26,14 @@ use crate::{Config, Evaluated, QueryEvalContext};
 /// numeric iterator via [`SearchDiskHandle::new_numeric_iterator`]. Otherwise
 /// opens the field's numeric range tree and builds a union over the matching
 /// sub-ranges. Returns `None` when the field has no numeric index yet,
-/// no sub-range matches, or the disk iterator not be created
-/// (in which case the failure is reported via [`status`](QueryEvalContext::status)).
+/// no sub-range matches, or, with the failure reported via
+/// [`status`](QueryEvalContext::status), when the disk iterator cannot be
+/// created or the node's `$as` alias is rejected.
+///
+/// A node with a `$as` alias is otherwise wrapped by [`index_load::decorate`].
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
+    node: &QueryNodeRef,
     nf: &NumericFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
@@ -60,6 +64,8 @@ pub(crate) fn eval<'index>(
         );
     }
 
+    let load = index_load::reserve(ctx, node)?;
+
     // Disk-index path: when the spec is backed by an on-disk index, delegate to
     // the enterprise numeric iterator instead of opening the in-memory range
     // tree.
@@ -77,7 +83,7 @@ pub(crate) fn eval<'index>(
         // a disk index is in use; `field_index` belongs to the numeric node's
         // field spec; `view` is the disk read view taken at query start.
         return match unsafe { disk.new_numeric_iterator(nf, field_index, view) } {
-            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            Ok(it) => Some(index_load::decorate(ctx, load, Evaluated::RustLeaf(it))),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
                 // error rather than silently returning empty results.
@@ -103,5 +109,5 @@ pub(crate) fn eval<'index>(
     let iter =
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
-    iter.map(Evaluated::RustCompound)
+    iter.map(|it| index_load::decorate(ctx, load, Evaluated::RustCompound(it)))
 }

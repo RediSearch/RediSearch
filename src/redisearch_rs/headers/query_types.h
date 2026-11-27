@@ -157,6 +157,12 @@ enum QueryNodeFlags
    * the internally generated name is hidden from the user.
    */
   QueryNodeFlags_HideVectorDistanceField = 0x40,
+  /**
+   * The node loads the value it matched under the alias stored in
+   * [`QueryNodeOptions::dist_field`] (the `as` query attribute, an
+   * unstable feature). Only set on numeric nodes.
+   */
+  QueryNodeFlags_LoadsValue = 0x80,
 };
 #ifndef __cplusplus
 typedef uint32_t QueryNodeFlags;
@@ -490,7 +496,8 @@ typedef struct QueryNodeOptions {
   PhoneticMode phonetic;
   /**
    * Name of the distance field to emit in results (set via the
-   * `yield_distance_as` query attribute on vector nodes). Owned
+   * `yield_distance_as` query attribute on vector nodes), or of the value a
+   * numeric node loads (see [`QueryNodeFlags::LoadsValue`]). Owned
    * null-terminated C string, freed with `rm_free` when the query
    * node is destroyed. `NULL` when no distance field is requested.
    */

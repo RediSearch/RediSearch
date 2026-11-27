@@ -17,6 +17,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
+#include "index_loading.h"
 #include "numeric_score_source.h"
 #include "obfuscation/hidden.h"
 #include "query_error.h"
@@ -180,6 +181,13 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
 
+  // Every rewrite a numeric SORTBY enables drops the values a loading clause attaches: the numeric
+  // top-k yields results of its own. Without SORTBY the optimizer only picks the scorer.
+  if (isSortby && IndexLoading_TreeLoads(root)) {
+    opt->type = Q_OPT_NONE;
+    return;
+  }
+
   if (root->type == QN_WILDCARD) {
     opt->scorerType = SCORER_TYPE_NONE;
   }
@@ -330,7 +338,8 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
         }
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
-        if (root->type == UNION_ITERATOR) {
+        // A loading clause's decorator reports its union's type, but is not one.
+        if (root->type == UNION_ITERATOR && !IndexLoading_NodeLoads(req->ast.root)) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
