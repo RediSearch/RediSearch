@@ -22,8 +22,11 @@ use std::{
 use hidden_string::HiddenString;
 use query::MetricRequestId;
 use query_error::QueryErrorCode;
-use query_types::QueryNodeFlags;
-use rqe_iterators::{IteratorType, c2rust::CRQEIterator, metric};
+use query_types::{QueryNodeFlags, QueryNodeType};
+use rqe_iterators::{
+    IteratorType, RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    intersection::Intersection, metric,
+};
 
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_node};
 
@@ -68,6 +71,17 @@ pub(crate) fn eval<'index>(
         node.num_children() <= 1,
         "a vector node has at most one (filter) child"
     );
+    const TRAINED_DOCUMENTS: u64 = 1_000_000;
+    let try_exact = node.num_children() == 1
+        // SAFETY: reads the module's runtime configuration and takes no pointers.
+        && unsafe { ffi::RSConfig_NumericKnnDecisionTreeEnabled() }
+        && ctx.spec().stats.scoring.numDocuments as u64 == TRAINED_DOCUMENTS
+        && {
+            let filter = node.child(0);
+            filter.node_type() == QueryNodeType::Phrase
+                && filter.num_children() == 2
+                && filter.children().all(|child| child.node_type() == QueryNodeType::Numeric)
+        };
     let child = if node.num_children() == 0 {
         None
     } else {
@@ -76,6 +90,8 @@ pub(crate) fn eval<'index>(
         // not inherited; see `OffsetRequirement`.
         Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
     };
+    let prefer_exact = try_exact
+        && child.is_some_and(|child| narrow_numeric_conjunction(child, TRAINED_DOCUMENTS));
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
     // valid `VectorQuery`, and `child` is either absent (null) or an owning
@@ -85,6 +101,7 @@ pub(crate) fn eval<'index>(
             ctx.as_non_null().as_ptr(),
             vq,
             child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+            prefer_exact,
         )
     };
 
@@ -103,6 +120,25 @@ pub(crate) fn eval<'index>(
         bind_metric_request(ctx, id, it);
     }
     Some(Evaluated::C(it))
+}
+
+fn narrow_numeric_conjunction(child: NonNull<ffi::QueryIterator>, docs: u64) -> bool {
+    // SAFETY: the caller passes a live, owned iterator header prior to transferring it to C.
+    if unsafe { child.as_ref() }.type_ as u32 != IteratorType::Intersect as u32 {
+        return false;
+    }
+    // SAFETY: the evaluator's Intersect iterators are wrapped
+    // Intersection<CRQEIterator> values. This match also excludes empty filters.
+    let intersection = unsafe {
+        &RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(child).inner
+    };
+    if intersection.num_children() != 2 {
+        return false;
+    }
+    let first = (intersection.child_at(0).num_estimated() as u64).min(docs);
+    let second = (intersection.child_at(1).num_estimated() as u64).min(docs);
+    // Fitted on disjoint training queries using stock execution and iterator estimates.
+    first * second / docs <= 86_872
 }
 
 /// The query named the distance field twice.

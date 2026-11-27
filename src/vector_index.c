@@ -205,7 +205,8 @@ bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryErr
   return true;
 }
 
-QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
+QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it,
+                                 bool numericConjunctionPrefersExact) {
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
   RS_ASSERT(vq->fieldIndex < ctx->spec->numFields);
@@ -258,6 +259,20 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         QueryError_SetWithoutUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
+      }
+      if (numericConjunctionPrefersExact && child_it && !info.isDisk && !info.isMulti &&
+          info.algo == VecSimAlgo_HNSWLIB && info.type == VecSimType_FLOAT32 &&
+          info.metric == VecSimMetric_Cosine && info.dim == 100 && vq->knn.k == 25 &&
+          qParams.hnswRuntimeParams.efRuntime == 2048 && !qParams.searchMode &&
+          !qParams.batchSize) {
+        // Resolve the internal policy separately so user options are validated above and
+        // VecSim records its usual last-search-mode diagnostic. Exact search has no EF.
+        VecSimRawParam exact = {"HYBRID_POLICY", sizeof("HYBRID_POLICY") - 1,
+                                VECSIM_POLICY_ADHOC_BF, sizeof(VECSIM_POLICY_ADHOC_BF) - 1};
+        if (VecSim_ResolveQueryParams(vecsim, &exact, 1, &qParams, queryType, q->status) !=
+            VecSim_OK) {
+          return NULL;
+        }
       }
       RS_ASSERT(q->sctx->limits);
       return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,

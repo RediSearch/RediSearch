@@ -592,6 +592,8 @@ void iteratorsConfig_init(IteratorsConfig *config);
 void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
                                   const char *name);
 
+bool RSConfig_NumericKnnDecisionTreeEnabled(void);
+
 /* Caps `*timeoutMS` to RSGlobalConfig.maxForegroundTimeoutLimitMS when the
  * limit is active (workers disabled and limit > 0) and the current value
  * exceeds it. Returns true iff capping occurred, in which case `*timeoutMS`
