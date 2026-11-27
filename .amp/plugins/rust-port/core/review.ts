@@ -31,6 +31,8 @@ You cannot run commands; the plugin runs your reproductions for you.`;
 export interface Reviewer {
   name: string;
   instructions: string;
+  /** The stages it reviews; every stage when absent. */
+  stages?: Stage[];
 }
 
 /** A finding as a reviewer reported it, before the plugin checks its evidence. */
@@ -69,6 +71,10 @@ finding blocks only when the plugin confirms it: its repro patch, touching tests
 its command (one of ${runnerList(profile)}) then fails; its deletion patch, touching no test, removes more than
 it adds and every test check still passes; or it cites a rule. Anything else is a suggestion. Report each problem once; return
 {"findings": []} when there is nothing to report.`;
+
+/** The reviewers of `stage`. */
+export const reviewersOf = (profile: Pick<Profile, 'reviewers'>, stage: Stage) =>
+  profile.reviewers.filter((r) => !r.stages || r.stages.includes(stage));
 
 /** How findings, logs and thread labels name a reviewer, e.g. `swap / Correctness`. */
 export const reviewerLabel = (stage: Stage, reviewer: Reviewer) => `${stage} / ${reviewer.name}`;
@@ -232,7 +238,7 @@ export async function reviewStage<X extends object>(
   const { prior, stage, signal, timeoutMs, profile } = o;
   const message = prior && followUpBrief({ ...o, previous: prior.candidate });
   const reviews = await Promise.all(
-    profile.reviewers.map(async (reviewer) => {
+    reviewersOf(profile, stage).map(async (reviewer) => {
       const thread = prior?.reviewers.find(
         (r) => r.reviewer === reviewerLabel(stage, reviewer),
       )?.thread;

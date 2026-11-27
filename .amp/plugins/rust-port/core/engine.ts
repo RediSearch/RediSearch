@@ -41,6 +41,7 @@ import {
   outstanding,
   passed,
   previousStage,
+  unchanged,
   progressMark,
   replaceFindings,
   repliesDue,
@@ -181,7 +182,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     },
     {
       name: 'claim',
-      description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and ${profile.reviewers.length} reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
+      description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and the stage's reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
       schema: {
         type: 'object',
         properties: {
@@ -324,7 +325,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
         next &&
         candidate &&
         isAdmitted(job, stage) &&
-        job.prs[stage]?.head === candidate &&
+        (job.prs[stage]?.head === candidate || unchanged(job, stage)) &&
         (await vcs.currentRevision()) === candidate &&
         (await handOff(state, stage, next, candidate))
       ) {
@@ -378,7 +379,10 @@ export function engine<X extends object>(o: EngineOptions<X>) {
 
     // Evidence is bound to stage, candidate, base and plan; changing any misses.
     const key = `${stage}:${candidate}:${base}:${job.planHash}`;
-    if (state.evidence[key] && passed(state.evidence[key])) debug('reusing passing evidence');
+    // A stage that changes nothing has nothing to check or review, and opens no PR.
+    const empty = candidate === base;
+    if (empty) debug(`${stage} changes nothing, so it is skipped`);
+    else if (state.evidence[key] && passed(state.evidence[key])) debug('reusing passing evidence');
     else {
       const reason = stopReason(job);
       if (reason)
@@ -405,7 +409,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     await collectFeedback(state);
 
     const holding = outstanding(state).filter((f) => blocksAdmission(f, stage));
-    const admitted = passed(state.evidence[key]) && !holding.length;
+    const admitted = (empty || passed(state.evidence[key])) && !holding.length;
     debug(
       `${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`,
     );
@@ -418,7 +422,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     const big = sizeClass(size.lines);
     const result = newFindingsMessage(
       state,
-      `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
+      `${admitted ? `Stage ${stage} admitted at ${candidate}. ${empty ? 'It changes nothing, so it was skipped: it opens no PR, and the next stage opens below it.' : (job.prs[stage]?.url ?? '')}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
         `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
         (big ? ` ${big.label}: ${big.note}` : ''),
     );
@@ -468,7 +472,7 @@ export function engine<X extends object>(o: EngineOptions<X>) {
     const cancel = AbortSignal.any([signal, o.disposed]);
     const stop = AbortSignal.any([cancel, AbortSignal.timeout(timeoutMs)]);
     const env: CheckEnv = {
-      ...{ root, dir, vcs, signal: stop, judges: profile.judges, debug },
+      ...{ root, dir, vcs, signal: stop, plan: job.plan, judges: profile.judges, debug },
       vars: { CLAIM_BASE: base, CLAIM_CANDIDATE: candidate },
     };
     const planned = job.plan.stages[stage].checks;
@@ -578,11 +582,18 @@ export function engine<X extends object>(o: EngineOptions<X>) {
 
   // ## Publishing and handing on
 
-  /** Opens or updates the stage's PR, stacked on the stage before it, and answers what it fixed. */
+  /**
+   * Opens or updates the stage's PR, stacked on the closest stage before it that has one, and
+   * answers what it fixed. A stage that changes nothing has no PR to open.
+   */
   async function publish(state: State<X>, stage: Stage, candidate: string) {
     const { job } = state;
     const branch = (s: Stage) => `${job.plan.branchPrefix}-${s}`;
-    const prev = previousStage(job, stage);
+    if (unchanged(job, stage)) return void debug(`${stage} changes nothing, so it has no PR`);
+    const prev = stages
+      .slice(0, stages.indexOf(stage))
+      .reverse()
+      .find((s) => job.prs[s] && !unchanged(job, s));
     const admission = job.admitted[stage]!;
     const evidence = state.evidence[`${stage}:${candidate}:${admission.base}:${admission.plan}`];
     const reports =

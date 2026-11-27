@@ -15,7 +15,9 @@ use rqe_iterators::{
     RQEIterator, UnionFullFlat,
     profile::ProfileCounters,
     profile_print::{ProfilePrint, ProfilePrintCtx},
+    union_opaque::UnionVariant,
 };
+use rqe_iterators_test_utils::assert_suspended_prints_as_active;
 
 /// Initialize mock and return a [`Replier`] ready for use.
 fn init() -> Replier {
@@ -151,18 +153,66 @@ fn leaf_with_clock() {
 
 #[test]
 fn metric_sorted_by_id() {
-    let mut replier = init();
     let iter = rqe_iterators::metric::Metric::<true>::new(vec![1u64, 2, 3], vec![0.1, 0.2, 0.3]);
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
 #[test]
 fn metric_sorted_by_score() {
-    let mut replier = init();
     let iter = rqe_iterators::metric::Metric::<false>::new(vec![1u64, 2, 3], vec![0.1, 0.2, 0.3]);
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
+}
+
+// ── Lazy (deferred) ─────────────────────────────────────────────
+
+/// A [`Producer`](rqe_iterators::deferred::Producer) yielding `ids` with one metric each.
+fn lazy_producer(ids: Vec<u64>) -> rqe_iterators::deferred::Producer<'static> {
+    let mut ids = Some(ids);
+    Box::new(move || {
+        let ids = ids.take().expect("the producer runs once");
+        let metrics: Vec<f64> = ids.iter().map(|&id| id as f64).collect();
+        Ok(rqe_iterators::deferred::ProducedResults {
+            ids: ids.into(),
+            metrics: Some(metrics.into()),
+        })
+    })
+}
+
+#[test]
+fn id_list_lazy_after_read() {
+    let mut iter = rqe_iterators::id_list_lazy::IdListLazy::<true>::new(
+        lazy_producer(vec![1, 2, 3]),
+        3,
+        index_result::RSIndexResult::build_virt().build(),
+    );
+    assert_eq!(
+        iter.read().expect("read succeeds").map(|r| r.doc_id),
+        Some(1)
+    );
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
+    insta::assert_debug_snapshot!(reply, @r#"{"Type": "ID-LIST-SORTED"}"#);
+}
+
+#[test]
+fn metric_lazy_after_read() {
+    let mut iter = rqe_iterators::metric_lazy::MetricLazySortedById::new(
+        lazy_producer(vec![1, 2, 3]),
+        3,
+        rqe_iterators::metric::MetricType::VectorDistance,
+    );
+    assert_eq!(
+        iter.read().expect("read succeeds").map(|r| r.doc_id),
+        Some(1)
+    );
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
+    insta::assert_debug_snapshot!(reply, @r#"
+    {
+      "Type": "METRIC SORTED BY ID - VECTOR DISTANCE",
+      "Vector search mode": "RANGE_QUERY"
+    }
+    "#);
 }
 
 // ── Profile wrapper ─────────────────────────────────────────────
@@ -190,6 +240,24 @@ fn profile_wrapping_empty_after_reads() {
     let _ = iter.read();
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!("after_two_reads", reply);
+}
+
+/// Every node of an `FT.PROFILE` tree is wrapped in a [`Profile`](rqe_iterators::profile::Profile),
+/// so its counters must survive suspending it.
+#[test]
+fn profile_wrapper_suspended_after_reads() {
+    let child = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
+    let mut iter = rqe_iterators::profile::Profile::new(child);
+    assert_eq!(
+        iter.read().expect("read succeeds").map(|r| r.doc_id),
+        Some(1)
+    );
+    assert!(iter.skip_to(3).expect("skip_to succeeds").is_some());
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
+    insta::assert_debug_snapshot!(
+        reply,
+        @r#"{"Type": "ID-LIST-SORTED", "Number of reading operations": 2}"#
+    );
 }
 
 // ── Not ─────────────────────────────────────────────────────────
@@ -224,20 +292,18 @@ fn not_optimized_with_child() {
 
 #[test]
 fn optional_with_child() {
-    let mut replier = init();
     let child = rqe_iterators::Empty;
     let iter = rqe_iterators::optional::Optional::new(100, 1.0, child);
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
 #[test]
 fn optional_optimized_with_child() {
-    let mut replier = init();
     let wcii = rqe_iterators::Wildcard::new(100, 1.0);
     let child = rqe_iterators::Empty;
     let iter = rqe_iterators::optional_optimized::OptionalOptimized::new(wcii, child, 100, 1.0);
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -257,9 +323,8 @@ fn intersection_two_children() {
 #[test]
 fn union_full_print() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
-    let mut replier = init();
     let children = vec![rqe_iterators::Empty, rqe_iterators::Empty];
     let flat = UnionFullFlat::new(children);
     let iter = UnionOpaque {
@@ -267,14 +332,51 @@ fn union_full_print() {
         query_node_type: QueryNodeType::Union,
         query_string: None,
     };
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
+}
+
+/// A suspended union reaches its children through whichever variant it holds, so each variant
+/// must enumerate them as its active form does.
+#[rstest::rstest]
+#[case::flat_quick(|c| UnionVariant::FlatQuick(rqe_iterators::UnionQuickFlat::new(c)))]
+#[case::heap_full(|c| UnionVariant::HeapFull(rqe_iterators::UnionFullHeap::new(c)))]
+#[case::heap_quick(|c| UnionVariant::HeapQuick(rqe_iterators::UnionQuickHeap::new(c)))]
+#[case::trimmed(|c| UnionVariant::Trimmed(rqe_iterators::UnionTrimmed::new(c, 10, true)))]
+fn union_variant_print(
+    #[case] variant: fn(Vec<rqe_iterators::Empty>) -> UnionVariant<'static, rqe_iterators::Empty>,
+) {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::UnionOpaque;
+
+    let children = vec![
+        rqe_iterators::Empty,
+        rqe_iterators::Empty,
+        rqe_iterators::Empty,
+    ];
+    let iter = UnionOpaque {
+        variant: variant(children),
+        query_node_type: QueryNodeType::Union,
+        query_string: None,
+    };
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
+    // Every case checks the same inline snapshot, which insta rejects when the cases share a
+    // process, as they do under `cargo test`.
+    insta::allow_duplicates! {
+        insta::assert_debug_snapshot!(reply, @r#"
+        {
+          "Type": "UNION",
+          "Query type": "UNION",
+          "Child iterators": [{"Type": "EMPTY"}, {"Type": "EMPTY"}, {"Type": "EMPTY"}]
+        }
+        "#);
+    }
 }
 
 #[test]
 fn union_limited_non_union_type() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
     let mut replier = init();
     let children = vec![
@@ -299,7 +401,7 @@ fn union_limited_non_union_type() {
 #[test]
 fn union_limited_geo_prints_full() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
     let mut replier = init();
     let children = vec![rqe_iterators::Empty, rqe_iterators::Empty];
@@ -320,7 +422,7 @@ fn union_limited_geo_prints_full() {
 #[test]
 fn union_limited_lexrange_collapses() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
     let mut replier = init();
     let children = vec![rqe_iterators::Empty];
@@ -341,7 +443,7 @@ fn union_limited_lexrange_collapses() {
 #[test]
 fn union_with_query_string() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
     let mut replier = init();
     let children = vec![rqe_iterators::Empty];
@@ -359,7 +461,7 @@ fn union_with_query_string() {
 #[test]
 fn union_lexrange_with_bound() {
     use query_types::QueryNodeType;
-    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+    use rqe_iterators::union_opaque::UnionOpaque;
 
     let mut replier = init();
     let children = vec![rqe_iterators::Empty];
@@ -385,7 +487,6 @@ fn term_with_query_term() {
     use inverted_index::full::Full;
     use query_term::RSQueryTerm;
 
-    let mut replier = init();
     let flags = IndexFlags_Index_StoreFreqs
         | IndexFlags_Index_StoreTermOffsets
         | IndexFlags_Index_StoreFieldFlags
@@ -416,7 +517,8 @@ fn term_with_query_term() {
     };
     // Read once to populate the current result with the term.
     let _ = iter.read();
-    let reply = print(&mut replier, &iter, false);
+    // The term is read from the result, which suspending converts in place.
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -511,7 +613,6 @@ fn missing_without_field() {
     use ffi::IndexFlags_Index_DocIdsOnly;
     use inverted_index::doc_ids_only::DocIdsOnly;
 
-    let mut replier = init();
     let ii = inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let reader = ii.reader();
@@ -525,7 +626,7 @@ fn missing_without_field() {
             rqe_iterators::NoOpChecker,
         )
     };
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -536,7 +637,6 @@ fn missing_with_field() {
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     let _guard = GlobalGuard::default();
-    let mut replier = init();
     let ctx = TestContext::missing(1..=3);
     let ii = DocIdsOnly::from_opaque(ctx.missing_inverted_index());
     let field_index = ctx.field_spec().index;
@@ -550,7 +650,7 @@ fn missing_with_field() {
             rqe_iterators::NoOpChecker,
         )
     };
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -589,7 +689,6 @@ fn make_numeric_variant<'a>(
 
 #[test]
 fn numeric_variant_unfiltered() {
-    let mut replier = init();
     let mut idx = numeric_range_tree::NumericIndex::new(false);
     idx.add_record(
         &index_result::RSIndexResult::build_numeric(5.0)
@@ -599,13 +698,12 @@ fn numeric_variant_unfiltered() {
     let ctx = rqe_iterators_test_utils::MockContext::new(1, 1);
     let iter = make_numeric_variant(&idx, &ctx, None, 1.0, 10.0);
 
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
 #[test]
 fn numeric_variant_geo() {
-    let mut replier = init();
     let mut idx = numeric_range_tree::NumericIndex::new(false);
     idx.add_record(
         &index_result::RSIndexResult::build_numeric(5.0)
@@ -643,6 +741,6 @@ fn numeric_variant_geo() {
     };
     let iter = make_numeric_variant(&idx, &ctx, Some(&filter), se_score, nw_score);
 
-    let reply = print(&mut replier, &iter, false);
+    let reply = assert_suspended_prints_as_active(Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
