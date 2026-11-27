@@ -41,8 +41,14 @@ header_name = "language"
 [package.toksep_ffi]
 header_name = "toksep"
 
+[package.stopwords_ffi]
+header_name = "stopwords"
+
 [c]
 cpp_compat = true
+
+[header.stopwords]
+includes = ["reply.h", "redismodule.h", "rmutil/args.h"]
 
 [header.rqe_core]
 includes = ["<time.h>"]

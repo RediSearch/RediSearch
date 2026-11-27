@@ -991,77 +991,6 @@ TEST_F(RdbMockTest, testSynonymMapRdbLoadDuplicateTerms) {
   }
 }
 
-TEST_F(RdbMockTest, testStopWordListRdbRoundTrip) {
-    // A stopword list is written as a count followed by the already-folded
-    // keys, and read back without folding again — so a round trip is only an
-    // identity if the saved order and the exact key bytes both survive.
-    // Insertion order here is deliberately unsorted and mixed-script.
-    const char *terms[] = {"zebra", "apple", "שלום", "Mango"};
-    const size_t nterms = sizeof(terms) / sizeof(const char *);
-    StopWordList *sl = NewStopWordListCStr(terms, nterms);
-    ASSERT_TRUE(sl != nullptr);
-    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> slPtr(sl, [](StopWordList *sl) {
-        StopWordList_Unref(sl);
-    });
-
-    RedisModuleIO *io = RMCK_CreateRdbIO();
-    ASSERT_TRUE(io != nullptr);
-    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
-        RMCK_FreeRdbIO(io);
-    });
-
-    StopWordList_RdbSave(io, sl);
-    EXPECT_EQ(0, RMCK_IsIOError(io));
-
-    io->read_pos = 0;
-    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
-    ASSERT_TRUE(loaded != nullptr);
-    std::unique_ptr<StopWordList, std::function<void(StopWordList *)>> loadedPtr(loaded, [](StopWordList *sl) {
-        StopWordList_Unref(sl);
-    });
-    EXPECT_EQ(0, RMCK_IsIOError(io));
-
-    // Membership survives, including the folded form of the mixed-case term.
-    EXPECT_TRUE(StopWordList_Contains(loaded, "zebra", 5));
-    EXPECT_TRUE(StopWordList_Contains(loaded, "apple", 5));
-    EXPECT_TRUE(StopWordList_Contains(loaded, "mango", 5));
-    EXPECT_TRUE(StopWordList_Contains(loaded, "שלום", strlen("שלום")));
-    EXPECT_FALSE(StopWordList_Contains(loaded, "pear", 4));
-
-    // The INFO render is the observable projection of both the key bytes and
-    // their order, so comparing it either way pins the round trip whole.
-    RedisModuleInfoCtx before, after;
-    AddStopWordsListToInfo(&before, sl);
-    AddStopWordsListToInfo(&after, loaded);
-    ASSERT_EQ(before.fields.size(), 1);
-    ASSERT_EQ(after.fields.size(), 1);
-    EXPECT_EQ(before.fields[0].second, after.fields[0].second);
-}
-
-TEST_F(RdbMockTest, testStopWordListRdbLoadTruncated) {
-    // The count promises two keys but only one follows, so the read fails after
-    // the list already holds an entry. Unlike
-    // testStopWordListRdbLoadExceedsLimit, which bails before allocating
-    // anything, this reaches the cleanup path with a partially built list to
-    // free — the leak is only visible under a sanitizer, so the assertion here
-    // is just that load reports failure.
-    RedisModuleIO *io = RMCK_CreateRdbIO();
-    ASSERT_TRUE(io != nullptr);
-    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
-        RMCK_FreeRdbIO(io);
-    });
-
-    RMCK_SaveUnsigned(io, 2);
-    const char *term = "foo";
-    RMCK_SaveStringBuffer(io, term, strlen(term));
-
-    io->read_pos = 0;
-
-    StopWordList *loaded = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
-    EXPECT_TRUE(loaded == nullptr) << "Expected RDB load to fail when the payload is short";
-    EXPECT_EQ(1, RMCK_IsIOError(io));
-}
-
 TEST_F(RdbMockTest, testTrieRdbLoadMoreThan65535Elements) {
     // Test that a trie with more than 65535 (UINT16_MAX) elements can be
     // saved and loaded correctly from RDB.
@@ -1387,51 +1316,6 @@ TEST_F(RdbMockTest, testSchemaRuleDefaultLanguageRdbRoundtrip) {
         EXPECT_EQ(lang, loaded->rule->lang_default) << name;
     }
 }
-
-TEST_F(RdbMockTest, testStopWordListRdbLoadExceedsLimit) {
-    // Test that loading a stopword list with more elements than
-    // MAX_STOPWORDLIST_SIZE fails.
-    // This exercises the RDB load path in StopWordList_RdbLoad (src/stopwords.c).
-
-    RedisModuleIO *io = RMCK_CreateRdbIO();
-    std::unique_ptr<RedisModuleIO, std::function<void(RedisModuleIO *)>> ioPtr(io, [](RedisModuleIO *io) {
-        RMCK_FreeRdbIO(io);
-    });
-    ASSERT_TRUE(io != nullptr);
-
-    // Craft RDB data with elements exceeding MAX_STOPWORDLIST_SIZE
-    // RDB format for StopWordList:
-    //   1. number of elements (uint64)
-    //   2. element strings...
-
-    // Write number of elements exceeding the limit
-    uint64_t num_elements = MAX_STOPWORDLIST_SIZE + 1;
-    RMCK_SaveUnsigned(io, num_elements);
-
-    // Write some dummy stopword data to prove failure is from limit check, not EOF
-    const char *stopword = "the";
-    RMCK_SaveStringBuffer(io, stopword, strlen(stopword));
-
-    // Reset read position
-    io->read_pos = 0;
-
-    // Capture stderr to verify the error message
-    testing::internal::CaptureStderr();
-
-    // Try to load - should fail due to exceeding MAX_STOPWORDLIST_SIZE
-    StopWordList *loadedList = StopWordList_RdbLoad(io, INDEX_CURRENT_VERSION);
-    EXPECT_TRUE(loadedList == nullptr) << "Expected RDB load to fail when stopwords exceed limit";
-
-    // Verify the error message was logged to stderr
-    std::string stderr_output = testing::internal::GetCapturedStderr();
-    std::string expected = "RDB Load: Stopword list size (" +
-        std::to_string(num_elements) +
-        ") exceeds maximum allowed (" +
-        std::to_string(MAX_STOPWORDLIST_SIZE) + ")";
-    EXPECT_TRUE(stderr_output.find(expected) != std::string::npos)
-        << "Expected: " << expected << ", got: " << stderr_output;
-}
-
 
 TEST_F(RdbMockTest, testDocTableLegacyRdbLoadOverflow) {
     // Test that DocTable_LegacyRdbLoad correctly handles allocation overflow

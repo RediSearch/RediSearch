@@ -2298,6 +2298,7 @@ dependencies = [
  "sorting_vector_ffi",
  "sparse_vector_index_ffi",
  "spellcheck_dictionary_ffi",
+ "stopwords_ffi",
  "string_utils_ffi",
  "syn 2.0.118",
  "term_dictionary_ffi",
@@ -2647,6 +2648,7 @@ dependencies = [
  "rlookup",
  "rqe_core",
  "rqe_iterators",
+ "stopwords_ffi",
  "ttl_table",
  "varint_ffi",
  "workspace_hack",
@@ -2684,6 +2686,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "sparse_vector_index_ffi",
+ "stopwords_ffi",
  "toksep_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
@@ -3152,12 +3155,26 @@ dependencies = [
 name = "stopwords_bencher"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "criterion",
+ "stopwords",
+ "workspace_hack",
+]
+
+[[package]]
+name = "stopwords_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
  "ffi",
+ "proptest",
+ "rdb_io",
+ "redis-module",
  "redis_mock",
  "redisearch_rs",
  "stopwords",
+ "stopwords_ffi",
+ "thiserror",
+ "value",
  "workspace_hack",
 ]
 

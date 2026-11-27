@@ -43,6 +43,7 @@ pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
 pub use sparse_vector_index_ffi as sparse_vector_index;
 pub use spellcheck_dictionary_ffi as spellcheck_dictionary;
+pub use stopwords_ffi as stopwords;
 pub use string_utils_ffi as string_utils;
 pub use term_dictionary_ffi as term_dictionary;
 pub use term_suffix_index_ffi as term_suffix_index;

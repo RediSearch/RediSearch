@@ -61,8 +61,9 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
-    spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
-                                                         options->stopwordsLen);
+    ArgsCursor cursor;
+    ArgsCursor_InitCString(&cursor, (const char **)options->stopwords, options->stopwordsLen);
+    spec->stopwords = NewStopWordListAC(&cursor);
   }
   return spec->own_ref.rm;
 }

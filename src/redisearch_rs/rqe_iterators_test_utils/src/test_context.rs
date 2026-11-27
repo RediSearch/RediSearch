@@ -1520,7 +1520,7 @@ impl Default for GlobalGuard {
 
                 unsafe {
                     // DefaultStopWordList is allocated when calling IndexSpec_ParseC()
-                    ffi::StopWordList_FreeGlobals();
+                    stopwords_ffi::StopWordList_FreeGlobals();
                 }
 
                 // NA_rstr (the IndexError default key) is lazily allocated the

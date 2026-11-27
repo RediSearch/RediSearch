@@ -34,6 +34,7 @@ redis_reply.workspace = true
 rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterators = { path = "../rqe_iterators" }
+stopwords_ffi = { path = "../c_entrypoint/stopwords_ffi" }
 ttl_table.workspace = true
 varint_ffi = { path = "../c_entrypoint/varint_ffi" }
 workspace_hack.workspace = true

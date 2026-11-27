@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetStringNC"],
+        types: &["ArgsCursor", "ACType"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -309,6 +315,17 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/reply.h",
+        fns: &[
+            "RedisModule_Reply_SimpleStringf",
+            "RedisModule_Reply_Array",
+            "RedisModule_Reply_ArrayEnd",
+            "RedisModule_Reply_RSValue",
+        ],
+        types: &["RedisModule_Reply"],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/rlookup_load_document.h",
         fns: &["sdslen_rust"],
         types: &[],
@@ -405,17 +422,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
-        path: "src/stopwords.h",
-        fns: &[
-            "NewStopWordListCStr",
-            "StopWordList_Contains",
-            "StopWordList_Unref",
-            "StopWordList_FreeGlobals",
-        ],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/suffix.h",
         fns: &[
             "Suffix_IterateContains",
@@ -427,6 +433,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         types: &["SuffixCtx", "SuffixType"],
         vars: &["SUFFIX_STARRED_ANCHOR_PENALTY"],
+    },
+    HeaderAllowlist {
+        path: "src/util/hash/hash.h",
+        fns: &["Sha1_ComputeValue", "Sha1_UpdateU64", "Sha1_UpdateBuffer"],
+        types: &["Sha1Context"],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/tag_index.h",
@@ -681,6 +693,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "types_ffi.h",
     // TAG GC walks the C TagIndex values trie directly.
     "triemap_ffi.h",
+    // `src/tokenize.h` includes the stopword list declarations.
+    "stopwords.h",
     // `aggregate.h` includes `value_ffi.h`.
     "value_ffi.h",
     // `src/byte_offsets.h` defines `static inline` functions that call

@@ -34,6 +34,7 @@ extern crate search_result_ffi as _;
 extern crate slots_tracker_ffi as _;
 extern crate sorting_vector_ffi as _;
 extern crate sparse_vector_index_ffi as _;
+extern crate stopwords_ffi as _;
 extern crate toksep_ffi as _;
 extern crate triemap_ffi as _;
 extern crate ttl_table_ffi as _;
