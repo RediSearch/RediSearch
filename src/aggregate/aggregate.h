@@ -181,6 +181,8 @@ typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN, COMMAND_HYBRI
 typedef struct RequestSyncCtx {
   // Timeout signaling flag set by timeout callback on main thread
   RS_Atomic(bool) timedOut;
+  // Execution can stop while PROFILE still owns a reply and collects diagnostics.
+  RS_Atomic(bool) executionTimedOut;
   // Reference count for shared ownership between timeout callback (main thread) and background thread
   uint8_t refcount;
 
@@ -212,6 +214,7 @@ typedef struct RequestSyncCtx {
 // Initialize a RequestSyncCtx with default values
 static inline void RequestSyncCtx_Init(RequestSyncCtx *ctx) {
   ctx->timedOut = false;
+  ctx->executionTimedOut = false;
   ctx->refcount = 1;
   ctx->requiresAggregateResultsSync = false;
   ctx->aggregatingResults = false;
@@ -229,9 +232,11 @@ static inline bool RequestSyncCtx_GetTimedOut(RequestSyncCtx *ctx) {
 }
 static inline void RequestSyncCtx_SetTimedOut(RequestSyncCtx *ctx) {
   RS_AtomicBoolStoreRelaxed(&ctx->timedOut, true);
+  RS_AtomicBoolStoreRelaxed(&ctx->executionTimedOut, true);
 }
 static inline void RequestSyncCtx_ClearTimedOut(RequestSyncCtx *ctx) {
   RS_AtomicBoolStoreRelaxed(&ctx->timedOut, false);
+  RS_AtomicBoolStoreRelaxed(&ctx->executionTimedOut, false);
 }
 
 // Release resources owned by a RequestSyncCtx. Must be called exactly once
@@ -589,6 +594,12 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r);
 static inline bool AREQ_TimedOut(AREQ *req) {
   return RequestSyncCtx_GetTimedOut(&req->syncCtx);
 }
+static inline bool AREQ_ExecutionTimedOut(AREQ *req) {
+  return AREQ_TimedOut(req) || RS_AtomicBoolLoadRelaxed(&req->syncCtx.executionTimedOut);
+}
+
+void AREQ_ProfileTimeout(void *data);
+
 static inline void AREQ_SetTimedOut(AREQ *req) {
   RequestSyncCtx_SetTimedOut(&req->syncCtx);
 }

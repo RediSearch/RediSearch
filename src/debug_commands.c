@@ -10,6 +10,7 @@
 #include "commands.h"
 #include "types_ffi.h"
 #include "debug_commands.h"
+#include "util/profile_timeout.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "indexes_scanner.h"
@@ -3192,6 +3193,28 @@ DEBUG_COMMAND(setCursorReadSize) {
 /**
  * FT.DEBUG QUERY_CONTROLLER <command> [options]
  */
+#ifdef ENABLE_ASSERT
+static size_t profileTimeoutCount = 0;
+static ProfileTimeout *profileTimeouts = NULL;
+
+void ProfileTimeoutDebug_Register(RedisModuleCtx *ctx, ProfileTimeout *timeout) {
+  timeout->clientId = RedisModule_GetClientId(ctx);
+  timeout->next = profileTimeouts;
+  profileTimeouts = timeout;
+}
+
+void ProfileTimeoutDebug_Unregister(ProfileTimeout *timeout) {
+  ProfileTimeout **entry = &profileTimeouts;
+  while (*entry && *entry != timeout) entry = &(*entry)->next;
+  if (*entry) *entry = timeout->next;
+  timeout->next = NULL;
+}
+
+void ProfileTimeoutDebug_Increment(void) {
+  ++profileTimeoutCount;
+}
+#endif
+
 DEBUG_COMMAND(queryController) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -3268,6 +3291,23 @@ DEBUG_COMMAND(queryController) {
   }
   if (!strcmp("SET_HYBRID_STORE_CURSORS_RESUME", op)) {
     return setHybridStoreCursorsResume(ctx, argv + 1, argc - 1);
+  }
+  if (argc == 4 && !strcmp(op, "FIRE_PROFILE_TIMEOUT")) {
+    long long clientId;
+    if (RedisModule_StringToLongLong(argv[3], &clientId) != REDISMODULE_OK || clientId < 0) {
+      return RedisModule_ReplyWithError(ctx, "Invalid client ID");
+    }
+    for (ProfileTimeout *timer = profileTimeouts; timer; timer = timer->next) {
+      if (timer->clientId == (unsigned long long)clientId) {
+        ProfileTimeout_Stop(ctx, timer);
+        ProfileTimeout_Fire(ctx, timer);
+        return RedisModule_ReplyWithLongLong(ctx, 1);
+      }
+    }
+    return RedisModule_ReplyWithLongLong(ctx, 0);
+  }
+  if (argc == 3 && !strcmp(op, "GET_PROFILE_TIMEOUT_COUNT")) {
+    return RedisModule_ReplyWithLongLong(ctx, profileTimeoutCount);
   }
 #endif
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'QUERY_CONTROLLER'");

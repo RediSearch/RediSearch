@@ -70,7 +70,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && AREQ_TimedOut(areq)) {
+    if (areq && AREQ_ExecutionTimedOut(areq)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -99,7 +99,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a main-thread timeout flag at the row boundary: buffering
      // stages (safe loader, sorter yield) can keep emitting from internal
      // buffers without re-touching upstream's per-row timeout check.
-     if (areq && AREQ_TimedOut(areq)) {
+     if (areq && AREQ_ExecutionTimedOut(areq)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -117,7 +117,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
      // Check timeout after aggregation
-     if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
+     if ((ctx->areq && AREQ_ExecutionTimedOut(ctx->areq)) ||
+         (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
