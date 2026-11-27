@@ -314,7 +314,9 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
   }
 
 #ifdef ENABLE_ASSERT
-  if (req->encodeReplyInBackground) {
+  if (req->encodeReplyInBackground ||
+      (IsProfile(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+       (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND))) {
     // Pause after a row is encoded; signaling disarms the hook for later rows.
     SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE
                                       : SYNC_POINT_DURING_BACKGROUND_REPLY_ENCODE);
@@ -557,7 +559,9 @@ typedef struct {
 static bool handleSendChunkError(AREQ *req, RedisModule_Reply *reply,
   QueryProcessingCtx *qctx, int rc) {
 #ifdef ENABLE_ASSERT
-  if (req->encodeReplyInBackground) {
+  if (req->encodeReplyInBackground ||
+      (IsProfile(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+       (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND))) {
     SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE
                                       : SYNC_POINT_BEFORE_BACKGROUND_REPLY_ENCODE);
   }
@@ -1068,7 +1072,9 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   }
 
 #ifdef ENABLE_ASSERT
-  if (req->encodeReplyInBackground) {
+  if (req->encodeReplyInBackground ||
+      (IsProfile(req) && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+       (req->reqflags & QEXEC_F_RUN_IN_BACKGROUND))) {
     SyncPoint_Wait(IsCoordinator(req) ? SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE
                                       : SYNC_POINT_AFTER_BACKGROUND_REPLY_ENCODE);
   }
@@ -1604,6 +1610,8 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   }
 
   ApplyProfileOptions(AREQ_QueryProcessingCtx(r), &r->reqflags, profileOptions);
+  r->reqConfig.timeoutPolicy =
+      Profile_ResolveTimeoutPolicy(r->reqConfig.timeoutPolicy, IsProfile(r));
 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
@@ -2003,6 +2011,9 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     RSTimeoutPolicy policy = r->reqConfig.timeoutPolicy;
 
     // Determine timeout and reply callbacks based on policy.
+    if (IsProfile(r)) {
+      blockClientCtx.disconnectCallback = QueryDisconnectCallback;
+    }
     if (policy != TimeoutPolicy_Return) {
       blockClientCtx.disconnectCallback = QueryDisconnectCallback;
       if (policy == TimeoutPolicy_Fail) {

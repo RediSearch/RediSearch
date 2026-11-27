@@ -813,15 +813,45 @@ class TestCoordinatorTimeout:
     def test_fail_timeout_aggregate(self):
         self._test_fail_timeout_impl(['FT.AGGREGATE', 'idx', '*'])
 
-    def test_fail_timeout_profile_search(self):
-        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
+    def _test_profile_uses_return(self, command):
+        """PROFILE does not install a FAIL callback while queued on the coordinator."""
+        env = self.env
+        prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+        results, errors = [], []
 
-    def test_fail_timeout_profile_aggregate(self):
-        self._test_fail_timeout_impl(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'],
-                                     allow_timeout_warning=True)
+        def query():
+            try:
+                results.append(env.cmd(*command, 'TIMEOUT', 0))
+            except Exception as error:
+                errors.append(error)
 
-    def test_fail_timeout_wakes_profile_reply_wait(self):
-        """FAIL releases the worker even while a shard's final profile is missing."""
+        thread = threading.Thread(target=query, daemon=True)
+        env.expect(debug_cmd(), 'COORD_THREADS', 'PAUSE').ok()
+        try:
+            thread.start()
+            client_id = wait_for_blocked_query_client(env, 'FT.PROFILE')
+            env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(0)
+            env.assertEqual(results, [])
+            env.assertEqual(errors, [])
+        finally:
+            env.cmd(debug_cmd(), 'COORD_THREADS', 'RESUME')
+            thread.join(timeout=10)
+            env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
+        env.assertFalse(thread.is_alive())
+        env.assertEqual(errors, [])
+        env.assertEqual(len(results), 1, message=results)
+        if results:
+            env.assertContains('Profile', results[0], message=results)
+
+    def test_fail_profile_search_uses_return(self):
+        self._test_profile_uses_return(['FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*'])
+
+    def test_fail_profile_aggregate_uses_return(self):
+        self._test_profile_uses_return(['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*'])
+
+    def test_disconnect_wakes_profile_reply_wait(self):
+        """Disconnect releases a RETURN-semantics profile waiting for a shard."""
         env = self.env
         skipIfNoEnableAssert(env)
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
@@ -868,17 +898,16 @@ class TestCoordinatorTimeout:
             # Let the worker consume queued replies and enter the channel wait.
             # Cancelling at the sync point only tests the flag check before sleeping.
             time.sleep(0.1)
-            env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+            env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
             thread.join(timeout=5)
             env.assertFalse(thread.is_alive())
             env.assertEqual(results, [])
             env.assertEqual(len(errors), 1, message=errors)
             if errors:
-                env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
-                env.assertContains(TIMEOUT_ERROR, str(errors[0]))
+                env.assertTrue(isinstance(errors[0], ConnectionError), message=errors)
             wait_for_condition(
                 lambda: (getCoordThpoolStats(env)['totalJobsDone'] > jobs_done, {}),
-                'FAIL timeout left the worker waiting for the paused shard', timeout=5)
+                'Disconnect left the worker waiting for the paused shard', timeout=5)
         finally:
             shard.resume()
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encode_point)
@@ -887,13 +916,13 @@ class TestCoordinatorTimeout:
             env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
             env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
-    def test_fail_timeout_profile_hybrid(self):
-        self._test_fail_timeout_impl([
+    def test_fail_profile_hybrid_uses_return(self):
+        self._test_profile_uses_return([
             'FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec
-        ], allow_timeout_warning=True)
+        ])
 
     def test_fail_timeout_hybrid(self):
         self._test_fail_timeout_impl([
@@ -8897,7 +8926,31 @@ def test_background_fail_cursor_protocol_switch():
 def _assert_background_fail_late_error(env, command):
     # A late expression error must replace the complete chunk, including rows
     # already collected successfully. An array containing an error is not enough.
-    env.expect(*command).error().contains('SEARCH_NUMERIC_VALUE_INVALID')
+    if command[0] == 'FT.PROFILE':
+        from test_profile_return import _results
+
+        def normalize(value):
+            if isinstance(value, ResponseError):
+                return str(value)
+            if isinstance(value, dict):
+                return {key: normalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            return value
+
+        replies = []
+        try:
+            for policy in ('RETURN', 'FAIL'):
+                run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', policy)
+                try:
+                    replies.append(normalize(_results(env, env.cmd(*command), hybrid=True)))
+                except ResponseError as error:
+                    replies.append(str(error))
+            env.assertEqual(replies[1], replies[0], message=str(command))
+        finally:
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
+    else:
+        env.expect(*command).error().contains('SEARCH_NUMERIC_VALUE_INVALID')
     env.assertTrue(env.cmd('PING'))
     info = env.cmd('FT.INFO', 'idx')
     if isinstance(info, list):
@@ -8995,7 +9048,7 @@ def _exercise_background_fail_timeout(stage):
         waitForIndex(env, 'hybrid_idx')
 
         for kind in ('search', 'aggregate', 'cursor_initial', 'cursor_read',
-                     'hybrid', 'hybrid_profile'):
+                     'hybrid'):
             # The real blocked-client deadline expires while the hook remains armed.
             timeout = 1000
             aggregate = ['FT.AGGREGATE', 'idx', '*', 'TIMEOUT', timeout,
@@ -9008,7 +9061,7 @@ def _exercise_background_fail_timeout(stage):
                 command = aggregate
             elif kind == 'cursor_initial':
                 command = [*aggregate, 'WITHCURSOR', 'COUNT', 2]
-            elif kind in ('hybrid', 'hybrid_profile'):
+            elif kind in ('hybrid'):
                 command = (['FT.PROFILE', 'hybrid_idx', 'HYBRID', 'QUERY']
                            if kind == 'hybrid_profile' else ['FT.HYBRID', 'hybrid_idx'])
                 command += ['SEARCH', '*', 'VSIM', '@embedding', '$BLOB',
@@ -9268,6 +9321,8 @@ def _exercise_cancellation(protocol, cancellation):
         point = f'{stage}CoordBackgroundReplyEncode'
         for kind in ('aggregate', 'profile', 'withcount', 'cursor_initial', 'cursor_read',
                      'withcount_cursor_initial', 'withcount_cursor_read', 'hybrid', 'hybrid_profile'):
+            if kind in ('profile', 'hybrid_profile') and cancellation != 'disconnect':
+                continue
             timeout = 1000 if cancellation == 'deadline' else 10000
             command = _aggregate(timeout, withcount=kind.startswith('withcount'))
             baseline = _background_fail_cursor_total(env)
@@ -9589,7 +9644,7 @@ def test_last_hybrid_cursor_return_strict_timeout_before_worker_cleanup():
     _test_last_hybrid_cursor_read_timeout('RETURN-STRICT')
 
 
-def _coord_profile_timeout_before_fanout(protocol):
+def _coord_profile_disconnect_before_fanout(protocol):
     env = _new_env(protocol)
     point = 'BeforeRPNetStart'
     encoded = 'AfterCoordBackgroundReplyEncode'
@@ -9617,23 +9672,21 @@ def _coord_profile_timeout_before_fanout(protocol):
             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1,
                      {'results': results, 'errors': errors}),
             'PROFILE did not pause before RPNet iterator creation', timeout=5)
-        # The hook releases on timeout. The worker must finish profiling with
+        # The hook releases on cancellation. The worker must finish profiling with
         # no MR iterator, even though Redis will discard the encoded reply.
-        env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+        env.expect('CLIENT', 'KILL', 'ID', client_id).equal(1)
         thread.join(timeout=5)
         env.assertFalse(thread.is_alive())
         env.assertEqual(results, [])
         env.assertEqual(len(errors), 1, message=errors)
-        env.assertTrue(isinstance(errors[0], ResponseError), message=errors)
-        env.assertContains(TIMEOUT_ERROR, str(errors[0]))
-        # The timeout reply arrives before the worker finishes. Wait past
+        env.assertTrue(isinstance(errors[0], ConnectionError), message=errors)
+        # The disconnect arrives before the worker finishes. Wait past
         # PROFILE serialization so PING cannot pass before the crashing access.
         wait_for_condition(
             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', encoded) == 1, {}),
-            'PROFILE worker did not finish encoding after timeout', timeout=5)
+            'PROFILE worker did not finish encoding after disconnect', timeout=5)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encoded)
-        env.assertTrue(client.ping())
-        env.assertEqual(client.client_id(), client_id)
+        env.assertTrue(env.cmd('PING'))
     finally:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', encoded)
@@ -9644,12 +9697,12 @@ def _coord_profile_timeout_before_fanout(protocol):
 
 
 @skip(cluster=False)
-def test_coord_profile_timeout_before_fanout_resp2():
-    """RESP2 PROFILE survives timeout before its RPNet iterator exists."""
-    _coord_profile_timeout_before_fanout(2)
+def test_coord_profile_disconnect_before_fanout_resp2():
+    """RESP2 PROFILE survives disconnect before its RPNet iterator exists."""
+    _coord_profile_disconnect_before_fanout(2)
 
 
 @skip(cluster=False)
-def test_coord_profile_timeout_before_fanout_resp3():
-    """RESP3 PROFILE survives timeout before its RPNet iterator exists."""
-    _coord_profile_timeout_before_fanout(3)
+def test_coord_profile_disconnect_before_fanout_resp3():
+    """RESP3 PROFILE survives disconnect before its RPNet iterator exists."""
+    _coord_profile_disconnect_before_fanout(3)
