@@ -348,6 +348,43 @@ TEST_F(ScoreThresholdChainTest, sortBySorterPassesNone) {
   EXPECT_EQ(thresholdReads, 0);
 }
 
+// A descending sort on the key the scorer writes the score to is a sort by score, so its heap
+// minimum is published as for a score sorter.
+TEST_F(ScoreThresholdChainTest, sortByTheScoreFieldPublishesItsMinimum) {
+  const size_t n = 20, k = 5;
+  pushIndex(n);
+  const RLookupKey *key = RLookup_GetKey_Write(&lookup, "__score", RLOOKUP_F_NOFLAGS);
+  ExtScoringFunctionCtx funcs = {.sf = scoreByDocId};
+  ScoringFunctionArgs args = {};
+  push(RPScorer_New(&funcs, &args, key));
+  uint64_t descending = SORTASCMAP_INIT;
+  SORTASCMAP_SETDESC(descending, 0);
+  ResultProcessor *sorter = RPSorter_NewByFields(k, &key, 1, descending);
+  RPSorter_PublishScoreFieldThreshold(sorter, key);
+  push(sorter);
+  drain();
+  EXPECT_EQ(thresholdReads, n - k + 1);
+  EXPECT_EQ(lastThreshold, (double)(n - k + 1));
+}
+
+// The sort key must be the one the scorer in the chain writes: a field the scorer does not write
+// can hold anything, so its heap minimum bounds nothing.
+TEST_F(ScoreThresholdChainTest, sortByAFieldTheScorerDoesNotWritePassesNone) {
+  pushIndex(20);
+  const RLookupKey *scoreKey = RLookup_GetKey_Write(&lookup, "__score", RLOOKUP_F_NOFLAGS);
+  const RLookupKey *other = RLookup_GetKey_Write(&lookup, "other", RLOOKUP_F_NOFLAGS);
+  ExtScoringFunctionCtx funcs = {.sf = scoreByDocId};
+  ScoringFunctionArgs args = {};
+  push(RPScorer_New(&funcs, &args, scoreKey));
+  uint64_t descending = SORTASCMAP_INIT;
+  SORTASCMAP_SETDESC(descending, 0);
+  ResultProcessor *sorter = RPSorter_NewByFields(5, &other, 1, descending);
+  RPSorter_PublishScoreFieldThreshold(sorter, other);
+  push(sorter);
+  drain();
+  EXPECT_EQ(thresholdReads, 0);
+}
+
 TEST_F(ScoreThresholdChainTest, heapThatNeverFillsPassesNone) {
   pushIndex(4);
   push(newScorer());

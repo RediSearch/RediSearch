@@ -231,6 +231,14 @@ ResultProcessor *RPMetricsLoader_New();
 ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
 
 /**
+ * Let a field sorter built with the single descending key `scoreKey` publish its heap minimum as
+ * the pipeline's `minCompetitiveScore`, as a score sorter does. The caller guarantees that no
+ * earlier plan step writes `scoreKey`. The sorter still publishes only once the chain to the index
+ * keeps the threshold valid and holds the scorer writing `scoreKey` as the row's score.
+ */
+void RPSorter_PublishScoreFieldThreshold(ResultProcessor *rp, const RLookupKey *scoreKey);
+
+/**
  * Creates a sorter result processor that sorts by score.
  * @param scoreTieBreakKey if non-NULL, score ties break by this key's value, not the doc id.
  * @param scoreSkipping whether a full heap may publish its minimum as the pipeline's
