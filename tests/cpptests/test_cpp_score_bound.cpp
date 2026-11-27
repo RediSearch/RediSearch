@@ -430,3 +430,161 @@ TEST_F(ScoreThresholdIndexTest, nanThresholdTakesThePlainRead) {
   EXPECT_EQ(thresholdReads, 0);
   EXPECT_GT(mock->readCount, 0);
 }
+
+/****************************** composites over blocked C leaves ******************************/
+
+// A C leaf over dense runs of doc ids, one run per storage block, every document of a block
+// scoring the block's score. It reports every score-bound hook and records the documents it
+// positions on; blocks a skip jumps over are not visited.
+class BlockedLeaf {
+ public:
+  struct Block {
+    t_docId first, last;
+    double score;
+  };
+
+  QueryIterator base;
+  std::vector<Block> blocks;
+  size_t block = 0;
+  std::vector<t_docId> visited;
+  size_t thresholdedReads = 0;
+
+  explicit BlockedLeaf(std::vector<Block> blocks) : base{}, blocks(std::move(blocks)) {
+    base.type = MAX_ITERATOR;
+    base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+    base.Read = [](QueryIterator *it) { return self(it)->land(it->lastDocId + 1); };
+    base.SkipTo = [](QueryIterator *it, t_docId target) {
+      const IteratorStatus rc = self(it)->land(target);
+      return rc == ITERATOR_OK && it->lastDocId != target ? ITERATOR_NOTFOUND : rc;
+    };
+    base.ReadWithThreshold = [](QueryIterator *it, double minCompetitiveScore) {
+      self(it)->thresholdedReads++;
+      IteratorStatus rc;
+      do {
+        rc = it->Read(it);
+      } while (rc == ITERATOR_OK && it->CurrentMaxScore(it) < minCompetitiveScore);
+      return rc;
+    };
+    base.NumEstimated = [](const QueryIterator *it) {
+      size_t n = 0;
+      for (const Block &b : self(it)->blocks) n += b.last - b.first + 1;
+      return n;
+    };
+    base.Rewind = [](QueryIterator *it) {
+      self(it)->block = 0;
+      it->lastDocId = it->current->docId = 0;
+      it->atEOF = false;
+    };
+    base.Revalidate = [](QueryIterator *, IndexSpec *) { return VALIDATE_OK; };
+    base.Free = [](QueryIterator *it) { delete self(it); };
+    base.Suspend = Default_Suspend;
+    base.ReportsScoreBounds = [](const QueryIterator *) { return true; };
+    base.CurrentMaxScore = [](const QueryIterator *it) {
+      return self(it)->positioned() ? self(it)->blocks[self(it)->block].score : INFINITY;
+    };
+    base.CurrentBlockBound = [](const QueryIterator *it, t_docId *lastDocId, double *maxScore) {
+      if (!self(it)->positioned()) return false;
+      const Block &b = self(it)->blocks[self(it)->block];
+      *lastDocId = b.last;
+      *maxScore = b.score;
+      return true;
+    };
+  }
+
+  ~BlockedLeaf() {
+    IndexResult_Free(base.current);
+  }
+
+ private:
+  static BlockedLeaf *self(QueryIterator *it) {
+    return reinterpret_cast<BlockedLeaf *>(it);
+  }
+  static const BlockedLeaf *self(const QueryIterator *it) {
+    return reinterpret_cast<const BlockedLeaf *>(it);
+  }
+
+  bool positioned() const {
+    return base.lastDocId != 0 && !base.atEOF;
+  }
+
+  // Positions on the first document at or after `target`.
+  IteratorStatus land(t_docId target) {
+    if (base.atEOF) return ITERATOR_EOF;
+    while (block < blocks.size() && blocks[block].last < target) block++;
+    if (block == blocks.size()) {
+      base.atEOF = true;
+      return ITERATOR_EOF;
+    }
+    const t_docId id = std::max(target, blocks[block].first);
+    base.lastDocId = base.current->docId = id;
+    visited.push_back(id);
+    return ITERATOR_OK;
+  }
+};
+
+static std::vector<t_docId> idRange(t_docId first, t_docId last) {
+  std::vector<t_docId> ids;
+  for (t_docId id = first; id <= last; id++) ids.push_back(id);
+  return ids;
+}
+
+static QueryIterator **childArray(std::initializer_list<BlockedLeaf *> leaves) {
+  QueryIterator **its = (QueryIterator **)rm_malloc(leaves.size() * sizeof(*its));
+  size_t i = 0;
+  for (BlockedLeaf *leaf : leaves) its[i++] = &leaf->base;
+  return its;
+}
+
+using ScoreBoundCompositeTest = EmptyIndexTest;
+
+// The index RP reads a Rust intersection of C leaves with the threshold; the intersection skips
+// the weak window of its leading leaf and gives its children plain reads only.
+TEST_F(ScoreBoundCompositeTest, intersectionSkipsWindowsThroughTheIndexRP) {
+  auto *a = new BlockedLeaf({{1, 10, 1.0}, {11, 20, 3.0}});
+  auto *b = new BlockedLeaf({{1, 20, 1.0}});
+  QueryIterator *root = NewIntersectionIterator(childArray({a, b}), 2, -1, false, 1.0);
+  ASSERT_TRUE(root->ReportsScoreBounds(root));
+
+  nextWithThreshold(root, 3.0);
+
+  std::vector<t_docId> expected = {1, 2};
+  for (t_docId id : idRange(11, 20)) expected.push_back(id);
+  EXPECT_EQ(a->visited, expected);
+  EXPECT_EQ(a->thresholdedReads + b->thresholdedReads, 0);
+}
+
+// The same through a Rust union of C leaves, flat and heap.
+TEST_F(ScoreBoundCompositeTest, unionSkipsWindowsThroughTheIndexRP) {
+  for (uint32_t minUnionIterHeap : {UINT32_MAX, 0u}) {
+    SCOPED_TRACE(minUnionIterHeap);
+    if (rp) {
+      rp->Free(rp);
+      rp = nullptr;
+      qctx = {};
+    }
+    // `far` positions on its only document up front, so the union's window covers both leaves.
+    auto *far = new BlockedLeaf({{40, 40, 0.0}});
+    auto *a = new BlockedLeaf({{1, 4, 1.0}, {5, 8, 1.0}, {9, 12, 4.0}});
+    IteratorsConfig config{};
+    config.minUnionIterHeap = minUnionIterHeap;
+    QueryIterator *root =
+        NewUnionIterator(childArray({far, a}), 2, false, 1.0, QN_UNION, NULL, &config);
+    ASSERT_TRUE(root->ReportsScoreBounds(root));
+
+    nextWithThreshold(root, 3.0);
+
+    EXPECT_EQ(a->visited, (std::vector<t_docId>{1, 5, 9, 10, 11, 12}));
+    EXPECT_EQ(a->thresholdedReads + far->thresholdedReads, 0);
+  }
+}
+
+// Without a threshold the same intersection visits every document.
+TEST_F(ScoreBoundCompositeTest, plainNextSkipsNothing) {
+  auto *a = new BlockedLeaf({{1, 10, 1.0}, {11, 20, 3.0}});
+  auto *b = new BlockedLeaf({{1, 20, 1.0}});
+  QueryIterator *root = NewIntersectionIterator(childArray({a, b}), 2, -1, false, 1.0);
+
+  next(root);
+
+  EXPECT_EQ(a->visited, idRange(1, 20));
+}
