@@ -136,7 +136,7 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
   case JSONType_Object:
     if (fieldType == INDEXFLD_T_GEOMETRY || fieldType == INDEXFLD_T_SPARSE_VECTOR) {
       // A GEOSHAPE field can be represented as GEOJSON "geoshape" object, and a SPARSEVECTOR
-      // field as an {"indices": [...], "values": [...]} object
+      // field as an {"indices": [...], "values": [...]} or {"<dim_id>": weight, ...} object
       rv = REDISMODULE_OK;
     } else {
       // The sparse wording only once the feature is enabled: with ENABLE_UNSTABLE_FEATURES off
@@ -684,6 +684,21 @@ int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentFiel
   }
 }
 
+/* Read a JSON number as a sparse vector weight. Finiteness is checked when the field is indexed,
+ * as for HASH. */
+static int JSON_ReadSparseWeight(RedisJSON value, float *weight) {
+  double d;
+  if (japi->getDouble(value, &d) != REDISMODULE_OK) {
+    long long ll;
+    if (japi->getInt(value, &ll) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+    d = (double)ll;
+  }
+  *weight = (float)d;
+  return REDISMODULE_OK;
+}
+
 /* Read one of the two arrays of a sparse vector object into the `(u32, f32)` pairs of `blob`,
  * at `offset` (0 for the dimension ID, 4 for the weight) of each 8-byte pair. Allocates `*blob`
  * for `len` pairs on first use, and checks every array has the same length. */
@@ -723,17 +738,9 @@ static int JSON_ReadSparseVectorArray(RedisJSON arr, bool isIndices, char **blob
         memcpy(slot, &v, sizeof(v));  // the blob is little-endian, as is every supported target
       }
     } else {
-      double d;
-      if (japi->getDouble(*element, &d) != REDISMODULE_OK) {
-        long long ll;
-        if (japi->getInt(*element, &ll) != REDISMODULE_OK) {
-          rv = REDISMODULE_ERR;
-        } else {
-          d = (double)ll;
-        }
-      }
+      float f;
+      rv = JSON_ReadSparseWeight(*element, &f);
       if (rv == REDISMODULE_OK) {
-        float f = (float)d;
         memcpy(slot, &f, sizeof(f));
       }
     }
@@ -747,13 +754,10 @@ static int JSON_ReadSparseVectorArray(RedisJSON arr, bool isIndices, char **blob
   return rv;
 }
 
-/* Store a JSON sparse vector, `{"indices": [...], "values": [...]}`, in the HASH value encoding:
- * little-endian `(u32 dim_id, f32 weight)` pairs. The values themselves are checked when the
- * field is indexed, as for HASH. */
-static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
-                                            QueryError *status) {
-  char *blob = NULL;
-  size_t numPairs = 0;
+/* Read the array form, `{"indices": [...], "values": [...]}`. Any other key is rejected, so an
+ * object is never half one form and half the other. */
+static int JSON_ReadSparseVectorIndicesValues(RedisJSON obj, char **blob, size_t *numPairs,
+                                              QueryError *status) {
   bool hasIndices = false, hasValues = false;
   int rv = REDISMODULE_OK;
 
@@ -765,10 +769,15 @@ static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField 
     const char *key = RedisModule_StringPtrLen(keyName, &klen);
     if (STR_EQ(key, klen, "indices")) {
       hasIndices = true;
-      rv = JSON_ReadSparseVectorArray(*value_ptr, true, &blob, &numPairs, status);
+      rv = JSON_ReadSparseVectorArray(*value_ptr, true, blob, numPairs, status);
     } else if (STR_EQ(key, klen, "values")) {
       hasValues = true;
-      rv = JSON_ReadSparseVectorArray(*value_ptr, false, &blob, &numPairs, status);
+      rv = JSON_ReadSparseVectorArray(*value_ptr, false, blob, numPairs, status);
+    } else {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_BAD_VAL,
+          "Sparse vector object with `indices` and `values` cannot have other keys");
+      rv = REDISMODULE_ERR;
     }
     RedisModule_FreeString(NULL, keyName);
   }
@@ -779,6 +788,119 @@ static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField 
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL,
                         "Sparse vector object must have `indices` and `values` arrays");
     rv = REDISMODULE_ERR;
+  }
+  return rv;
+}
+
+/* Parse a map key as a dimension ID. Only the canonical decimal form is accepted (no sign, no
+ * leading zero), so two distinct keys of an object can never name the same dimension. */
+static bool JSON_ParseSparseDimKey(const char *key, size_t len, uint32_t *id) {
+  if (len == 0 || (len > 1 && key[0] == '0')) {
+    return false;
+  }
+  uint64_t v = 0;
+  for (size_t i = 0; i < len; ++i) {
+    if (key[i] < '0' || key[i] > '9') {
+      return false;
+    }
+    v = v * 10 + (uint64_t)(key[i] - '0');
+    if (v > UINT32_MAX) {
+      return false;
+    }
+  }
+  *id = (uint32_t)v;
+  return true;
+}
+
+static int cmpSparsePairByDimId(const void *a, const void *b) {
+  uint32_t x, y;
+  memcpy(&x, a, sizeof(x));
+  memcpy(&y, b, sizeof(y));
+  return (x > y) - (x < y);
+}
+
+/* Read the map form, `{"331": 0.5, "14136": 0.7}`. Key order carries no meaning in a JSON
+ * object, so the pairs are sorted into the strictly increasing order the index requires.
+ *
+ * The shape is only known once a key is read, so this reader is tried first: at an `indices` or
+ * `values` key it stops, frees `*blob`, and sets `*isArraysShape` for the caller to read the
+ * object again as the arrays shape. A map is then walked once, and an arrays object stops at its
+ * first key. */
+static int JSON_ReadSparseVectorMap(RedisJSON obj, size_t numKeys, char **blob, size_t *numPairs,
+                                    bool *isArraysShape, QueryError *status) {
+  // At least one byte, so an empty map still has a buffer.
+  *blob = rm_calloc(1, numKeys * 8 + 1);
+  *isArraysShape = false;
+  size_t n = 0;
+  int rv = REDISMODULE_OK;
+
+  JSONKeyValuesIterator iter = japi->getKeyValues(obj);
+  RedisModuleString *keyName;
+  RedisJSONPtr value_ptr = japi->allocJson();
+  // `numKeys` is the object's own key count, so the bound never stops a read early; it keeps the
+  // buffer write in range without trusting that count and the iterator to agree.
+  while (rv == REDISMODULE_OK && !*isArraysShape && n < numKeys &&
+         japi->nextKeyValue(iter, &keyName, value_ptr) == REDISMODULE_OK) {
+    size_t klen;
+    const char *key = RedisModule_StringPtrLen(keyName, &klen);
+    uint32_t id;
+    float weight;
+    if (!JSON_ParseSparseDimKey(key, klen, &id)) {
+      if (STR_EQ(key, klen, "indices") || STR_EQ(key, klen, "values")) {
+        *isArraysShape = true;
+      } else {
+        rv = REDISMODULE_ERR;
+        // A map weight is never an array, so an array value suggests a misspelled arrays key.
+        const char *msg = japi->getType(*value_ptr) == JSONType_Array
+                              ? "Invalid sparse vector dimension id, or misspelled `indices` or "
+                                "`values` key"
+                              : "Invalid sparse vector dimension id";
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, msg, ": `%.*s`", (int)klen,
+                                      key);
+      }
+    } else if (JSON_ReadSparseWeight(*value_ptr, &weight) != REDISMODULE_OK) {
+      rv = REDISMODULE_ERR;
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid sparse vector value",
+                                    " for dimension id %u", id);
+    } else {
+      char *slot = *blob + n * 8;
+      memcpy(slot, &id, sizeof(id));  // the blob is little-endian, as is every supported target
+      memcpy(slot + 4, &weight, sizeof(weight));
+      ++n;
+    }
+    RedisModule_FreeString(NULL, keyName);
+  }
+  japi->freeJson(value_ptr);
+  japi->freeKeyValuesIter(iter);
+
+  if (rv == REDISMODULE_OK && *isArraysShape) {
+    // The arrays reader allocates its own buffer, and tells its first array by `*blob == NULL`.
+    rm_free(*blob);
+    *blob = NULL;
+  } else if (rv == REDISMODULE_OK) {
+    qsort(*blob, n, 8, cmpSparsePairByDimId);
+    *numPairs = n;
+  }
+  return rv;
+}
+
+/* Store a JSON sparse vector in the HASH value encoding: little-endian `(u32 dim_id, f32 weight)`
+ * pairs. An object with an `indices` or `values` key is the array form; any other object is the
+ * map form, whose keys must all be dimension IDs. The values themselves are checked when the field
+ * is indexed, as for HASH. */
+static int JSON_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
+                                            QueryError *status) {
+  size_t numKeys;
+  if (japi->getLen(obj, &numKeys) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not read sparse vector object");
+    return REDISMODULE_ERR;
+  }
+  char *blob = NULL;
+  size_t numPairs = 0;
+  bool isArraysShape;
+  int rv = JSON_ReadSparseVectorMap(obj, numKeys, &blob, &numPairs, &isArraysShape, status);
+  if (rv == REDISMODULE_OK && isArraysShape) {
+    rv = JSON_ReadSparseVectorIndicesValues(obj, &blob, &numPairs, status);
   }
   if (rv != REDISMODULE_OK) {
     rm_free(blob);
@@ -1288,5 +1410,10 @@ bool JSONTest_AcceptsJSONArrayType(VecSimType target, JSONArrayType src) {
 void JSONTest_ConvertFromTypedBuffer(VecSimType target_type, JSONArrayType jtype,
                                      const void *src, size_t n, char *target) {
   VecSim_ConvertFromTypedBuffer(target_type, jtype, src, n, target);
+}
+
+int JSONTest_StoreSparseVectorInDocField(RedisJSON obj, struct DocumentField *df,
+                                         QueryError *status) {
+  return JSON_StoreSparseVectorInDocField(obj, df, status);
 }
 #endif // ENABLE_ASSERT
