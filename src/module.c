@@ -3914,7 +3914,9 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
     handlerCtx.bcCtx.timeout_callback = (policy == TimeoutPolicy_Fail)
         ? DistAggregateTimeoutFailCallback
         : DistAggregateTimeoutReturnStrictCallback;
-    handlerCtx.bcCtx.timeoutMS = queryTimeoutMS;
+    // FAIL profiles wait for shard diagnostics after execution stops. Keep the
+    // callback for explicit CLIENT UNBLOCK TIMEOUT, but only arm shard deadlines.
+    handlerCtx.bcCtx.timeoutMS = (isProfile && policy == TimeoutPolicy_Fail) ? 0 : queryTimeoutMS;
     CoordRequestCtx_SetUseReplyCallback(reqCtx, useReplyCallback);
   }
 
