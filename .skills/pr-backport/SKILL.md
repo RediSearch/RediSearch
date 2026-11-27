@@ -139,8 +139,27 @@ gh pr create \
 
 ## Changes from original
 <describe any modifications needed for the backport, or 'Clean cherry-pick, no changes needed.'>
+
+#### Release Notes
+
+- [ ] This PR requires release notes
+- [ ] This PR does not require release notes
 "
 ```
+
+Tick exactly one release-notes box:
+
+- By default, tick the same box as the original PR.
+- If the original ticked neither (common in PRs that predate the template), tick "requires",
+  so a human reconsiders. `release_notes_block` in `scripts/auto_backport/apply_create.py`
+  makes the same choice for automated backports.
+- If the backport changed scope, so "Changes from original" is more than a clean cherry-pick,
+  decide afresh for what the backport delivers. Dropping the feature and keeping only the fix,
+  or a conflict resolution that changes observable behavior, can flip the answer.
+
+`check-release-notes` enforces this only on branches that carry
+`.github/workflows/task-release-notes-check.yml`; older lines such as 2.6 and 2.8 do not, so no
+such check appears on their PRs. Tick one box there anyway.
 
 ### 7. Multi-branch backports
 
