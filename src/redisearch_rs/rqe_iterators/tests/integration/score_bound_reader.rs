@@ -18,7 +18,7 @@ use inverted_index::{FilterMaskReader, IndexReader};
 use proptest::prelude::*;
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{
-    NoOpChecker, RQEIterator,
+    ExpirationChecker, NoOpChecker, RQEIterator,
     inverted_index::InvIndIterator,
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -282,6 +282,33 @@ fn thresholded_read_drops_records_through_the_default_reader_method() {
 
     assert_eq!(read_all_with_threshold(&mut it, threshold(1.0)), [3]);
     assert_eq!(log.borrow().decoded, [1, 2, 3, 4, 5]);
+}
+
+/// Reports the listed documents as expired.
+struct ExpiringDocs(Vec<DocId>);
+
+impl ExpirationChecker for ExpiringDocs {
+    fn has_expiration(&self) -> bool {
+        true
+    }
+
+    fn is_expired(&self, result: &RSIndexResult) -> bool {
+        self.0.contains(&result.doc_id)
+    }
+}
+
+#[test]
+fn thresholded_read_drops_an_expired_competitive_record() {
+    let reader = BlockedReader::new(vec![
+        Block::tight(&[(1, 0.1)]),
+        Block::tight(&[(2, 5.0), (3, 6.0), (4, 0.2)]),
+    ]);
+    let mut it = InvIndIterator::new(
+        reader,
+        RSIndexResult::build_virt().build(),
+        ExpiringDocs(vec![2]),
+    );
+    assert_eq!(read_all_with_threshold(&mut it, threshold(1.0)), [3]);
 }
 
 #[test]
