@@ -150,8 +150,8 @@ impl<'index> NumericRangeIterator<'index> {
 
     /// Discard cached ranges without accessing their contents.
     ///
-    /// Suspension calls this before unlocking; legacy revalidation calls it
-    /// after relocking, before any range can be read again.
+    /// Suspension calls this before unlocking, so no range is read again until
+    /// resumption re-derives them.
     pub fn release_index_handles(&mut self) {
         self.ranges = None;
     }

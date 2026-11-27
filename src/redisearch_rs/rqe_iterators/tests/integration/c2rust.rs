@@ -12,7 +12,7 @@
 
 use query_types::QueryNodeType;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorPrintable, UnionFullFlat, UnionOpaque, UnionVariant,
+    IteratorType, RQEIterator, TypeErasedRQEIterator, UnionFullFlat, UnionOpaque, UnionVariant,
     c2rust::CRQEIterator, id_list::IdListSorted, interop::RQEIteratorWrapper,
     intersection::Intersection, union_opaque::build_union,
 };
@@ -54,14 +54,14 @@ fn sort_weight_of_c_wrapped_union() {
 /// the disk backend gives multi-range numeric and geo clauses. It reports
 /// [`IteratorType::Union`] without being a `UnionOpaque<CRQEIterator>`.
 fn c_wrapped_type_erased_union(n: usize) -> CRQEIterator {
-    let children: Vec<Box<dyn RQEIteratorPrintable<'static>>> = (0..n)
-        .map(|_| Box::new(IdListSorted::new(vec![1, 2, 3])) as Box<_>)
+    let children: Vec<TypeErasedRQEIterator<'static>> = (0..n)
+        .map(|_| TypeErasedRQEIterator::new(Box::new(IdListSorted::new(vec![1, 2, 3]))))
         .collect();
-    let union: Box<dyn RQEIteratorPrintable<'static>> = Box::new(UnionOpaque {
+    let union = TypeErasedRQEIterator::new(Box::new(UnionOpaque {
         variant: UnionVariant::FlatFull(UnionFullFlat::new(children)),
         query_node_type: QueryNodeType::Union,
         query_string: None,
-    });
+    }));
     let it = CRQEIterator::from_rust_leaf(union);
     assert_eq!(it.type_(), IteratorType::Union);
     it

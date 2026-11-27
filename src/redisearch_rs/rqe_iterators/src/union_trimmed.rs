@@ -51,7 +51,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
 };
 use index_spec::IndexSpecReadGuard;
 
@@ -72,7 +72,6 @@ use index_spec::IndexSpecReadGuard;
 /// - [`skip_to`](RQEIterator::skip_to): children are drained sequentially
 ///   (not in doc-id order), so skipping to a specific doc-id has no
 ///   meaningful semantics.
-/// - [`revalidate`](RQEIterator::revalidate): see *Suspend and resume*.
 ///
 /// # Suspend and resume
 ///
@@ -85,7 +84,6 @@ use index_spec::IndexSpecReadGuard;
 /// [`Aborted`](ResumeOutcome::Aborted), as a panic would abort the server across
 /// the C ABI. Aborting an undrained union would silently truncate the results,
 /// so a resume debug-asserts that the union is at EOF.
-/// [`revalidate`](RQEIterator::revalidate) still panics.
 ///
 /// # Type Parameters
 ///
@@ -306,28 +304,6 @@ where
         // immediately rather than silently returning wrong results.
         unreachable!(
             "skip_to is not supported on UnionTrimmed — documents are not yielded in doc-id order"
-        );
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        _spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Revalidation is unreachable for trimmed unions in practice:
-        //
-        // `TrimUnionIterator` is only called for `Q_OPT_PARTIAL_RANGE`, which
-        // requires SORTBY on a numeric field. SORTBY always inserts an
-        // `RPSorter` into the result-processor pipeline, and `RPSorter` is an
-        // accumulator — it drains *all* upstream results (via `rpQueryItNext`)
-        // before emitting any rows. That drain happens entirely within the
-        // first `sendChunk` call while the spec read-lock is held
-        // (`IndexSpec_IsLocked(sctx->spec)`), so `handleSpecLockAndRevalidate`
-        // short-circuits and never calls `Revalidate`. Subsequent cursor reads
-        // only pull from the sorter's buffer; `rpQueryItNext` is not called
-        // again.
-        unreachable!(
-            "revalidate is not supported on UnionTrimmed — trimmed unions are not subject to GC"
         );
     }
 
