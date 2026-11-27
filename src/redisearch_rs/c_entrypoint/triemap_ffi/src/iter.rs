@@ -71,13 +71,10 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIt
 /// the first call to next will return 0.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-/// - `t` must not be freed while the iterator lives.
-/// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
-///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
-/// - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
-///   suffix and wildcard modes keep reading it while iterating.
+/// 1. `t` must point to a valid trie obtained from [`NewTrieMap`] and remain live
+///    and immutable until the iterator is freed.
+/// 2. If `prefix_len` is nonzero, `prefix` must point to that many initialized
+///    bytes that remain live and immutable until the iterator is freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     t: *mut TrieMap,
@@ -85,19 +82,86 @@ pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     prefix_len: tm_len_t,
     iter_mode: tm_iter_mode,
 ) -> *mut TrieMapIterator<'tm> {
+    // SAFETY: preconditions 1 and 2 cover the iterator's borrows.
+    let iter = unsafe { filtered_iter(t, prefix, prefix_len, iter_mode) };
+    Box::into_raw(Box::new(TrieMapIterator { iter }))
+}
+
+/// Return true to stop a filtered walk before the next match.
+pub type TrieMapStopCallback = Option<unsafe extern "C" fn(*const c_void) -> bool>;
+
+/// Consume a matched value, returning false to finish the walk.
+pub type TrieMapVisitCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
+
+/// Visit values matching `pattern`, polling `stop` during traversal between matches.
+///
+/// # Safety
+/// 1. The trie and pattern must meet the requirements of [`TrieMap_IterateWithFilter`].
+///    Both must stay live and immutable throughout the call, including during callbacks.
+/// 2. `visit` must be a non-null C callback that accepts a matched value (which may be
+///    null) and `visit_ctx`. `stop`, if supplied, must accept `stop_ctx`. The contexts
+///    must satisfy their callbacks' requirements for the whole call.
+/// 3. Neither callback may unwind across the FFI boundary.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TrieMap_VisitWithFilter(
+    trie: *mut TrieMap,
+    pattern: *const c_char,
+    len: tm_len_t,
+    mode: tm_iter_mode,
+    stop: TrieMapStopCallback,
+    stop_ctx: *const c_void,
+    visit: TrieMapVisitCallback,
+    visit_ctx: *mut c_void,
+) {
+    struct StopCheck(unsafe extern "C" fn(*const c_void) -> bool, *const c_void);
+
+    // SAFETY: this private wrapper stays in the synchronous visitor call and is
+    // used only by the iterator on the calling thread.
+    unsafe impl Sync for StopCheck {}
+
+    impl StopCheck {
+        fn should_stop(&self) -> bool {
+            // SAFETY: preconditions 2 and 3 cover the callback and its context.
+            unsafe { (self.0)(self.1) }
+        }
+    }
+
+    let stop = stop.map(|callback| StopCheck(callback, stop_ctx));
+    let should_stop = || stop.as_ref().is_some_and(StopCheck::should_stop);
+    // SAFETY: precondition 1 covers the trie and pattern throughout this walk.
+    let mut iter = unsafe { filtered_iter(trie, pattern, len, mode) };
+    if stop.is_some() {
+        iter.set_stop_check(&should_stop);
+    }
+    while let Some((_, value)) = iter.next() {
+        // SAFETY: preconditions 2 and 3 cover the visitor, its value and context.
+        if !unsafe { visit(*value, visit_ctx) } {
+            break;
+        }
+    }
+}
+
+/// # Safety
+/// 1. `t` must point to a live trie, immutably borrowed for `'tm`.
+/// 2. If `prefix_len` is nonzero, `prefix` must point to that many initialized
+///    bytes, immutably borrowed for `'tm`.
+unsafe fn filtered_iter<'tm>(
+    t: *mut TrieMap,
+    prefix: *const c_char,
+    prefix_len: tm_len_t,
+    iter_mode: tm_iter_mode,
+) -> PatternLendingIter<'tm, 'tm, *mut c_void> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     let pattern: &[u8] = if prefix_len > 0 {
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
-        // SAFETY: Caller is to ensure that the pointer `prefix` is
-        // a valid pointer to a byte sequence of length `prefix_len`.
+        // SAFETY: precondition 2 covers the reconstructed pattern slice.
         unsafe { std::slice::from_raw_parts(prefix.cast(), prefix_len as usize) }
     } else {
         &[]
     };
 
-    // SAFETY: Caller is to ensure that the pointer `t` is
-    // a valid, non-null pointer to a TrieMap.
+    // SAFETY: precondition 1 covers the reconstructed trie reference.
     let TrieMap(trie) = unsafe { &*t };
 
     let mode = match iter_mode {
@@ -106,12 +170,7 @@ pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
         tm_iter_mode::TM_SUFFIX_MODE => PatternMode::Suffix,
         tm_iter_mode::TM_WILDCARD_MODE => PatternMode::Wildcard,
     };
-    let iter = trie.pattern_lending_iter(pattern, mode);
-
-    let iter = TrieMapIterator { iter };
-    let iter = Box::new(iter);
-
-    Box::into_raw(iter)
+    trie.pattern_lending_iter(pattern, mode)
 }
 
 /// Set timeout limit used for affix queries. The deadline is enforced inside

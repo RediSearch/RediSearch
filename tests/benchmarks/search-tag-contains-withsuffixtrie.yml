@@ -1,0 +1,31 @@
+version: 0.2
+name: "search-tag-contains-withsuffixtrie"
+description: "Measure RAM TAG WITHSUFFIXTRIE contains queries against 10,000 distinct tag values."
+
+metadata:
+  component: "search"
+  query_type: "tag"
+
+setups:
+  - oss-standalone
+
+dbconfig:
+  - dataset_name: "tag-suffix-trie-10k-synthetic-withsuffixtrie"
+  - init_commands:
+      - ["FT.CREATE", "idx", "ON", "HASH", "PREFIX", "1", "doc:", "SCHEMA", "tag", "TAG", "WITHSUFFIXTRIE"]
+      - - "EVAL"
+        - >-
+          for i = 0, 9999 do
+            local ending = i % 100 == 0 and 'tail' or 'base'
+            local tag = string.format('az%05d%s', i, ending)
+            redis.call('HSET', 'doc:' .. i, 'tag', tag)
+          end
+          assert(redis.call('DBSIZE') == 10000)
+        - "0"
+
+clientconfig:
+  benchmark_type: "read-only"
+  tool: memtier_benchmark
+  arguments: >-
+    --test-time 120 -c 32 -t 1 --hide-histogram
+    --command "FT.SEARCH idx @tag:{*tail*} NOCONTENT LIMIT 0 0 DIALECT 2"

@@ -74,6 +74,16 @@ typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
 typedef SmallThinVec_c_void TrieMapResultBuf;
 
 /**
+ * Return true to stop a filtered walk before the next match.
+ */
+typedef bool (*TrieMapStopCallback)(const void *);
+
+/**
+ * Consume a matched value, returning false to finish the walk.
+ */
+typedef bool (*TrieMapVisitCallback)(void *, void *);
+
+/**
  * Callback type for passing to [`TrieMap_Delete`].
  */
 typedef void (*freeCB)(void *);
@@ -280,13 +290,10 @@ struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
  * the first call to next will return 0.
  *
  * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
- *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
- * - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
- *   suffix and wildcard modes keep reading it while iterating.
+ * 1. `t` must point to a valid trie obtained from [`NewTrieMap`] and remain live
+ *    and immutable until the iterator is freed.
+ * 2. If `prefix_len` is nonzero, `prefix` must point to that many initialized
+ *    bytes that remain live and immutable until the iterator is freed.
  */
 struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
 
@@ -347,6 +354,19 @@ struct TrieMap *TrieMap_RdbLoad(struct RedisModuleIO *io);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrieMap_RdbSave(struct RedisModuleIO *io, const struct TrieMap *map);
+
+/**
+ * Visit values matching `pattern`, polling `stop` during traversal between matches.
+ *
+ * # Safety
+ * 1. The trie and pattern must meet the requirements of [`TrieMap_IterateWithFilter`].
+ *    Both must stay live and immutable throughout the call, including during callbacks.
+ * 2. `visit` must be a non-null C callback that accepts a matched value (which may be
+ *    null) and `visit_ctx`. `stop`, if supplied, must accept `stop_ctx`. The contexts
+ *    must satisfy their callbacks' requirements for the whole call.
+ * 3. Neither callback may unwind across the FFI boundary.
+ */
+void TrieMap_VisitWithFilter(struct TrieMap *trie, const char *pattern, tm_len_t len, enum tm_iter_mode mode, TrieMapStopCallback stop, const void *stop_ctx, TrieMapVisitCallback visit, void *visit_ctx);
 
 #ifdef __cplusplus
 }  // extern "C"
