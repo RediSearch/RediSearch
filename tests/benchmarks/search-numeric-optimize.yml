@@ -9,12 +9,17 @@ setups:
 dbconfig:
   - tool: ftsb_redisearch
   - parameters:
-    - workers: 64
+    # Deterministic single-connection load: with concurrent loaders the numeric
+    # range tree splits leaves at the median of a racy sample, so every load lands
+    # different leaf boundaries and the query decodes a different record count.
+    # `pipeline` keeps the load fast without reordering (one connection, in order).
+    - workers: 1
+    - pipeline: 100
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-nyc_taxis-hashes/1M-nyc_taxis-hashes.redisearch.commands.ALL.csv"
   - init_commands:
       - '"FT.CREATE" "nyc" "SCHEMA" "total_amount" "NUMERIC" "SORTABLE" "improvement_surcharge" "NUMERIC" "SORTABLE" "fare_amount" "NUMERIC" "SORTABLE" "trip_distance" "NUMERIC" "SORTABLE"'
-  - dataset_load_timeout_secs: 180
+  - dataset_load_timeout_secs: 900
   - check:
       keyspacelen: 1000000
 
