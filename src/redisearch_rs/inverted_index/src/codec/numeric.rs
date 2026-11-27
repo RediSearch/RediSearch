@@ -759,10 +759,10 @@ fn read_u64_and_decimal(
     let (delta, decimal, total) = if let Some(window) = rest.first_chunk::<WINDOW>() {
         let window = u128::from_le_bytes(*window);
         let info = (window >> (8 * delta_bytes)) as u8;
-        let mantissa_bytes = (info & 0b111) as usize + 1;
+        let mantissa_bytes = Decimal::mantissa_bytes_of(info);
         let mantissa = (window >> (8 * (delta_bytes + 1))) & mask(mantissa_bytes);
         let decimal = Decimal {
-            scale: (info >> 3) & 0b111,
+            scale: Decimal::scale_of(info),
             mantissa: mantissa as u64,
         };
         (
@@ -773,11 +773,11 @@ fn read_u64_and_decimal(
     } else {
         let eof = || std::io::Error::from(std::io::ErrorKind::UnexpectedEof);
         let info = *rest.get(delta_bytes).ok_or_else(eof)?;
-        let mantissa_bytes = (info & 0b111) as usize + 1;
+        let mantissa_bytes = Decimal::mantissa_bytes_of(info);
         let total = delta_bytes + 1 + mantissa_bytes;
         let bytes = rest.get(..total).ok_or_else(eof)?;
         let decimal = Decimal {
-            scale: (info >> 3) & 0b111,
+            scale: Decimal::scale_of(info),
             mantissa: u64::from_slice(&bytes[delta_bytes + 1..]),
         };
         (u64::from_slice(&bytes[..delta_bytes]), decimal, total)
@@ -917,6 +917,16 @@ impl Decimal {
     /// The info byte, see the [decimal layout](self#decimal-value).
     const fn info(self) -> u8 {
         (self.scale << 3) | (self.mantissa_bytes() as u8 - 1)
+    }
+
+    /// The scale an [info byte](Decimal::info) holds.
+    const fn scale_of(info: u8) -> u8 {
+        (info >> 3) & 0b111
+    }
+
+    /// The number of mantissa bytes that follow an [info byte](Decimal::info).
+    const fn mantissa_bytes_of(info: u8) -> usize {
+        (info & 0b111) as usize + 1
     }
 }
 
