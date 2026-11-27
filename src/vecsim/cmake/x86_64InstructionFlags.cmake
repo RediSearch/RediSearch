@@ -61,6 +61,10 @@ if(CXX_AVX512VL AND CXX_AVX512FP16)
 	add_compile_definitions(OPT_AVX512_FP16_VL)
 endif()
 
+if(CXX_AVX512F AND CXX_AVX512FP16 AND CXX_AVX512BW AND CXX_AVX512VL)
+	add_compile_definitions(OPT_AVX512_FP16_BW_VL)
+endif()
+
 if(CXX_AVX512F)
 	add_compile_definitions(OPT_AVX512F)
 endif()
