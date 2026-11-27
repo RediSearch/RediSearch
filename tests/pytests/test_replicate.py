@@ -573,3 +573,102 @@ def testReplicationReceiversMatchRegisteredCommands():
   env.expect('FT.DROPINDEX', 'other').ok()
   env.expect('WAIT', 1, 10000).equal(1)
   env.assertEqual(replica.execute_command('FT._LIST'), [])
+
+
+def _gc_timer(conn, idx):
+  """FT.DEBUG GC_TIMER_INFO as a dict."""
+  reply = conn.execute_command(debug_cmd(), 'GC_TIMER_INFO', idx)
+  return {reply[i]: reply[i + 1] for i in range(0, len(reply), 2)}
+
+
+def _wait_for_armed_interval(env, conn, idx, seconds, message):
+  wait_for_condition(
+    lambda: (_gc_timer(conn, idx).get('interval_ms') == seconds * 1000, _gc_timer(conn, idx)),
+    message, timeout=30)
+
+
+def testGCAlterReplicates():
+  """FT.ALTER ... GC replicates as _FT._ALTERIFNX, and the replica arms with what it gets."""
+  env = initEnv()
+  replica = env.getSlaveConnection()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 77, 'CLEAN_THRESHOLD', 0).ok()
+  env.expect('WAIT', 1, 10000).equal(1)
+  _wait_for_armed_interval(env, replica, 'idx', 77, 'the replica never got the override')
+
+  env.expect('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 'DEFAULT').ok()
+  env.expect('WAIT', 1, 10000).equal(1)
+  primary_interval = _gc_timer(env.getConnection(), 'idx')['interval_ms']
+  env.assertNotEqual(primary_interval, 77000)
+  _wait_for_armed_interval(env, replica, 'idx', primary_interval // 1000,
+                           'the replica never cleared the override')
+
+
+def _free_port():
+  import socket
+  with socket.socket() as s:
+    s.bind(('127.0.0.1', 0))
+    return s.getsockname()[1]
+
+
+def _wait_for_link_up(env, conn, message):
+  wait_for_condition(
+    lambda: (conn.info('replication').get('master_link_status') == 'up', {}), message, timeout=60)
+
+
+@skip(cluster=True)
+def testGCOverrideCrossesASearchNoGCNode():
+  """A node started with search-no-gc stores the overrides it receives and passes them on.
+  The GC node full-syncs to it, the two swap roles with REPLICAOF and the GC node full-syncs
+  back, and the GC node then arms with the override. An override set on the search-no-gc node
+  while it is the primary reaches the GC node too."""
+  env = Env(forceTcp=True)
+  if env.env == 'existing-env':
+    env.skip()
+  import subprocess
+  import tempfile
+  import redis as redis_py
+  gc_node = env.getConnection()
+  gc_port = gc_node.connection_pool.connection_kwargs['port']
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 77).ok()
+
+  port = _free_port()
+  with tempfile.TemporaryDirectory() as directory:
+    server = subprocess.Popen(
+      [Defaults.binary, '--port', str(port), '--dir', directory, '--save', '',
+       '--appendonly', 'no', '--loadmodule', env.module[0], 'NOGC'],
+      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+      no_gc = redis_py.Redis(port=port, decode_responses=True)
+      wait_for_condition(lambda: (_ping(no_gc), {}), 'the search-no-gc node never started',
+                         timeout=30)
+      no_gc.execute_command('REPLICAOF', '127.0.0.1', gc_port)
+      _wait_for_link_up(env, no_gc, 'the search-no-gc node never synced')
+      env.assertEqual(no_gc.execute_command('FT._LIST'), ['idx'])
+
+      # Swap the roles. The GC node's own write after the split rules out a partial resync, so
+      # it drops its data, override 55 included, and loads the search-no-gc node's.
+      no_gc.execute_command('REPLICAOF', 'NO', 'ONE')
+      env.expect('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 55).ok()
+      gc_node.execute_command('REPLICAOF', '127.0.0.1', port)
+      _wait_for_link_up(env, gc_node, 'the GC node never synced from the search-no-gc node')
+      env.assertGreaterEqual(int(no_gc.info('stats')['sync_full']), 1)
+      _wait_for_armed_interval(env, gc_node, 'idx', 77,
+                               'the GC node lost the override on the way back')
+
+      env.assertEqual(no_gc.execute_command('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 88),
+                      'OK')
+      _wait_for_armed_interval(env, gc_node, 'idx', 88,
+                               'an override set on the search-no-gc primary never arrived')
+    finally:
+      gc_node.execute_command('REPLICAOF', 'NO', 'ONE')
+      server.terminate()
+      server.wait()
+
+
+def _ping(conn):
+  try:
+    return conn.ping()
+  except Exception:
+    return False

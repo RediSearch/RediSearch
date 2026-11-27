@@ -1357,3 +1357,526 @@ def testLongGCIntervalKeepsTheEventLoopIdle(env):
     spent = cycles() - before
     # An idle second takes about hz (10) cycles; a spinning loop takes millions.
     env.assertLess(spent, 1000, message=f'{spent} event-loop cycles in an idle second')
+
+
+# ---------------------------------------------------------------------------------------------
+# FT.ALTER <index> GC SET (MOD-20263). GC_TIMER_INFO reports the interval a timer was armed with,
+# and GC_TIMER_ARMS TOTAL counts arms, so a restart -- or its absence -- is checked without
+# waiting out a period. Most tests start from global values of 1000, so nothing fires on its own
+# while they run and any shorter interval can only come from an override.
+
+GC_MAX_INTERVAL_SEC = (2**63 - 1) // 4 // 1000 // 1000  # src/gc/gc.h
+
+GC_GLOBAL_CONFIGS = {
+    'FORK': ('search-fork-gc-run-interval', 'search-fork-gc-clean-threshold'),
+    'THREAD': ('search-thread-gc-run-interval', 'search-thread-gc-clean-threshold'),
+}
+
+
+def gcPolicyEnv(policy, run_interval=1000, clean_threshold=1000, **kwargs):
+    """An env running `policy` with these global values for it."""
+    if policy == 'FORK':
+        return Env(moduleArgs=f'GC_POLICY FORK FORK_GC_RUN_INTERVAL {run_interval} '
+                              f'FORK_GC_CLEAN_THRESHOLD {clean_threshold}', **kwargs)
+    return Env(moduleArgs='GC_POLICY THREAD',
+               redisConfigFile=thread_gc_conf(run_interval, clean_threshold), **kwargs)
+
+
+def setGlobalGC(env, policy, run_interval=None, clean_threshold=None):
+    interval_name, threshold_name = GC_GLOBAL_CONFIGS[policy]
+    for name, value in ((interval_name, run_interval), (threshold_name, clean_threshold)):
+        if value is not None:
+            verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', name, value)
+
+
+def otherPolicy(policy):
+    return 'THREAD' if policy == 'FORK' else 'FORK'
+
+
+def gcTimer(conn, idx):
+    """FT.DEBUG GC_TIMER_INFO as a dict; `conn` is an env or a shard connection."""
+    run = conn.cmd if hasattr(conn, 'cmd') else conn.execute_command
+    reply = run(debug_cmd(), 'GC_TIMER_INFO', idx)
+    return {reply[i]: reply[i + 1] for i in range(0, len(reply), 2)}
+
+
+def timerArms(env):
+    return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL'))
+
+
+def assertArmedWith(env, idx, seconds, conn=None, message=''):
+    """`idx` waits on a run-interval timer armed for `seconds`, with no more than the period
+    and its jitter left."""
+    timer = gcTimer(conn or env, idx)
+    env.assertEqual(timer.get('type'), 'run_interval', message=f'{message}: {timer}')
+    env.assertEqual(timer.get('interval_ms'), seconds * 1000, message=f'{message}: {timer}')
+    env.assertLessEqual(timer.get('remaining_ms', 0), 2 * seconds * 1000,
+                        message=f'{message}: {timer}')
+
+
+def waitForRearm(env, idx, message):
+    wait_for_condition(lambda: (gcTimer(env, idx).get('type') != 'none', gcTimer(env, idx)),
+                       message, timeout=30)
+
+
+def runScheduledCycle(env, idx):
+    """Queue a scheduled run of `idx` now, as its timer firing would, and return once it has
+    finished and re-armed. GC_CONTINUE_SCHEDULE queues the run at once; its re-arm is the only
+    way back to a live timer, so the wait cannot pass before the run is done."""
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', idx).ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', idx).ok()
+    waitForRearm(env, idx, f'the scheduled run of {idx} never re-armed')
+
+
+def alterGC(env, idx, *settings):
+    return env.expect('FT.ALTER', idx, 'GC', 'SET', *settings)
+
+
+@skip(cluster=True)
+def testGCAlterSyntax():
+    env = gcPolicyEnv('FORK')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    # Any order and case, and the six-word form.
+    alterGC(env, 'idx', 'RUN_INTERVAL', 10).ok()
+    alterGC(env, 'idx', 'clean_threshold', 5, 'run_interval', 20).ok()
+    assertArmedWith(env, 'idx', 20)
+    alterGC(env, 'idx', 'RUN_INTERVAL', 'default', 'CLEAN_THRESHOLD', 'DEFAULT').ok()
+    assertArmedWith(env, 'idx', 1000)
+    env.expect('ft.alter', 'idx', 'gc', 'set', 'RUN_INTERVAL', 30).ok()
+    assertArmedWith(env, 'idx', 30)
+
+    # The longest interval a timer can be armed with, which it reaches in steps.
+    alterGC(env, 'idx', 'RUN_INTERVAL', GC_MAX_INTERVAL_SEC).ok()
+    timer = gcTimer(env, 'idx')
+    env.assertEqual(timer['interval_ms'], GC_MAX_INTERVAL_SEC * 1000)
+    env.assertGreaterEqual(timer['remaining_ms'], GC_MAX_INTERVAL_SEC * 1000 - 60000)
+    alterGC(env, 'idx', 'RUN_INTERVAL', 30, 'CLEAN_THRESHOLD', 5).ok()
+
+    # Shorter than six words: Redis's arity check, before the handler.
+    for short in (['GC', 'SET'], ['GC', 'SET', 'RUN_INTERVAL'], ['GC', 'RUN_INTERVAL', 10]):
+        env.expect('FT.ALTER', 'idx', *short).error().contains('wrong number of arguments')
+
+    rejected = [
+        (['GC', 'RUN_INTERVAL', 10, 'CLEAN_THRESHOLD'], 'GC must be followed by SET'),
+        (['GC', 'RESET', 'RUN_INTERVAL', 10], 'GC must be followed by SET'),
+        (['GC', 'SET', 'RUN_INTERVAL', 10, 'RUN_INTERVAL', 20], 'more than once'),
+        (['GC', 'SET', 'RUN_INTERVAL', 10, 'RUN_INTERVAL', 'DEFAULT'], 'more than once'),
+        (['GC', 'SET', 'RUN_INTERVAL', 10, 'CLEAN_THRESHOLD'], 'Missing value'),
+        (['GC', 'SET', 'RUN_INTERVAL', 10, 'FOO', 1], 'Unknown GC setting'),
+        (['GC', 'SET', 'CLEAN_RATIO', 10], 'Unknown GC setting'),
+        (['GC', 'SET', 'RUN_INTERVAL', 0], 'RUN_INTERVAL'),
+        (['GC', 'SET', 'RUN_INTERVAL', GC_MAX_INTERVAL_SEC + 1], str(GC_MAX_INTERVAL_SEC)),
+        (['GC', 'SET', 'RUN_INTERVAL', -1], 'RUN_INTERVAL'),
+        (['GC', 'SET', 'RUN_INTERVAL', '1.5'], 'RUN_INTERVAL'),
+        (['GC', 'SET', 'RUN_INTERVAL', 'ten'], 'RUN_INTERVAL'),
+        (['GC', 'SET', 'CLEAN_THRESHOLD', -1], 'CLEAN_THRESHOLD'),
+        (['GC', 'SET', 'CLEAN_THRESHOLD', 2**63], 'CLEAN_THRESHOLD'),
+        (['GC', 'SET', 'CLEAN_THRESHOLD', '1e3'], 'CLEAN_THRESHOLD'),
+        # Every value is checked before any is applied, so the valid ones are not applied.
+        (['GC', 'SET', 'RUN_INTERVAL', 100, 'CLEAN_THRESHOLD', -1], 'CLEAN_THRESHOLD'),
+        (['GC', 'SET', 'CLEAN_THRESHOLD', 0, 'RUN_INTERVAL', 0], 'RUN_INTERVAL'),
+        (['SKIPINITIALSCAN', 'GC', 'SET', 'RUN_INTERVAL', 100], 'SKIPINITIALSCAN does not apply'),
+        (['FOO', 'a', 'b', 'c'], 'ALTER must be followed by SCHEMA or GC'),
+    ]
+    arms = timerArms(env)
+    for args, error in rejected:
+        env.expect('FT.ALTER', 'idx', *args).error().contains(error)
+    env.assertEqual(timerArms(env), arms, message='a rejected command restarted the timer')
+    assertArmedWith(env, 'idx', 30, message='a rejected interval applied')
+    # CLEAN_THRESHOLD 5 is still set: a scheduled run with nothing deleted does not collect.
+    runScheduledCycle(env, 'idx')
+    env.assertEqual(gcCycles(env, 'idx'), 0, message='a rejected threshold applied')
+
+    # A keyword is matched by its whole length: a NUL byte does not end it early.
+    arms = timerArms(env)
+    for args, error in ((['GC\x00junk', 'SET', 'RUN_INTERVAL', 40], 'ALTER must be followed by SCHEMA or GC'),
+                        (['GC', 'SET\x00junk', 'RUN_INTERVAL', 50], 'GC must be followed by SET')):
+        env.expect('FT.ALTER', 'idx', *args).error().contains(error)
+    env.assertEqual(timerArms(env), arms, message='a keyword with a NUL byte restarted the timer')
+    assertArmedWith(env, 'idx', 30, message='a keyword with a NUL byte applied its interval')
+
+    env.expect('FT.ALTER', 'missing', 'GC', 'SET', 'RUN_INTERVAL', 10).error().contains('Index not found')
+    env.expect('FT.CREATE', 'tmp', 'TEMPORARY', 1000, 'SCHEMA', 't', 'TEXT').ok()
+    alterGC(env, 'tmp', 'RUN_INTERVAL', 10).error().contains('TEMPORARY')
+    # SCHEMA ADD is unaffected.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n', 'NUMERIC').ok()
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'm', 'NUMERIC').ok()
+
+
+def alterRestartsTheTimer(policy):
+    env = gcPolicyEnv(policy)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    assertArmedWith(env, 'idx', 1000)
+
+    def expectRestart(restarts, seconds, *settings):
+        arms = timerArms(env)
+        alterGC(env, 'idx', *settings).ok()
+        env.assertEqual(timerArms(env), arms + int(restarts), message=str(settings))
+        assertArmedWith(env, 'idx', seconds, message=str(settings))
+
+    # Lowering a long interval restarts the waiting timer from the command.
+    expectRestart(True, 10, 'RUN_INTERVAL', 10)
+    # The armed value again, however often, leaves it alone, so it cannot postpone GC.
+    for _ in range(3):
+        expectRestart(False, 10, 'RUN_INTERVAL', 10)
+    # A threshold change never touches the timer.
+    expectRestart(False, 10, 'CLEAN_THRESHOLD', 5)
+    # DEFAULT restarts only when the global value differs from the armed one.
+    expectRestart(True, 1000, 'RUN_INTERVAL', 'DEFAULT')
+    expectRestart(False, 1000, 'RUN_INTERVAL', 1000)
+    expectRestart(False, 1000, 'RUN_INTERVAL', 'DEFAULT')
+
+    # A CONFIG SET leaves the waiting timer alone; FT.ALTER to the same new value then restarts
+    # it, because the timer was armed with the old global value.
+    arms = timerArms(env)
+    setGlobalGC(env, policy, run_interval=10)
+    env.assertEqual(timerArms(env), arms)
+    assertArmedWith(env, 'idx', 1000)
+    expectRestart(True, 10, 'RUN_INTERVAL', 10)
+
+
+@skip(cluster=True)
+def testGCAlterRestartsTheTimerFork():
+    alterRestartsTheTimer('FORK')
+
+
+@skip(cluster=True)
+def testGCAlterRestartsTheTimerThread():
+    alterRestartsTheTimer('THREAD')
+
+
+def overridesAndInheritance(policy):
+    """Unset and DEFAULT values follow the active policy's global values, read when a timer is
+    armed and when a run is queued; the other policy's values never reach the index."""
+    env = gcPolicyEnv(policy)
+    for idx in ('inherit', 'reset', 'override'):
+        env.expect('FT.CREATE', idx, 'PREFIX', 1, f'{idx}:', 'SCHEMA', 't', 'TEXT').ok()
+    alterGC(env, 'reset', 'RUN_INTERVAL', 7, 'CLEAN_THRESHOLD', 0).ok()
+    alterGC(env, 'reset', 'RUN_INTERVAL', 'DEFAULT', 'CLEAN_THRESHOLD', 'DEFAULT').ok()
+    alterGC(env, 'override', 'RUN_INTERVAL', 7, 'CLEAN_THRESHOLD', 1000).ok()
+
+    setGlobalGC(env, policy, run_interval=20, clean_threshold=0)
+    setGlobalGC(env, otherPolicy(policy), run_interval=30, clean_threshold=1000)
+    for idx, interval, collects in (('inherit', 20, True), ('reset', 20, True),
+                                    ('override', 7, False)):
+        before = gcCycles(env, idx)
+        runScheduledCycle(env, idx)
+        env.assertEqual(gcCycles(env, idx), before + int(collects), message=idx)
+        assertArmedWith(env, idx, interval, message=idx)
+
+
+@skip(cluster=True)
+def testGCOverridesAndInheritanceFork():
+    overridesAndInheritance('FORK')
+
+
+@skip(cluster=True)
+def testGCOverridesAndInheritanceThread():
+    overridesAndInheritance('THREAD')
+
+
+def indexesProgressAsConfigured(policy):
+    """Real timers, no forced runs: each index collects on its own interval and threshold."""
+    env = gcPolicyEnv(policy)
+    for idx in ('fast', 'waits', 'slow'):
+        env.expect('FT.CREATE', idx, 'PREFIX', 1, f'{idx}:', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'waits:1', 't', 'hello')
+    env.expect('DEL', 'waits:1').equal(1)
+    alterGC(env, 'fast', 'RUN_INTERVAL', 1, 'CLEAN_THRESHOLD', 0).ok()
+    alterGC(env, 'waits', 'RUN_INTERVAL', 1).ok()  # keeps the global threshold of 1000
+    alterGC(env, 'slow', 'CLEAN_THRESHOLD', 0).ok()  # keeps the global interval of 1000
+
+    waitForGCCycles(env, 'fast', 0, 3, timeout=30)
+    env.assertEqual(gcCycles(env, 'waits'), 0, message='collected below its threshold')
+    env.assertEqual(gcCycles(env, 'slow'), 0, message='ran before its interval')
+    assertArmedWith(env, 'slow', 1000)
+
+    alterGC(env, 'waits', 'CLEAN_THRESHOLD', 1).ok()
+    waitForGCCycles(env, 'waits', 0, timeout=30)
+
+
+@skip(cluster=True)
+def testGCIndexesProgressAsConfiguredFork():
+    indexesProgressAsConfigured('FORK')
+
+
+@skip(cluster=True)
+def testGCIndexesProgressAsConfiguredThread():
+    indexesProgressAsConfigured('THREAD')
+
+
+@skip(cluster=True)
+def testGCCleanThresholdZeroFork():
+    """Under FORK, threshold 0 forks every interval even with nothing deleted; an index
+    beside it keeps the global threshold."""
+    env = gcPolicyEnv('FORK')
+    for idx in ('zero', 'global'):
+        env.expect('FT.CREATE', idx, 'PREFIX', 1, f'{idx}:', 'SCHEMA', 't', 'TEXT').ok()
+        env.cmd('HSET', f'{idx}:1', 't', 'hello')
+    alterGC(env, 'zero', 'CLEAN_THRESHOLD', 0).ok()
+    for _ in range(2):
+        for idx, collects in (('zero', True), ('global', False)):
+            before = gcCycles(env, idx)
+            runScheduledCycle(env, idx)
+            env.assertEqual(gcCycles(env, idx), before + int(collects), message=idx)
+
+
+@skip(cluster=True)
+def testGCThreadRatioAppliesOverTheIndexThreshold():
+    """Under THREAD, search-gc-clean-ratio-ppm applies on top of the index's threshold: a
+    threshold below the ratio's share of the index still waits for the ratio."""
+    env = gcPolicyEnv('THREAD')
+    env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', 500000).ok()  # half the docs
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    for i in range(10):
+        env.cmd('HSET', f'doc{i}', 't', 'hello')
+    alterGC(env, 'idx', 'CLEAN_THRESHOLD', 1).ok()
+
+    for i in range(2):
+        env.expect('DEL', f'doc{i}').equal(1)
+    runScheduledCycle(env, 'idx')
+    env.assertEqual(gcCycles(env, 'idx'), 0, message='2 deleted of 8 passed a ratio of half')
+
+    for i in range(2, 5):
+        env.expect('DEL', f'doc{i}').equal(1)
+    runScheduledCycle(env, 'idx')
+    env.assertEqual(gcCycles(env, 'idx'), 1, message='5 deleted of 5 did not pass a ratio of half')
+
+
+def alterWhileARunIsInFlight(policy, point):
+    """A run queued or running holds the context with no timer armed. FT.ALTER arms nothing
+    then, and the run's re-arm picks the new interval up."""
+    env = gcPolicyEnv(policy, clean_threshold=0)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point, 10000).ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForSyncPoint(env, point, f'the GC run never parked at {point}')
+
+    arms = timerArms(env)
+    alterGC(env, 'idx', 'RUN_INTERVAL', 5, 'CLEAN_THRESHOLD', 7).ok()
+    env.assertEqual(gcTimer(env, 'idx'), {'type': 'none'})
+    env.assertEqual(timerArms(env), arms)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+    waitForRearm(env, 'idx', 'the parked run never re-armed')
+    assertArmedWith(env, 'idx', 5)
+
+
+@skip(cluster=True)
+def testGCAlterWhileARunIsQueuedFork():
+    alterWhileARunIsInFlight('FORK', SYNC_POINT_GC_TASK_START)
+
+
+@skip(cluster=True)
+def testGCAlterWhileARunIsQueuedThread():
+    alterWhileARunIsInFlight('THREAD', SYNC_POINT_GC_TASK_START)
+
+
+@skip(cluster=True)
+def testGCAlterWhileARunAwaitsItsRearmFork():
+    alterWhileARunIsInFlight('FORK', SYNC_POINT_GC_BEFORE_REARM_POST)
+
+
+@skip(cluster=True)
+def testGCAlterWhileARunAwaitsItsRearmThread():
+    alterWhileARunIsInFlight('THREAD', SYNC_POINT_GC_BEFORE_REARM_POST)
+
+
+def alterWhileStopped(policy):
+    env = gcPolicyEnv(policy)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    alterGC(env, 'idx', 'RUN_INTERVAL', 5).ok()
+    env.assertEqual(gcTimer(env, 'idx'), {'type': 'none'}, message='FT.ALTER restarted a stopped GC')
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForRearm(env, 'idx', 'the resumed GC never re-armed')
+    assertArmedWith(env, 'idx', 5)
+
+
+@skip(cluster=True)
+def testGCAlterWhileStoppedFork():
+    alterWhileStopped('FORK')
+
+
+@skip(cluster=True)
+def testGCAlterWhileStoppedThread():
+    alterWhileStopped('THREAD')
+
+
+@skip(cluster=True)
+def testGCAlterWhileWaitingToRetryAFork():
+    """A retry timer is armed with the retry interval, so FT.ALTER leaves it alone; the run
+    interval set while it waits applies once a fork succeeds."""
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 1000 '
+                         'FORK_GC_RETRY_INTERVAL 1000 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    base = gcCycles(env, 'idx')
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 10000).ok()
+    try:
+        env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+        waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_FORK,
+                         'Timeout waiting for the scheduled GC run to park before its fork')
+        holdForkSlot(env, 100000)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_FORK)
+        wait_for_condition(lambda: (gcTimer(env, 'idx').get('type') == 'retry', gcTimer(env, 'idx')),
+                           'the failed fork never armed a retry', timeout=30)
+        env.assertEqual(gcCycles(env, 'idx'), base)
+
+        arms = timerArms(env)
+        alterGC(env, 'idx', 'RUN_INTERVAL', 5).ok()
+        env.assertEqual(timerArms(env), arms, message='FT.ALTER restarted a retry timer')
+        timer = gcTimer(env, 'idx')
+        env.assertEqual((timer['type'], timer['interval_ms']), ('retry', 1000 * 1000))
+    finally:
+        env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        waitForRdbSaveToFinish(env)
+
+    # The retry, now able to fork, collects and re-arms with the new run interval.
+    runScheduledCycle(env, 'idx')
+    env.assertEqual(gcCycles(env, 'idx'), base + 1)
+    assertArmedWith(env, 'idx', 5)
+
+
+@skip(cluster=True)
+def testGCTeardownWhenDropOvertakesPendingRearmWithAnOverride():
+    """As testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309, with a run interval override
+    far longer than the global one. The re-arm after the drop must not use the override of an
+    index that is gone, or the teardown would wait out its period."""
+    env = Env(redisConfigFile=thread_gc_conf(run_interval=1, clean_threshold=0))
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    alterGC(env, 'idx', 'RUN_INTERVAL', 100000).ok()
+    # Queue a run now rather than wait out the override.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_REARM_POST, 10000).ok()
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+    waitForSyncPoint(env, SYNC_POINT_GC_BEFORE_REARM_POST,
+                     'the GC run never parked before its re-arm')
+    keepGCInfoSectionAlive(env)
+
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.assertEqual(logicallyDeletedDocs(env), 1)
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_BEFORE_REARM_POST)
+    wait_for_condition(
+        lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
+        'a drop that overtook the pending re-arm never tore the context down', timeout=30)
+    env.expect('FT._LIST').equal(['keep'])
+
+
+@skip(cluster=True)
+def testGCAlterThroughAnAlias():
+    """The alias names the index it points to when the command runs; an index it points to
+    later does not get the override."""
+    env = gcPolicyEnv('FORK')
+    for idx in ('first', 'second'):
+        env.expect('FT.CREATE', idx, 'PREFIX', 1, f'{idx}:', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.ALIASADD', 'alias', 'first').ok()
+    alterGC(env, 'alias', 'RUN_INTERVAL', 10).ok()
+    assertArmedWith(env, 'first', 10)
+    env.expect('FT.ALIASUPDATE', 'alias', 'second').ok()
+    runScheduledCycle(env, 'second')
+    assertArmedWith(env, 'second', 1000)
+    assertArmedWith(env, 'first', 10)
+
+
+@skip(cluster=True)
+def testGCRecreatedIndexStartsWithoutOverrides():
+    env = gcPolicyEnv('FORK')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc1', 't', 'hello')
+    alterGC(env, 'idx', 'RUN_INTERVAL', 10, 'CLEAN_THRESHOLD', 0).ok()
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    assertArmedWith(env, 'idx', 1000)
+    runScheduledCycle(env, 'idx')
+    env.assertEqual(gcCycles(env, 'idx'), 0, message="the dropped index's threshold applied")
+
+
+@skip(cluster=True)
+def testGCAlterWithoutGC():
+    """A node started with search-no-gc accepts and stores the override, for a node that
+    collects to use once the index reaches it (test_replicate.py follows it there)."""
+    env = Env(moduleArgs='NOGC')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    alterGC(env, 'idx', 'RUN_INTERVAL', 10, 'CLEAN_THRESHOLD', 0).ok()
+    alterGC(env, 'idx', 'RUN_INTERVAL', 'DEFAULT').ok()
+    env.expect(debug_cmd(), 'GC_TIMER_INFO', 'idx').error().contains('GC is not available')
+    env.expect('DEBUG', 'RELOAD').ok()
+    env.expect('FT._LIST').equal(['idx'])
+
+
+def overridesKept(env, idx, interval, message):
+    """`idx` arms with `interval` and collects with nothing deleted, as a CLEAN_THRESHOLD 0
+    override over a global threshold of 1000 makes it."""
+    assertArmedWith(env, idx, interval, message=message)
+    before = gcCycles(env, idx)
+    runScheduledCycle(env, idx)
+    env.assertEqual(gcCycles(env, idx), before + 1, message=f'{message}: threshold lost')
+
+
+@skip(cluster=True)
+def testGCOverridesSurviveDebugReload():
+    env = gcPolicyEnv('FORK')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'plain', 'PREFIX', 1, 'plain:', 'SCHEMA', 't', 'TEXT').ok()
+    alterGC(env, 'idx', 'RUN_INTERVAL', 77, 'CLEAN_THRESHOLD', 0).ok()
+    env.expect('DEBUG', 'RELOAD').ok()
+    overridesKept(env, 'idx', 77, 'DEBUG RELOAD')
+    assertArmedWith(env, 'plain', 1000, message='an index without overrides gained one')
+
+
+def waitForAofRewrite(env):
+    wait_for_condition(
+        lambda: (int(env.cmd('INFO', 'persistence')['aof_rewrite_in_progress']) == 0, {}),
+        'BGREWRITEAOF never finished', timeout=60)
+
+
+@skip(cluster=True)
+def testGCOverridesSurviveAofReplay():
+    """An FT.ALTER after the RDB preamble is replayed from the AOF; one before a BGREWRITEAOF
+    is loaded from the preamble the rewrite writes."""
+    env = gcPolicyEnv('FORK', useAof=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'SET', 'aof-use-rdb-preamble', 'yes').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('BGREWRITEAOF')
+    waitForAofRewrite(env)
+
+    alterGC(env, 'idx', 'RUN_INTERVAL', 77, 'CLEAN_THRESHOLD', 0).ok()
+    env.expect('DEBUG', 'LOADAOF').ok()
+    overridesKept(env, 'idx', 77, 'AOF replay')
+
+    alterGC(env, 'idx', 'RUN_INTERVAL', 88).ok()
+    env.cmd('BGREWRITEAOF')
+    waitForAofRewrite(env)
+    env.restartAndReload()
+    overridesKept(env, 'idx', 88, 'BGREWRITEAOF and restart')
+
+
+@skip(cluster=False)
+def testGCAlterFansOutToEveryShard(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    shards = env.getOSSMasterNodesConnectionList()
+    with env.getClusterConnectionIfNeeded() as conn:
+        env.assertEqual(conn.execute_command('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 77), 'OK')
+        for i, shard in enumerate(shards):
+            assertArmedWith(env, 'idx', 77, conn=shard, message=f'shard {i}')
+        try:
+            conn.execute_command('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 0)
+            env.assertTrue(False, message='an out-of-range value was accepted')
+        except redis_exceptions.ResponseError as e:
+            env.assertContains('RUN_INTERVAL', str(e))
+        for i, shard in enumerate(shards):
+            assertArmedWith(env, 'idx', 77, conn=shard, message=f'shard {i} after a rejected value')

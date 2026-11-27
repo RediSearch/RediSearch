@@ -216,6 +216,10 @@ bool GCContext_IsEnabled(const GCContext* gc);
 // fork retry waiting -- it does nothing, and the next run-interval arm picks up the new
 // interval.
 void GCContext_OnIntervalChanged(GCContext* gc);
+// For tests: the plan the live timer of `gc` was armed with, and the ms left until it queues
+// the run -- for a timer armed in steps, the time to its deadline rather than to the next step.
+// False when no timer is live. Main thread only.
+bool GCContext_GetTimerInfo(const GCContext* gc, GCTimerPlan* plan, long long* remainingMs);
 // The delay of a timer armed for `intervalMs`: the interval plus a jitter of
 // `draw % intervalMs`, so it runs from the interval to almost twice it, or 0 for an interval
 // that is not positive. An interval past GC_IntervalSecToMs's bound is taken at that bound, so

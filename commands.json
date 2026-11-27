@@ -372,8 +372,8 @@
     ]
   },
   "FT.ALTER": {
-    "summary": "Adds a new field to the index",
-    "complexity": "O(N) where N is the number of keys in the keyspace",
+    "summary": "Adds a new field to the index, or sets the index's garbage collection settings",
+    "complexity": "SCHEMA ADD: O(N) where N is the number of keys in the keyspace. GC SET: O(1)",
     "arguments": [
       {
         "name": "index",
@@ -381,31 +381,96 @@
         "summary": "Specifies the name of the index. The index must be created using `FT.CREATE`."
       },
       {
-        "name": "skipinitialscan",
-        "type": "pure-token",
-        "token": "SKIPINITIALSCAN",
-        "optional": true,
-        "summary": "Skips the initial scan of the database when creating the index."
-      },
-      {
-        "name": "schema",
-        "type": "pure-token",
-        "token": "SCHEMA",
-        "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
-      },
-      {
-        "name": "add",
-        "type": "pure-token",
-        "token": "ADD"
-      },
-      {
-        "name": "field",
-        "type": "string",
-        "summary": "Specifies a field in the index schema with its properties."
-      },
-      {
-        "name": "options",
-        "type": "string"
+        "name": "action",
+        "type": "oneof",
+        "arguments": [
+          {
+            "name": "schema-add",
+            "type": "block",
+            "arguments": [
+              {
+                "name": "skipinitialscan",
+                "type": "pure-token",
+                "token": "SKIPINITIALSCAN",
+                "optional": true,
+                "summary": "Skips the initial scan of the database when creating the index."
+              },
+              {
+                "name": "schema",
+                "type": "pure-token",
+                "token": "SCHEMA",
+                "summary": "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.)."
+              },
+              {
+                "name": "add",
+                "type": "pure-token",
+                "token": "ADD"
+              },
+              {
+                "name": "field",
+                "type": "string",
+                "summary": "Specifies a field in the index schema with its properties."
+              },
+              {
+                "name": "options",
+                "type": "string"
+              }
+            ]
+          },
+          {
+            "name": "gc-set",
+            "type": "block",
+            "summary": "Sets or clears the index's overrides of the global garbage collection settings. Takes at least one setting.",
+            "arguments": [
+              {
+                "name": "gc",
+                "type": "pure-token",
+                "token": "GC"
+              },
+              {
+                "name": "set",
+                "type": "pure-token",
+                "token": "SET"
+              },
+              {
+                "name": "run_interval",
+                "type": "oneof",
+                "token": "RUN_INTERVAL",
+                "optional": true,
+                "summary": "Seconds between garbage collection runs of the index. `DEFAULT` inherits the active GC policy's global run interval.",
+                "arguments": [
+                  {
+                    "name": "seconds",
+                    "type": "integer"
+                  },
+                  {
+                    "name": "default",
+                    "type": "pure-token",
+                    "token": "DEFAULT"
+                  }
+                ]
+              },
+              {
+                "name": "clean_threshold",
+                "type": "oneof",
+                "token": "CLEAN_THRESHOLD",
+                "optional": true,
+                "summary": "Deleted or updated documents the index needs before a garbage collection run cleans it. `DEFAULT` inherits the active GC policy's global clean threshold.",
+                "arguments": [
+                  {
+                    "name": "count",
+                    "type": "integer"
+                  },
+                  {
+                    "name": "default",
+                    "type": "pure-token",
+                    "token": "DEFAULT"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       }
     ],
     "since": "1.0.0",

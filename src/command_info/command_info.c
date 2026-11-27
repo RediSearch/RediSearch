@@ -404,8 +404,8 @@ int SetFtExplaincliInfo(RedisModuleCommand *cmd) {
 int SetFtAlterInfo(RedisModuleCommand *cmd) {
   const RedisModuleCommandInfo info = {
     .version = REDISMODULE_COMMAND_INFO_VERSION,
-    .summary = "Adds a new field to the index",
-    .complexity = "O(N) where N is the number of keys in the keyspace",
+    .summary = "Adds a new field to the index, or sets the index's garbage collection settings",
+    .complexity = "SCHEMA ADD: O(N) where N is the number of keys in the keyspace. GC SET: O(1)",
     .args = (RedisModuleCommandArg[]){
       {
         .name = "index",
@@ -413,31 +413,101 @@ int SetFtAlterInfo(RedisModuleCommand *cmd) {
         .type = REDISMODULE_ARG_TYPE_STRING,
       },
       {
-        .name = "skipinitialscan",
-        .token = "SKIPINITIALSCAN",
-        .summary = "Skips the initial scan of the database when creating the index.",
-        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
-      },
-      {
-        .name = "schema",
-        .token = "SCHEMA",
-        .summary = "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.).",
-        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-      },
-      {
-        .name = "add",
-        .token = "ADD",
-        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-      },
-      {
-        .name = "field",
-        .summary = "Specifies a field in the index schema with its properties.",
-        .type = REDISMODULE_ARG_TYPE_STRING,
-      },
-      {
-        .name = "options",
-        .type = REDISMODULE_ARG_TYPE_STRING,
+        .name = "action",
+        .type = REDISMODULE_ARG_TYPE_ONEOF,
+        .subargs = (RedisModuleCommandArg[]){
+          {
+            .name = "schema-add",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "skipinitialscan",
+                .token = "SKIPINITIALSCAN",
+                .summary = "Skips the initial scan of the database when creating the index.",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+              },
+              {
+                .name = "schema",
+                .token = "SCHEMA",
+                .summary = "Defines the fields in the index and their properties, such as type (`TEXT`, `TAG`, `NUMERIC`, etc.).",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "add",
+                .token = "ADD",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "field",
+                .summary = "Specifies a field in the index schema with its properties.",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {
+                .name = "options",
+                .type = REDISMODULE_ARG_TYPE_STRING,
+              },
+              {0}
+            },
+          },
+          {
+            .name = "gc-set",
+            .summary = "Sets or clears the index's overrides of the global garbage collection settings. Takes at least one setting.",
+            .type = REDISMODULE_ARG_TYPE_BLOCK,
+            .subargs = (RedisModuleCommandArg[]){
+              {
+                .name = "gc",
+                .token = "GC",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "set",
+                .token = "SET",
+                .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+              },
+              {
+                .name = "run_interval",
+                .token = "RUN_INTERVAL",
+                .summary = "Seconds between garbage collection runs of the index. `DEFAULT` inherits the active GC policy's global run interval.",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "seconds",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "default",
+                    .token = "DEFAULT",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {0}
+                },
+              },
+              {
+                .name = "clean_threshold",
+                .token = "CLEAN_THRESHOLD",
+                .summary = "Deleted or updated documents the index needs before a garbage collection run cleans it. `DEFAULT` inherits the active GC policy's global clean threshold.",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "count",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "default",
+                    .token = "DEFAULT",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {0}
+                },
+              },
+              {0}
+            },
+          },
+          {0}
+        },
       },
       {0}
     },

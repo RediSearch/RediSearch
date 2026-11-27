@@ -42,6 +42,8 @@ extern "C" {
 #include <chrono>
 #include <climits>
 #include <vector>
+#include <string>
+#include <cstring>
 
 /**
  * The following tests purpose is to make sure the garbage collection is working properly,
@@ -1758,6 +1760,113 @@ TEST(IndexGCSettingsHelpers, testValueRanges) {
   EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, LLONG_MAX));
   EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, (size_t)LLONG_MAX + 1));
   EXPECT_FALSE(IndexGCSettings_IsValid((IndexGCSettingId)99, 1));
+}
+
+// Runs `GC SET`'s parser over `args` (the words after SET) on `s`, returning the error text, or
+// "" on success.
+static std::string parseGCSet(IndexGCSettings &s, std::vector<const char *> args,
+                              bool *setsRunInterval = nullptr) {
+  ArgsCursor ac;
+  ArgsCursor_InitCString(&ac, args.data(), (int)args.size());
+  QueryError status = QueryError_Default();
+  bool sets = false;
+  const int rc = IndexGCSettings_ParseSet(&ac, &s, &sets, &status);
+  if (setsRunInterval) {
+    *setsRunInterval = sets;
+  }
+  if (rc == REDISMODULE_OK) {
+    EXPECT_FALSE(QueryError_HasError(&status));
+    return "";
+  }
+  std::string err = QueryError_GetUserError(&status);
+  QueryError_ClearError(&status);
+  EXPECT_FALSE(err.empty());
+  return err;
+}
+
+TEST(IndexGCSettingsParse, testSetsAndClears) {
+  IndexGCSettings s;
+  IndexGCSettings_Init(&s);
+  bool setsRunInterval = false;
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_THRESHOLD", "500", "run_interval", "100"}, &setsRunInterval), "");
+  EXPECT_TRUE(setsRunInterval);
+  EXPECT_TRUE(s.runIntervalSec.isSet);
+  EXPECT_EQ(s.runIntervalSec.value, 100);
+  EXPECT_TRUE(s.cleanThreshold.isSet);
+  EXPECT_EQ(s.cleanThreshold.value, 500);
+
+  // One setting keeps the other.
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_THRESHOLD", "0"}, &setsRunInterval), "");
+  EXPECT_FALSE(setsRunInterval);
+  EXPECT_EQ(s.runIntervalSec.value, 100);
+  EXPECT_TRUE(s.cleanThreshold.isSet);
+  EXPECT_EQ(s.cleanThreshold.value, 0);
+
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "default"}, &setsRunInterval), "");
+  EXPECT_TRUE(setsRunInterval);
+  EXPECT_FALSE(s.runIntervalSec.isSet);
+  EXPECT_TRUE(s.cleanThreshold.isSet);
+  // DEFAULT on an unset override leaves it unset.
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "DEFAULT", "CLEAN_THRESHOLD", "DEFAULT"}), "");
+  IndexGCSettings unset;
+  IndexGCSettings_Init(&unset);
+  EXPECT_EQ(memcmp(&s, &unset, sizeof(s)), 0);
+}
+
+TEST(IndexGCSettingsParse, testBounds) {
+  IndexGCSettings s;
+  IndexGCSettings_Init(&s);
+  const std::string maxInterval = std::to_string(GC_MAX_INTERVAL_SEC);
+  const std::string overInterval = std::to_string(GC_MAX_INTERVAL_SEC + 1);
+  const std::string maxThreshold = std::to_string(LLONG_MAX);
+  const std::string overThreshold = std::to_string((unsigned long long)LLONG_MAX + 1);
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "1"}), "");
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", maxInterval.c_str()}), "");
+  EXPECT_EQ(s.runIntervalSec.value, GC_MAX_INTERVAL_SEC);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_THRESHOLD", maxThreshold.c_str()}), "");
+  EXPECT_EQ(s.cleanThreshold.value, (size_t)LLONG_MAX);
+
+  const IndexGCSettings before = s;
+  for (const char *bad : {"0", overInterval.c_str(), "-1", "1.5", "1e3", "+5", " 5", "", "abc",
+                          "99999999999999999999999"}) {
+    EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", bad}), "") << bad;
+  }
+  for (const char *bad : {overThreshold.c_str(), "-1", "0.0", "x"}) {
+    EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", bad}), "") << bad;
+  }
+  EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
+}
+
+// Every value is checked before any is applied, so a bad command changes nothing.
+TEST(IndexGCSettingsParse, testErrorsChangeNothing) {
+  IndexGCSettings s;
+  IndexGCSettings_Init(&s);
+  ASSERT_EQ(parseGCSet(s, {"RUN_INTERVAL", "30", "CLEAN_THRESHOLD", "40"}), "");
+  const IndexGCSettings before = s;
+  bool setsRunInterval = false;
+
+  EXPECT_NE(parseGCSet(s, {}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_THRESHOLD", "-1"}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "RUN_INTERVAL", "100"}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "RUN_INTERVAL", "DEFAULT"}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_THRESHOLD"}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL"}), "");
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_RATIO", "5"}), "");
+  EXPECT_NE(parseGCSet(s, {"DEFAULT", "RUN_INTERVAL", "100"}), "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "RUN_INTERVAL", "0"}, &setsRunInterval), "");
+  EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
+}
+
+TEST(IndexGCSettingsParse, testErrorText) {
+  IndexGCSettings s;
+  IndexGCSettings_Init(&s);
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find("RUN_INTERVAL"), std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find(std::to_string(GC_MAX_INTERVAL_SEC)),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "CLEAN_THRESHOLD", "1"}).find("more than once"),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"FOO", "1"}).find("Unknown GC setting"), std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD"}).find("Missing value"), std::string::npos);
 }
 
 // In-memory THREAD cycles fork nothing, so their timers fire on the interval; FORK and disk

@@ -1319,3 +1319,26 @@ def test_active_trim_removes_trimmed_docs():
 def test_tracking_client_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     trim_after_import_test(env, 'default', ACTIVE_TRIM_EVENTS, tracking=True)
+
+
+@skip(cluster=False, min_shards=2)
+def test_add_shard_and_migrate_keeps_gc_overrides():
+    """An index reaches a new shard by slot migration as _FT._RESTOREIFNX, overrides included."""
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    initial_shards_count = env.shardsCount
+    create_and_populate_index(env, 'idx', 100)
+    with env.getClusterConnectionIfNeeded() as conn:
+        env.assertEqual(conn.execute_command('FT.ALTER', 'idx', 'GC', 'SET', 'RUN_INTERVAL', 77,
+                                             'CLEAN_THRESHOLD', 0), 'OK')
+    shard1 = env.getConnection(1)
+
+    env.addShardToClusterIfExists()
+    time.sleep(5)
+    new_shard = env.getConnection(shardId=initial_shards_count + 1)
+    env.assertEqual(new_shard.execute_command('FT._LIST'), [])
+    wait_for_migration_complete(env, new_shard, shard1)
+    env.assertEqual(new_shard.execute_command('FT._LIST'), ['idx'])
+
+    reply = new_shard.execute_command(debug_cmd(), 'GC_TIMER_INFO', 'idx')
+    timer = {reply[i]: reply[i + 1] for i in range(0, len(reply), 2)}
+    env.assertEqual(timer.get('interval_ms'), 77 * 1000, message=str(timer))
