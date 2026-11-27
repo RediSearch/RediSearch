@@ -44,6 +44,9 @@ header_name = "toksep"
 [package.stopwords_ffi]
 header_name = "stopwords"
 
+[package.stemmer_ffi]
+header_name = "stemmer"
+
 [c]
 cpp_compat = true
 

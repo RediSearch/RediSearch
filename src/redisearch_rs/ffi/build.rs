@@ -433,12 +433,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
     },
     HeaderAllowlist {
-        path: "src/stemmer.h",
-        fns: &["NewStemmer"],
-        types: &["Stemmer", "StemmerType"],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/suffix.h",
         fns: &[
             "Suffix_IterateContains",
@@ -660,11 +654,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `query_error_ffi.h` only because cheadergen emits the type and the
     // function surface in two files).
     "query_error.h",
-    // `src/stemmer.h` includes `language.h`, which carries the `RSLanguage_*`
-    // declarations and the `RSLanguage` enum.
-    // The enum is embedded by value in `Stemmer`, `Document` and
-    // `RSSearchOptions`, so its full definition is required.
+    // `Document` and `RSSearchOptions` embed the language enum by value.
     "language.h",
+    "stemmer.h",
     // `QEFlags` is included by `src/aggregate/aggregate.h`.
     "query_flags.h",
     // `QueryNodeType` is taken by value in `src/query_node.h`. `src/ext/default.h`
@@ -827,6 +819,7 @@ fn main() {
     }
 
     bindings
+        .opaque_type("Stemmer")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))
