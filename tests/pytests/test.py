@@ -3317,6 +3317,39 @@ def testSubStrErrors(env):
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a').error().contains("Invalid type (2) for argument 1 in function 'substr'")
     env.assertTrue(env.isUp())
 
+def testSubStr(env):
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA', 'marker', 'TAG').equal('OK')
+    env.assertEqual(1, env.getClusterConnectionIfNeeded().execute_command('HSET', 'doc:1', 'marker', 'hello'))
+    waitForIndex(env, 'idx')
+
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'APPLY', 'substr("hello", 0, -1)', 'AS', 'from_start',
+        'APPLY', 'substr("hello", 1, -1)', 'AS', 'from_one',
+        'APPLY', 'substr("hello", -2, -1)', 'AS', 'from_end',
+        'APPLY', 'substr("hello", 0, 5)', 'AS', 'control',
+    ).equal([1, [
+        'from_start', 'hello',
+        'from_one', 'ello',
+        'from_end', 'lo',
+        'control', 'hello',
+    ]])
+
+    env.expect(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '1', '@marker',
+        'APPLY', 'substr(@marker, 1, -1)', 'AS', 'from_field',
+        'APPLY', 'substr("hi", -5, -1)', 'AS', 'neg_clamp',
+        'APPLY', 'substr("hello", 0, 0)', 'AS', 'zero_len',
+        'APPLY', 'substr("hello", 10, -1)', 'AS', 'past_end',
+    ).equal([1, [
+        'marker', 'hello',
+        'from_field', 'ello',
+        'neg_clamp', 'hi',
+        'zero_len', '',
+        'past_end', '',
+    ]])
+
 def testToUpperLower(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
     env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo'))

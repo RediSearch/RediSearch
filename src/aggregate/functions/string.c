@@ -97,25 +97,37 @@ static int stringfunc_substr(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
     return EXPR_EVAL_ERR;
   }
 
-  int offset = (int)RSValue_Number_Get(RSValue_Dereference(argv[1]));
-  int len = (int)RSValue_Number_Get(RSValue_Dereference(argv[2]));
+  double raw_offset = RSValue_Number_Get(RSValue_Dereference(argv[1]));
+  double raw_len = RSValue_Number_Get(RSValue_Dereference(argv[2]));
 
   // for negative offsets we count from the end of the string
-  if (offset < 0) {
-    offset = (int)sz + offset;
+  int64_t offset = 0;
+  if (raw_offset >= (double)sz) {
+    offset = (int64_t)sz;
+  } else if (raw_offset > -(double)sz) {
+    offset = (int64_t)raw_offset;
+    if (offset < 0) {
+      offset = (int64_t)sz + offset;
+    }
   }
-  offset = MAX(0, MIN(offset, sz));
+  size_t uoffset = (size_t)offset;
+  size_t rem = sz - uoffset;
+
   // len < 0 means read until the end of the string
-  if (len < 0) {
-    len = MAX(0, ((int)sz - offset) + len);
-  }
-  if (offset + len > sz) {
-    len = sz - offset;
+  size_t ulen;
+  if (raw_len <= -1.0) {
+    ulen = rem;
+  } else if (raw_len >= (double)rem) {
+    ulen = rem;
+  } else if (raw_len > 0.0) {
+    ulen = (size_t)raw_len;
+  } else {
+    ulen = 0;
   }
 
-  char *dup = ExprEval_Strndup(ctx, &str[offset], len);
-  RS_ASSERT(len <= UINT32_MAX);
-  RSValue_SetConstString(result, dup, len);
+  char *dup = ExprEval_Strndup(ctx, &str[uoffset], ulen);
+  RS_ASSERT(ulen <= UINT32_MAX);
+  RSValue_SetConstString(result, dup, (uint32_t)ulen);
   return EXPR_EVAL_OK;
 }
 
