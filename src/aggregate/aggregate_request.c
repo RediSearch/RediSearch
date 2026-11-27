@@ -1509,6 +1509,64 @@ static bool IsIndexCoherent(AREQ *req) {
   return IndexSpec_IsCoherent(AREQ_SearchCtx(req)->spec, prefixes, n_prefixes);
 }
 
+// Make `node` the arm's root. With an explicit FILTER, the parsed filter query is joined to it.
+static void setVectorArmRoot(const ParsedVectorData *pvd, QueryAST *ast, QueryNode *node) {
+  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
+                "ast->root should be NULL when skipFilterIntegration is true");
+  QueryNode *oldRoot = ast->root;
+  ast->root = node;
+  if (!pvd->skipFilterIntegration) {
+    SetFilterNode(ast, oldRoot);
+  }
+}
+
+// A VSIM arm on a SPARSEVECTOR field: the same node as `@field:[SPARSE $param]` in FT.SEARCH.
+// SetFilterNode intersects it with the FILTER query, so the arm's top K are the best scores among
+// the matching documents; the sorter parseHybridCommand adds keeps those K.
+static int applySparseVectorQuery(AREQ *req, const FieldSpec *field, QueryAST *ast,
+                                  QueryError *status) {
+  ParsedVectorData *pvd = req->parsedVectorData;
+  // The flag can be turned off after a sparse field was created, so it is checked on every query,
+  // as the `[SPARSE $q]` parser rule does.
+  if (!RSGlobalConfig.enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, SPARSE_VECTOR_UNSTABLE_ERR);
+    return REDISMODULE_ERR;
+  }
+  if (pvd->denseOnlyOption) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
+                                     "%s is not supported on a " SPEC_SPARSE_VECTOR_STR " field",
+                                     pvd->denseOnlyOption);
+    return REDISMODULE_ERR;
+  }
+  // The parser rejects a VSIM vector given other than as a parameter, and RANGE is dense-only.
+  RS_ASSERT(pvd->isParameter && pvd->query->type == VECSIM_QT_KNN);
+  pvd->armSlot = SPARSE_INDEX;
+  pvd->sparseMetric = field->sparseVecOpts.metric;
+
+  VectorQuery *vq = pvd->query;
+  // The token borrows the parameter name from the held argv, not from `vq`.
+  QueryToken vecToken = {.s = vq->knn.vector, .len = vq->knn.vecLen};
+  QueryParseCtx q = {0};
+  QueryNode *node = NewSparseVectorNode_WithParams(&q, field, &vecToken);
+  ast->numParams += q.numParams;
+  node->opts.flags |= pvd->queryNodeFlags;
+  // YIELD_SCORE_AS names the score as it does on a dense arm.
+  if (pvd->attributes &&
+      !QueryNode_ApplyAttributes(node, pvd->attributes, array_len(pvd->attributes), status)) {
+    QueryNode_Free(node);
+    return REDISMODULE_ERR;
+  }
+  if (!node->opts.distField) {
+    // The normalizer reads the score under the default name parseHybridCommand gave it.
+    node->opts.distField = rm_strdup(vq->scoreField);
+  }
+  // The node carries no VectorQuery: K became the sorter's limit.
+  VectorQuery_Free(vq);
+  pvd->query = NULL;
+
+  setVectorArmRoot(pvd, ast, node);
+  return REDISMODULE_OK;
+}
 
 static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, QueryError *status) {
   ParsedVectorData *pvd = req->parsedVectorData;
@@ -1520,10 +1578,14 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
   if (!vectorField) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Unknown field", " `%s`", fieldName);
     return REDISMODULE_ERR;
+  } else if (FIELD_IS(vectorField, INDEXFLD_T_SPARSE_VECTOR)) {
+    return applySparseVectorQuery(req, vectorField, ast, status);
   } else if (!FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+    // A SPARSEVECTOR field is unstable surface, so it is not named here.
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Expected a " SPEC_VECTOR_STR " field", " `%s`", fieldName);
     return REDISMODULE_ERR;
   }
+  pvd->armSlot = VECTOR_INDEX;
   VectorQuery_SetField(vq, vectorField);
 
   QueryNode *vecNode = NewQueryNode(QN_VECTOR);
@@ -1563,18 +1625,10 @@ static int applyVectorQuery(AREQ *req, RedisSearchCtx *sctx, QueryAST *ast, Quer
     QueryNode_ApplyAttributes(vecNode, pvd->attributes, array_len(pvd->attributes), status);
   }
 
-  // Set vector node as ast->root and use SetFilterNode for proper filter integration.
   // SetFilterNode handles both KNN (child relationship) and RANGE (intersection) properly.
   // Without explicit FILTER, skipFilterIntegration keeps the vector node as root,
   // preserving BY_SCORE ordering from the iterator without a filter intersection.
-  RS_LOG_ASSERT(!(pvd->skipFilterIntegration && ast->root != NULL),
-                "ast->root should be NULL when skipFilterIntegration is true");
-  QueryNode *oldRoot = ast->root;
-  ast->root = vecNode;
-  if (!pvd->skipFilterIntegration) {
-    SetFilterNode(ast, oldRoot);
-  }
-
+  setVectorArmRoot(pvd, ast, vecNode);
   return REDISMODULE_OK;
 }
 
@@ -1790,15 +1844,18 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     }
   }
 
-  // Not yet supported in FT.HYBRID, in the SEARCH clause or the VSIM FILTER. Not reported as
-  // VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a generic vector-expression error. Checked
-  // here rather than through the QAST validation flags, which an index with no TEXT or TAG field
-  // skips.
+  // FT.HYBRID has one way to write a sparse arm, `VSIM @field`, so a `[SPARSE $q]` node is
+  // rejected in the SEARCH clause and in the VSIM FILTER. `hasSparse` was computed before the VSIM
+  // arm's own node was added. Not reported as VECTOR_NOT_ALLOWED, which FT.HYBRID rewords into a
+  // generic vector-expression error. Checked here rather than through the QAST validation flags,
+  // which an index with no TEXT or TAG field skips.
   if ((IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) && hasSparse) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         IsHybridSearchSubquery(req)
-                            ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH"
-                            : "SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER");
+                            ? "SPARSE vector queries are not supported in FT.HYBRID SEARCH, use "
+                              "VSIM @field instead"
+                            : "SPARSE vector queries are not supported in FT.HYBRID VSIM FILTER, "
+                              "use VSIM @field instead");
     return REDISMODULE_ERR;
   }
 

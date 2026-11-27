@@ -788,16 +788,15 @@ int Pipeline_BuildAggregationPart(Pipeline *pipeline, const AggregationPipelineP
         const FieldSpec *vectorField = IndexSpec_GetFieldWithLength(params->common.sctx->spec,
                                                                      vnStep->vectorFieldName,
                                                                      strlen(vnStep->vectorFieldName));
-        if (!vectorField || !FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+        VectorNormFunction normFunc;
+        if (vectorField && FIELD_IS(vectorField, INDEXFLD_T_VECTOR)) {
+          normFunc = getVectorNormalizationFunction(getVecSimMetricFromVectorField(vectorField));
+        } else if (vectorField && FIELD_IS(vectorField, INDEXFLD_T_SPARSE_VECTOR)) {
+          normFunc = getSparseVectorNormalizationFunction(vectorField->sparseVecOpts.metric);
+        } else {
           QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Invalid vector field for normalization");
           goto error;
         }
-
-        // Extract distance metric from vector field
-        VecSimMetric metric = getVecSimMetricFromVectorField(vectorField);
-
-        // Get appropriate normalization function
-        VectorNormFunction normFunc = getVectorNormalizationFunction(metric);
 
         // Get score key for writing normalized scores
         RLookup *curLookup = AGPLN_GetLookup(pln, stp, AGPLN_GETLOOKUP_PREV);

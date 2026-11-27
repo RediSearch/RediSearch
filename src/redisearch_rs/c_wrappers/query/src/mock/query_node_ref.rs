@@ -228,6 +228,24 @@ impl MockQueryNode {
         }
     }
 
+    /// Set the `svn` variant of a sparse-vector node: the field it queries and
+    /// the query vector, in the HASH value encoding.
+    ///
+    /// `blob` must outlive this [`MockQueryNode`]: the node borrows it, as it
+    /// borrows the request's PARAMS in production.
+    pub fn set_sparse_vector(&mut self, field_index: ffi::t_fieldIndex, blob: &[u8]) {
+        self.debug_assert_type(QueryNodeType::SparseVector);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // SparseVector, per the assertion above, so the `svn` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let svn = &mut *union_ptr.cast::<ffi::QuerySparseVectorNode>();
+            svn.fieldIndex = field_index;
+            svn.blob = blob.as_ptr().cast();
+            svn.blobLen = blob.len();
+        }
+    }
+
     /// Set the `prefix` and `suffix` fields of the prefix-node union variant.
     pub fn set_prefix_mode(&mut self, prefix: bool, suffix: bool) {
         self.debug_assert_type(QueryNodeType::Prefix);

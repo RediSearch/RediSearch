@@ -258,7 +258,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
     // Borrow a subquery AREQ as the tail's row-boundary timeout-flag proxy:
     // HybridRequest_PropagateTimeoutToSubqueries marks every subquery AREQ, so
     // AggregateResults can bail between rows while draining buffered tail rows.
-    .areq = hreq->requests[SEARCH_INDEX],
+    .areq = HybridRequest_Arm(hreq, SEARCH_INDEX),
   };
 
 #ifdef ENABLE_ASSERT
@@ -401,7 +401,7 @@ static void finishSendChunkReply_hybrid(HybridRequest *hreq, RedisModule_Reply *
   }
   // The cap flag is mirrored on both subqueries by parseHybridCommand; checking
   // the search subquery is sufficient.
-  const AREQ *searchReq = hreq->requests[SEARCH_INDEX];
+  const AREQ *searchReq = HybridRequest_Arm(hreq, SEARCH_INDEX);
   if (searchReq->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED) {
     RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_MAX_TIMEOUT_CAPPED));
   }
@@ -746,7 +746,8 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
     for (size_t i = 0; i < hreq->nrequests; i++) {
       QueryError *err = &hreq->requests[i]->base.reply.err;
       if (QueryError_HasReachedMaxPrefixExpansionsWarning(err)) {
-        const char *suffix = (i == SEARCH_INDEX) ? SEARCH_SUFFIX : VSIM_SUFFIX;
+        const char *suffix =
+            HybridArmMask_SlotAt(hreq->armMask, i) == SEARCH_INDEX ? SEARCH_SUFFIX : VSIM_SUFFIX;
         char buf[128];
         snprintf(buf, sizeof(buf), "%s %s", QUERY_WMAXPREFIXEXPANSIONS, suffix);
         QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1, SHARD_ERR_WARN);
@@ -1407,8 +1408,8 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     *hybridRequest->debugParams = *debugParams;
   }
   ParseHybridCommandCtx cmd = {0};
-  cmd.search = hybridRequest->requests[SEARCH_INDEX];
-  cmd.vector = hybridRequest->requests[VECTOR_INDEX];
+  cmd.search = HybridRequest_Arm(hybridRequest, SEARCH_INDEX);
+  cmd.vector = hybridRequest->requests[HYBRID_VSIM_ARM_POSITION];
   cmd.reqConfig = &hybridRequest->base.reqConfig;
   cmd.timeoutConfig = &hybridRequest->base.limits.timeout.config;
   cmd.cursorConfig = &hybridRequest->base.cursorConfig;
@@ -1423,6 +1424,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return CleanupAndReplyStatus(ctx, hybridRequest, cmd.hybridParams, &status, internal);
   }
   hybridRequest->reqflags = cmd.hybridParams->aggregationParams.common.reqflags;
+  hybridRequest->armMask = cmd.armMask;
 
   if (internal) {
     if (TimeoutConfig_ApplyCoordinatorElapsedTime(

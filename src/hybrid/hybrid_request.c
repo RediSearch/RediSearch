@@ -346,6 +346,10 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
                       &RSGlobalConfig.timeoutConfigParams, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
+    // Until parsing finds each VSIM arm's field type, the arms are taken to be the first
+    // `nrequests` slots: SEARCH and a dense VSIM for the default two.
+    RS_ASSERT(nrequests <= HYBRID_NUM_ARM_SLOTS);
+    hybridReq->armMask = (HybridArmMask)((1u << nrequests) - 1);
     hybridReq->sctx = sctx;
     hybridReq->sctx->limits = &hybridReq->base.limits;
     hybridReq->kArgIndex = -1;
