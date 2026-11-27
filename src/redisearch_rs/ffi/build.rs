@@ -406,7 +406,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/stopwords.h",
-        fns: &["StopWordList_FreeGlobals"],
+        fns: &[
+            "NewStopWordListCStr",
+            "StopWordList_Contains",
+            "StopWordList_Unref",
+            "StopWordList_FreeGlobals",
+        ],
         types: &[],
         vars: &[],
     },
