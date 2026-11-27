@@ -29,6 +29,7 @@
 #include "search_disk_api.h"
 #include "util/arr/arr.h"
 #include "util/strconv.h"
+#include "nested_index_ffi.h"
 
 struct RedisModuleCtx;
 
@@ -1197,10 +1198,178 @@ done:
   return res;
 }
 
+/* Normalize a TAG sub-field value as a top-level JSON TAG field does: one tag, lower-cased unless
+ * CASESENSITIVE. Returns an `rm_malloc`ed string and sets `*len`. */
+static char *JSON_NormalizeNestedTag(const char *str, size_t *len, bool caseSensitive) {
+  char *tag = rm_strndup(str, *len);
+  if (!caseSensitive) {
+    char *longer = unicode_tolower(tag, len);
+    if (longer) {
+      rm_free(tag);
+      tag = longer;
+    }
+  }
+  return tag;
+}
+
+/* The outcome of reading one sub-field of one element. */
+typedef enum {
+  NestedValue_Ok,
+  // No value, or JSON null: the element is skipped, as an element missing an attribute.
+  NestedValue_Missing,
+  NestedValue_Error,
+} NestedValueStatus;
+
+/* Read sub-field `sub` of `element`, and push it to `rows` as a key, or as the terminal value when
+ * `terminal` is set. */
+static NestedValueStatus JSON_ReadNestedValue(RedisJSON element, const NestedSubField *sub,
+                                              bool terminal, struct NestedRows *rows,
+                                              QueryError *status) {
+  if (!sub->compiledPath) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid NESTED sub-field",
+                                  " path for `%s`", sub->name);
+    return NestedValue_Error;
+  }
+  JSONResultsIterator iter = japi->getWithPath(element, sub->compiledPath);
+  if (!iter) {
+    return NestedValue_Missing;
+  }
+  NestedValueStatus rv = NestedValue_Ok;
+  size_t n = japi->len(iter);
+  RedisJSON value = n == 1 ? japi->next(iter) : NULL;
+  JSONType type = value ? japi->getType(value) : JSONType_Null;
+  if (n > 1) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "NESTED sub-field",
+                                  " `%s` has several values in one element", sub->name);
+    rv = NestedValue_Error;
+  } else if (n == 0 || type == JSONType_Null) {
+    rv = NestedValue_Missing;
+  } else if (sub->type == INDEXFLD_T_TAG) {
+    const char *str = NULL;
+    size_t len = 0;
+    int boolean;
+    // A boolean is a tag "true" or "false", as for a top-level JSON TAG field.
+    if (type == JSONType_Bool && japi->getBoolean(value, &boolean) == REDISMODULE_OK) {
+      str = boolean ? "true" : "false";
+      len = strlen(str);
+    } else if (type != JSONType_String || japi->getString(value, &str, &len) != REDISMODULE_OK) {
+      str = NULL;
+    }
+    if (!str) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD, "NESTED TAG sub-field",
+                                    " `%s` must hold a string or a boolean", sub->name);
+      rv = NestedValue_Error;
+    } else if (memchr(str, '\0', len)) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "NESTED TAG sub-field",
+                                    " `%s` must not contain a NUL byte", sub->name);
+      rv = NestedValue_Error;
+    } else {
+      char *tag = JSON_NormalizeNestedTag(str, &len, sub->caseSensitive);
+      if (terminal) {
+        NestedRows_FinishTag(rows, tag, len);
+      } else {
+        NestedRows_PushTagKey(rows, tag, len);
+      }
+      rm_free(tag);
+    }
+  } else {
+    double num;
+    long long integer;
+    if (type == JSONType_Double && japi->getDouble(value, &num) == REDISMODULE_OK) {
+    } else if (type == JSONType_Int && japi->getInt(value, &integer) == REDISMODULE_OK) {
+      num = (double)integer;
+    } else {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                                    "NESTED NUMERIC sub-field", " `%s` must hold a number",
+                                    sub->name);
+      japi->freeIter(iter);
+      return NestedValue_Error;
+    }
+    if (sub->hasRange && !(num >= sub->rangeMin && num <= sub->rangeMax)) {
+      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "NESTED NUMERIC sub-field",
+                                    " `%s` value is outside its RANGE", sub->name);
+      rv = NestedValue_Error;
+    } else {
+      // NUMERIC sub-fields are always last in INDEX, so a number is always the terminal value.
+      RS_ASSERT(terminal);
+      NestedRows_FinishNumeric(rows, num);
+    }
+  }
+  japi->freeIter(iter);
+  return rv;
+}
+
+/* Read one element: its sub-fields in INDEX order, the terminal last. */
+static int JSON_ReadNestedElement(RedisJSON element, const FieldSpec *fs, struct NestedRows *rows,
+                                  QueryError *status) {
+  // A null element is skipped, as a top-level JSON field ignores a null value.
+  if (japi->getType(element) == JSONType_Null) {
+    return REDISMODULE_OK;
+  }
+  if (japi->getType(element) != JSONType_Object) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_JSON_TYPE_BAD,
+                        "NESTED field elements must be objects");
+    return REDISMODULE_ERR;
+  }
+  for (uint8_t i = 0; i < fs->nestedOpts.def->numLevels; i++) {
+    const NestedSubField *sub = &fs->nestedOpts.def->subFields[fs->nestedOpts.def->levels[i]];
+    bool terminal = i + 1 == fs->nestedOpts.def->numLevels;
+    switch (JSON_ReadNestedValue(element, sub, terminal, rows, status)) {
+      case NestedValue_Ok:
+        break;
+      case NestedValue_Missing:
+        NestedRows_DiscardElement(rows);
+        return REDISMODULE_OK;
+      case NestedValue_Error:
+        return REDISMODULE_ERR;
+    }
+  }
+  return REDISMODULE_OK;
+}
+
+/* Read every element a NESTED field's path selects into `df->nestedRows`. Each result is an
+ * element object, or an array of them. Elements missing a sub-field are skipped. */
+static int JSON_StoreNestedInDocField(JSONResultsIterator jsonIter, FieldSpec *fs,
+                                      struct DocumentField *df, QueryError *status) {
+  struct NestedRows *rows = NestedRows_New(fs->nestedOpts.def->numLevels);
+  int rv = REDISMODULE_OK;
+  RedisJSON result;
+  RedisJSONPtr item = japi->allocJson();
+  while (rv == REDISMODULE_OK && (result = japi->next(jsonIter))) {
+    if (japi->getType(result) == JSONType_Array) {
+      size_t len = 0;
+      japi->getLen(result, &len);
+      for (size_t i = 0; i < len && rv == REDISMODULE_OK; i++) {
+        rv = japi->getAt(result, i, item) == REDISMODULE_OK
+                 ? JSON_ReadNestedElement(*item, fs, rows, status)
+                 : REDISMODULE_ERR;
+      }
+    } else {
+      rv = JSON_ReadNestedElement(result, fs, rows, status);
+    }
+  }
+  japi->freeJson(item);
+  if (rv != REDISMODULE_OK) {
+    if (!QueryError_HasError(status)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid NESTED field value");
+    }
+    NestedRows_Free(rows);
+    return REDISMODULE_ERR;
+  }
+  df->nestedRows = rows;
+  df->unionType = FLD_VAR_T_NESTED;
+  return REDISMODULE_OK;
+}
+
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
                               FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, bool rejectMultiValue,
                               QueryError *status) {
   int rv = REDISMODULE_OK;
+
+  // NESTED fields reject disk mode at creation, so `rejectMultiValue` never applies to them.
+  if (fs->types == INDEXFLD_T_NESTED) {
+    return JSON_StoreNestedInDocField(jsonIter, fs, df, status);
+  }
 
   if (rejectMultiValue && len > 1) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,

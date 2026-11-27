@@ -31,6 +31,7 @@ pub use iterators_ffi as iterators;
 pub use language_ffi as language;
 pub use metrics_ffi as metrics;
 pub use module_init_ffi as tracing_redismodule;
+pub use nested_index_ffi as nested_index;
 pub use numeric_range_tree_ffi as numeric_range_tree;
 pub use query_error_ffi as query_error;
 pub use query_eval_ffi as query_eval;

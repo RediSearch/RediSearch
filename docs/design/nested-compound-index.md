@@ -269,11 +269,14 @@ Public types, used by the later PRs:
    normalise TAG values (case folding unless `CASESENSITIVE`; no separator split, see §2). Drop elements
    that are missing any level's attribute. They aren't indexed, so they never match a group,
    which gives SQL's NULL behaviour. There is no cap on elements per document, as for
-   multi-value fields today.
-3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, first
-   call `check_paths` on all the document's rows together, and fail the document if it errors.
-   Checking each row alone is not enough: two new values under one parent can each fit a
-   `MAXCARD` limit alone and break it together, which would leave the document half indexed.
+   multi-value fields today. Then check every row of the
+   document (`NestedIndex::check_document`: value types, NaN, routing, and `check_paths` on all
+   rows together), and fail the document if it errors. A preprocessor failure drops the whole
+   document; an indexer failure would come after its other fields are written. Checking each row
+   alone is not enough: two new values under one parent can each fit a `MAXCARD` limit alone and
+   break it together, which would leave the document half indexed.
+3. **Bulk add** (`IndexerBulkAdd`, new `case IXFLDPOS_NESTED`): under the spec write lock, run
+   the same check again (it cannot fail while no level has `MAXCARD`, see §7 (3)).
    Then, for each row, call `get_or_insert_with` on the routing values, which cannot fail
    after a successful check, and insert into the terminal:
    - NUMERIC terminal: `NumericRangeTree::add(doc_id, value, is_multivalued = true, …)`.
@@ -322,9 +325,12 @@ In RAM mode the RDB stores only the **spec** (`IndexSpec_RdbSave` → `FieldSpec
 rescan (`IndexSpec_ScanAndReindex`, [indexes.c](../../src/indexes.c)). The compound index follows
 the same rule: only its definition is saved, and the tree is rebuilt by the rescan.
 
-Bump `INDEX_CURRENT_VERSION` to a new `INDEX_NESTED_VERSION` (32, the next free version), and only read the block below
-when `encver >= INDEX_NESTED_VERSION`. The field's `types` already round-trips as an unsigned, so
-loaders before 32 never see `INDEXFLD_T_NESTED`.
+The block shares encoding version 31 (`INDEX_NESTED_VERSION`) with SPARSEVECTOR: no release has
+shipped 31 yet, so NESTED needs no version of its own. Only a NESTED field writes the block, so
+indexes without one are unaffected. The block starts with its own format number, so its layout can
+change later without another index-wide bump. Load applies the same validation as `FT.CREATE`,
+rejects a NESTED type bit combined with any other type or with `Dynamic` (they share the union),
+and rejects strings with an embedded NUL.
 
 ```
 FieldSpec (existing header: name, path, types, options, sortIdx)
@@ -512,15 +518,32 @@ deleted doc ids, so it is not needed for correctness, but it must land before th
    Rust tests linked against the C bundle. Opening iterators on terminals needs the search
    context and a revalidation design, so it moves to the read side (4).
 3. **Write side: schema and ingest**:
-   - `INDEXFLD_T_NESTED`, `nestedOpts`, and the FFI crate `c_entrypoint/compound_index_ffi`.
-   - `FT.CREATE` parsing and validation (`NESTED`, `INDEX`, `MAXCARD`, `RANGE`), and
-     `FT.INFO`.
-   - The spec RDB block with `INDEX_NESTED_VERSION`.
-   - Ingest: element rows in `document_basic.c`, the preprocessor, `check_paths` on the whole
-     document, then bulk add and apply. Error cases: missing attribute, multi-valued sub-path,
-     limits.
-   - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, and a
-     `DEBUG RELOAD` round-trip.
+   - `INDEXFLD_T_NESTED` (`0x80`, the last bit of `FieldSpec.types`), `nestedOpts` with the
+     sub-field definitions kept in C, and the FFI crate `c_entrypoint/nested_index_ffi`.
+   - Behind `ENABLE_UNSTABLE_FEATURES`, as SPARSEVECTOR is: creating a field is gated; loading
+     and indexing an existing one are not.
+   - `FT.CREATE` / `FT.ALTER` parsing and validation (`NESTED`, `INDEX`, `CASESENSITIVE`,
+     `MAXCARD`, `RANGE`), `FT.INFO` attributes, and the spec fingerprint.
+   - The spec RDB block, sharing encoding version 31 with SPARSEVECTOR.
+   - The definition lives behind a pointer (`NestedDef`), so `FieldSpec` does not grow for other
+     field types. With the flag off, `NESTED` (and `SPARSEVECTOR`) do not end the previous
+     field's options, so a field named `nested` keeps its meaning.
+   - JSON values follow a top-level JSON field: a `null` element is skipped, a boolean TAG value
+     is the tag `"true"` or `"false"`, and a NUL byte in any TAG value rejects the document.
+   - Ingest: `json.c` reads each element's sub-fields into `NestedRows` before the spec lock,
+     folding TAG case as a JSON TAG field does. The NESTED preprocessor checks the whole
+     document with `NestedIndex_CheckDocument`, so a rejected document has none of its fields
+     indexed: by the time the indexer runs, the fields before it are already written. Without
+     `MAXCARD` the check reads only the field's levels, never the tree, so it needs no lock and
+     nothing indexed in between changes its outcome. `NestedIndex_IndexDocument` repeats it and
+     writes under the lock; its deltas feed `invertedSize`, `numRecords` and the block count.
+   - `MAXCARD` is rejected ("not supported yet") until GC (5): without GC a limit would keep
+     counting the values of deleted and replaced documents and reject later updates. Bringing it
+     back also brings back a stateful check, which the preprocessor can no longer run without the
+     lock (see the follow-ups below).
+   - Python tests: create and reject cases, indexing documents and checking `FT.INFO`, a reload,
+     `FT.ALTER`, and query safety.
+   - Deferred: NESTED fields are not counted in `INFO MODULES` field statistics yet.
 4. **Read side: parser, planner and eval**:
    - The `NESTED_MODIFIER` token, sub-field lookup scoped to the group, and `QN_NESTED`. A group on
      a non-NESTED field must keep today's text meaning.
@@ -551,6 +574,9 @@ Raised while reviewing the first PR and deliberately left to the PR that owns th
 | A coordinator-side parse without a spec falls back to text semantics. Check that the coordinator forwards `@items:( … )` untouched, so cluster and standalone agree | Read side (4) |
 | Pass the request timeout (`rqe_iterators`' `TimeoutContextRequest`) to `collect_terminals`, map `CollectError::TimedOut` to the query's timeout error, and drop `max_nodes` from `NestedLimits`. Keep the terminal, reader and branch bounds as internal constants, not `FT.CONFIG` | Read side (4) |
 | Whether to support a second numeric attribute (§2, "Numeric attributes: only the terminal"): an adaptive numeric routing level or a filter attribute | After Terminals (2), driven by workloads with two numeric attributes |
+| Only postings are reported (in `inverted_sz_mb`); the routing layer's tries and the terminals' own overhead are not in `FT.INFO` or the index memory total yet | Read side (4), with `FT.PROFILE` and memory reporting |
+| `NestedIndex::num_records` must be decremented when GC removes postings | GC (5) |
+| Re-enable `MAXCARD` once GC frees stale values. Its check counts existing children, so it depends on the tree: either run it in the preprocessor under the spec read lock and accept that a concurrent write can still fail the indexer, or keep it in the indexer and roll back the document's other fields | GC (5) |
 
 ## 8. Open questions
 

@@ -23,6 +23,7 @@ extern crate iterators_ffi as _;
 extern crate language_ffi as _;
 extern crate metrics_ffi as _;
 extern crate module_init_ffi as _;
+extern crate nested_index_ffi as _;
 extern crate numeric_range_tree_ffi as _;
 extern crate query_error_ffi as _;
 extern crate query_eval_ffi as _;

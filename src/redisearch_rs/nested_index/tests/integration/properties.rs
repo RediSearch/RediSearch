@@ -71,7 +71,10 @@ proptest! {
             let entries_before = total_entries(&index);
             let terminals_before = index.routing().num_terminals();
 
+            let checked = index.check_document(&elements(&items));
             let result = index.index_document(position as u64 + 1, &elements(&items), PARAMS);
+            // The check run before the spec lock decides what indexing does under it.
+            prop_assert_eq!(checked.is_ok(), result.is_ok());
 
             // Accepted exactly when no price is NaN and no color would end up with more than two
             // sizes, counting the sizes indexed before and those this document brings.
