@@ -18,8 +18,8 @@ use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, expansion::Expansion,
-    expansion_needs_offsets,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, effective_scorer,
+    expansion::Expansion, expansion_needs_offsets,
 };
 
 /// The `apiVersion` from which a fuzzy expansion also covers the empty term.
@@ -60,6 +60,7 @@ pub(crate) fn eval<'index>(
     let field_mask = node_field_mask & ctx.opts().fieldmask;
     let is_disk = !ctx.spec().diskSpec.is_null();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
+    let scorer = effective_scorer(ctx, config);
     // Read with every other use of `ctx`, because `Expansion` borrows it mutably
     // for the rest of the expansion.
     let api_version = ctx.sctx().apiVersion;
@@ -77,6 +78,7 @@ pub(crate) fn eval<'index>(
         field_mask,
         is_disk,
         needs_offsets,
+        scorer,
         max_expansions: config.max_prefix_expansions,
     };
 

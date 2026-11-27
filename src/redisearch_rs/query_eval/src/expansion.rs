@@ -24,7 +24,7 @@ use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use search_disk::SearchDiskHandle;
 
-use crate::{QueryEvalContext, disk};
+use crate::{QueryEvalContext, disk, scorers::BuiltInScorer};
 
 /// Whether the query should stop for memory pressure (or an earlier stop), ending an
 /// expansion early. The cap is user-configurable up to `u32::MAX`, so the readers opened
@@ -54,6 +54,7 @@ pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
 /// `needs_offsets` selects the offset-carrying iterator variant. Returns `None`
 /// — after [`disk::new_term_iterator`] records the failure on the query status —
 /// when the iterator cannot be built.
+#[expect(clippy::too_many_arguments)]
 fn open_expanded_term_reader_disk(
     ctx: &mut QueryEvalContext,
     disk: SearchDiskHandle,
@@ -62,13 +63,23 @@ fn open_expanded_term_reader_disk(
     field_mask: FieldMask,
     weight: f64,
     needs_offsets: bool,
+    scorer: Option<BuiltInScorer>,
 ) -> Option<CRQEIterator> {
     let num_documents = ctx.spec().stats.scoring.numDocuments;
     let token_id = ctx.next_token_id() as i32;
     let mut term = RSQueryTerm::new_bytes(term_bytes, token_id, 0);
     term.set_idfs(num_documents, num_docs);
 
-    let it = disk::new_term_iterator(ctx, disk, term, field_mask, weight, num_docs, needs_offsets)?;
+    let it = disk::new_term_iterator(
+        ctx,
+        disk,
+        term,
+        field_mask,
+        weight,
+        num_docs,
+        needs_offsets,
+        scorer,
+    )?;
     let ptr = RQEIteratorWrapper::boxed_new(it);
     // SAFETY: `ptr` is a valid, owning C `QueryIterator`.
     Some(unsafe { CRQEIterator::new(ptr) })
@@ -132,6 +143,7 @@ fn open_expanded_term_reader(
     num_docs: usize,
     field_mask: FieldMask,
     needs_offsets: bool,
+    scorer: Option<BuiltInScorer>,
 ) -> Option<CRQEIterator> {
     // See the doc comment: expansion children always carry unit weight.
     const CHILD_WEIGHT: f64 = 1.0;
@@ -148,6 +160,7 @@ fn open_expanded_term_reader(
             field_mask,
             CHILD_WEIGHT,
             needs_offsets,
+            scorer,
         );
     }
 
@@ -220,6 +233,9 @@ pub(super) struct Expansion<'a> {
     pub(super) is_disk: bool,
     /// Whether expanded disk readers must carry term offsets (disk path only).
     pub(super) needs_offsets: bool,
+    /// The query's built-in scorer, handed to expanded disk readers (disk path
+    /// only).
+    pub(super) scorer: Option<BuiltInScorer>,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
 }
@@ -256,6 +272,7 @@ impl Expansion<'_> {
             num_docs,
             self.field_mask,
             self.needs_offsets,
+            self.scorer,
         ) {
             self.children.push(it);
         }

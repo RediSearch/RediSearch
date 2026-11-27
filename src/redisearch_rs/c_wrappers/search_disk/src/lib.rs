@@ -20,7 +20,7 @@ use std::ptr::NonNull;
 use inverted_index::NumericFilter;
 use query_term::RSQueryTerm;
 use rqe_core::{DocId, FieldIndex, FieldMask};
-use rqe_iterators::{RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS};
+use rqe_iterators::{RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, TermScoringContext};
 
 /// A handle to a search-on-disk index ([`ffi::RedisSearchDiskIndexSpec`]).
 ///
@@ -160,9 +160,9 @@ impl SearchDiskHandle {
     /// scorers that don't need term positions).
     ///
     /// `query_term` carries its own scoring metadata (`idf`/`bm25_idf`), which
-    /// the caller is expected to populate before the call. `num_docs` is the
-    /// document count those were derived from; the iterator reports it as its
-    /// estimate.
+    /// the caller is expected to populate before the call; `scoring` must be
+    /// derived from that same term. `num_docs` is the document count those were
+    /// derived from; the iterator reports it as its estimate.
     ///
     /// # Safety
     ///
@@ -177,7 +177,7 @@ impl SearchDiskHandle {
         self,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
-        weight: f64,
+        scoring: TermScoringContext,
         num_docs: usize,
         needs_offsets: bool,
         view: NonNull<ffi::RedisSearchDiskQueryView>,
@@ -195,11 +195,11 @@ impl SearchDiskHandle {
 
         if needs_offsets {
             api.new_term_on_disk_with_offsets(
-                disk_spec, query_term, field_mask, weight, num_docs, view,
+                disk_spec, query_term, field_mask, scoring, num_docs, view,
             )
         } else {
             api.new_term_on_disk_without_offsets(
-                disk_spec, query_term, field_mask, weight, num_docs, view,
+                disk_spec, query_term, field_mask, scoring, num_docs, view,
             )
         }
     }

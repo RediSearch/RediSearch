@@ -2034,6 +2034,9 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     if (!SearchDisk_CanCreateIndex(status)) {
       goto failure;
     }
+    if (RSGlobalConfig.diskScoreSkipping) {
+      spec->flags |= Index_DiskScoreSkipping;
+    }
     spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
                                           spec->rule->type, true, spec, status);
     if (!spec->diskSpec) {
