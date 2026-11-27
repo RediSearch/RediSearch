@@ -94,7 +94,7 @@ class IndexGCTest : public ::testing::Test {
     global.threadGcCleanThreshold = 0;
     RSGlobalStats.totalStats.logically_deleted = 0;
     fgc = reinterpret_cast<IndexGC *>(get_spec(ism)->gc->gcCtx);
-    copyThresholdAtQueueTime();
+    copyCleanBarAtQueueTime();
   }
 
   void TearDown() override {
@@ -105,8 +105,8 @@ class IndexGCTest : public ::testing::Test {
   }
 
   // What GCContext_QueueRun does before handing the GC a scheduled run: a scheduled cycle checks
-  // the threshold copied then, not the global one.
-  void copyThresholdAtQueueTime() { get_spec(ism)->gc->callbacks.onQueueRun(fgc); }
+  // the clean bar copied then, not the current settings.
+  void copyCleanBarAtQueueTime() { get_spec(ism)->gc->callbacks.onQueueRun(fgc); }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
     return ::addDocumentWrapper(ctx, ism, docid, field, value);
@@ -1404,7 +1404,7 @@ TEST_F(IndexGCTest, testThresholdSkipAfterAFailedForkArmsTheRunInterval) {
   EXPECT_EQ(next.intervalMs, GC_IntervalSecToMs(settings->forkGcRetryInterval));
 
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 100;
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   const bool rescheduled = IndexGC_RunCycle(fgc, nullptr, nullptr);
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   ASSERT_TRUE(rescheduled);
@@ -1434,7 +1434,7 @@ TEST_F(IndexGCTest, testNextTimerReadsTheCurrentInterval) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Per-index GC settings, and the clean threshold the GC copies when it queues a run.
+// Per-index GC settings, and the clean bar the GC copies when it queues a run.
 
 namespace {
 // Returns once every job queued on the GC pool before this call has finished. The pool has one
@@ -1479,12 +1479,27 @@ class IndexGCSettingsTest : public IndexGCTestTag {
     GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
     return threadPolicy() ? global.threadGcRunIntervalSec : global.forkGcRunIntervalSec;
   }
+  size_t &globalRatio() {
+    GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+    return threadPolicy() ? global.gcCleanRatioPpm : global.forkGcCleanRatioPpm;
+  }
+  size_t &otherPolicyRatio() {
+    GCSettings &global = RSGlobalConfig.gcConfigParams.gcSettings;
+    return threadPolicy() ? global.forkGcCleanRatioPpm : global.gcCleanRatioPpm;
+  }
 
   // Runs a scheduled cycle, and returns whether it got past the clean threshold.
   bool scheduledCycleCollects() {
     const size_t before = fgc->stats.numCycles;
     EXPECT_TRUE(IndexGC_RunCycle(fgc, nullptr, nullptr));
     return fgc->stats.numCycles != before;
+  }
+
+  void addLive(size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+      const std::string key = "live" + std::to_string(i);
+      ASSERT_TRUE(RS::addDocument(ctx, ism, key.c_str(), tag_field_name, "hello"));
+    }
   }
 
   void addAndDelete(size_t n) {
@@ -1520,44 +1535,44 @@ TEST_P(IndexGCSettingsPolicyTest, testScheduledCycleUsesTheIndexThreshold) {
   addAndDelete(2);
 
   settings().cleanThreshold = {true, 3};
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   EXPECT_FALSE(scheduledCycleCollects());
 
   settings().cleanThreshold = {true, 2};
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   EXPECT_TRUE(scheduledCycleCollects());
   ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
 
   // 0 collects with nothing to collect.
   settings().cleanThreshold = {true, 0};
   globalThreshold() = 100;
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   EXPECT_TRUE(scheduledCycleCollects());
 }
 
 TEST_P(IndexGCSettingsPolicyTest, testUnsetThresholdFollowsTheGlobal) {
   globalThreshold() = 5;
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   addAndDelete(1);
   EXPECT_FALSE(scheduledCycleCollects());
 
   // A change reaches the next queued run, not the one already queued.
   globalThreshold() = 1;
   EXPECT_FALSE(scheduledCycleCollects());
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   EXPECT_TRUE(scheduledCycleCollects());
 }
 
 TEST_P(IndexGCSettingsPolicyTest, testQueuedRunKeepsItsThreshold) {
   settings().cleanThreshold = {true, 0};
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   settings().cleanThreshold = {true, 1000};
   EXPECT_TRUE(scheduledCycleCollects());
 }
 
 TEST_P(IndexGCSettingsPolicyTest, testForcedCycleIgnoresTheThreshold) {
   settings().cleanThreshold = {true, 1000};
-  copyThresholdAtQueueTime();
+  copyCleanBarAtQueueTime();
   const size_t before = fgc->stats.numCycles;
   runGC();
   EXPECT_EQ(fgc->stats.numCycles, before + 1);
@@ -1569,53 +1584,153 @@ INSTANTIATE_TEST_SUITE_P(Policies, IndexGCSettingsPolicyTest,
                            return info.param == GCPolicy_Fork ? "Fork" : "Thread";
                          });
 
-class IndexGCSettingsThreadTest : public IndexGCSettingsTest {
- protected:
-  GCPolicy policy() const override { return GCPolicy_Thread; }
-};
-
-// The index's threshold replaces only the absolute one: the global ratio still applies on top.
-TEST_F(IndexGCSettingsThreadTest, testTheRatioAppliesOverTheIndexThreshold) {
-  for (int i = 0; i < 4; ++i) {
-    const std::string key = "live" + std::to_string(i);
-    ASSERT_TRUE(RS::addDocument(ctx, ism, key.c_str(), tag_field_name, "hello"));
-  }
+// Under both policies the deletions must reach the threshold and the ratio's share of the live
+// documents.
+TEST_P(IndexGCSettingsPolicyTest, testTheRatioAppliesOverTheThreshold) {
+  addLive(4);
   addAndDelete(2);
-  settings().cleanThreshold = {true, 1};
-  copyThresholdAtQueueTime();
-
-  size_t &ppm = RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm;
-  ppm = GC_CLEAN_RATIO_PPM_SCALE;  // wait for as many deletions as there are live documents
+  settings().cleanThreshold = {true, 3};
+  settings().cleanRatioPpm = {true, 250000};  // 1 of the 4 live documents
+  copyCleanBarAtQueueTime();
   EXPECT_FALSE(scheduledCycleCollects());
-  ppm = 0;
+
+  settings().cleanThreshold = {true, 1};
+  settings().cleanRatioPpm = {true, 750000};  // 3 of 4
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  settings().cleanRatioPpm = {true, 500000};  // 2 of 4
+  copyCleanBarAtQueueTime();
   EXPECT_TRUE(scheduledCycleCollects());
 }
 
-TEST_F(IndexGCSettingsTest, testCreatedWithTheIndexThreshold) {
+TEST_P(IndexGCSettingsPolicyTest, testUnsetRatioFollowsTheActivePolicysGlobal) {
+  addLive(4);
+  addAndDelete(2);
+  settings().cleanThreshold = {true, 0};
+  globalRatio() = GC_CLEAN_RATIO_PPM_SCALE;
+  otherPolicyRatio() = 0;
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  // A change reaches the next queued run, not the one already queued; the other policy's global
+  // never does.
+  globalRatio() = 0;
+  otherPolicyRatio() = GC_CLEAN_RATIO_PPM_SCALE;
+  EXPECT_FALSE(scheduledCycleCollects());
+  copyCleanBarAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testQueuedRunKeepsItsRatio) {
+  addLive(4);
+  addAndDelete(2);
+  settings().cleanThreshold = {true, 0};
+  settings().cleanRatioPpm = {true, 0};
+  copyCleanBarAtQueueTime();
+  settings().cleanRatioPpm = {true, GC_CLEAN_RATIO_PPM_SCALE};
+  EXPECT_TRUE(scheduledCycleCollects());
+
+  addAndDelete(2);
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testRatioZeroLeavesTheThreshold) {
+  addLive(4);
+  addAndDelete(2);
+  globalRatio() = GC_CLEAN_RATIO_PPM_SCALE;
+  settings().cleanRatioPpm = {true, 0};
+  settings().cleanThreshold = {true, 3};
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  settings().cleanThreshold = {true, 2};
+  copyCleanBarAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testThresholdZeroWithARatio) {
+  addLive(4);
+  settings().cleanThreshold = {true, 0};
+  settings().cleanRatioPpm = {true, 500000};
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  addAndDelete(2);
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+TEST_P(IndexGCSettingsPolicyTest, testEmptyIndexIsLeftToTheThreshold) {
+  addAndDelete(2);
+  ASSERT_EQ(get_spec(ism)->stats.scoring.numDocuments, 0);
+  settings().cleanRatioPpm = {true, GC_CLEAN_RATIO_PPM_SCALE};
+  settings().cleanThreshold = {true, 3};
+  copyCleanBarAtQueueTime();
+  EXPECT_FALSE(scheduledCycleCollects());
+
+  settings().cleanThreshold = {true, 2};
+  copyCleanBarAtQueueTime();
+  EXPECT_TRUE(scheduledCycleCollects());
+}
+
+// Only the check reads the live count, so the test can set it to sizes it could never index.
+TEST_P(IndexGCSettingsPolicyTest, testRatioOnAHugeIndex) {
+  addAndDelete(2);
+  settings().cleanThreshold = {true, 0};
+  size_t &live = get_spec(ism)->stats.scoring.numDocuments;
+  const struct {
+    size_t live, ppm;
+    bool collects;
+  } cases[] = {
+      // 2^58 * 2^19 is 0 modulo 2^64: a product that wrapped would let 2 deletions pass.
+      {size_t(1) << 58, size_t(1) << 19, false},
+      {SIZE_MAX, GC_CLEAN_RATIO_PPM_SCALE, false},
+      // The bar rounds down: 1 ppm of 2,999,999 is 2, of 3,000,000 is 3.
+      {3000000, 1, false},
+      {2999999, 1, true},
+  };
+  for (const auto &c : cases) {
+    SCOPED_TRACE(std::to_string(c.live) + " live, " + std::to_string(c.ppm) + " ppm");
+    live = c.live;
+    settings().cleanRatioPpm = {true, c.ppm};
+    copyCleanBarAtQueueTime();
+    EXPECT_EQ(scheduledCycleCollects(), c.collects);
+    live = 0;
+  }
+}
+
+TEST_F(IndexGCSettingsTest, testCreatedWithTheIndexCleanBar) {
   settings().cleanThreshold = {true, 42};
+  settings().cleanRatioPpm = {true, 7};
   StrongRef strong = StrongRef_New(get_spec(ism), keepObject);
   GCContext *gc = GCContext_CreateGC(strong, GCPolicy_Fork);
-  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanBar.threshold, 42);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanBar.ratioPpm, 7);
   GCContext_StopMock(gc);
   StrongRef_Release(strong);
 }
 
-TEST_F(IndexGCSettingsTest, testQueueRunCopiesTheThreshold) {
+TEST_F(IndexGCSettingsTest, testQueueRunCopiesTheCleanBar) {
   GCContext *gc = get_spec(ism)->gc;
   GCContext_StopFutureRuns(gc);  // StartNow requires a stopped GC
   settings().cleanThreshold = {true, 1000};
+  settings().cleanRatioPpm = {true, 300};
   {
     PausedGCPool paused;
     GCContext_StartNow(gc);
     ASSERT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
-    EXPECT_EQ(fgc->cleanThreshold, 1000);
+    EXPECT_EQ(fgc->cleanBar.threshold, 1000);
+    EXPECT_EQ(fgc->cleanBar.ratioPpm, 300);
 
     // While that run holds the context, queueing again changes nothing: the run may already be
     // reading the copy.
     settings().cleanThreshold = {true, 7};
+    settings().cleanRatioPpm = {true, 8};
     GCContext_StopFutureRuns(gc);
     GCContext_StartNow(gc);
-    EXPECT_EQ(fgc->cleanThreshold, 1000);
+    EXPECT_EQ(fgc->cleanBar.threshold, 1000);
+    EXPECT_EQ(fgc->cleanBar.ratioPpm, 300);
   }
   EXPECT_FALSE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);  // the run finished
 }
@@ -1627,7 +1742,7 @@ TEST_F(IndexGCSettingsTest, testQueueRunAfterTheDropKeepsTheCopy) {
   PausedGCPool paused;
   GCContext_FinishDrop(gc);
   EXPECT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
-  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanBar.threshold, 42);
 }
 
 TEST_P(IndexGCSettingsPolicyTest, testRunIntervalHelper) {
@@ -1685,7 +1800,7 @@ TEST_F(IndexGCSettingsTimerTest, testTimerFiringAfterTheDropKeepsTheCopy) {
   PausedGCPool paused;  // on leaving, the queued run finds the drop and frees `gc`
   FakeGCTimers::Fire();
   EXPECT_TRUE(gcSchedFlags(gc) & GC_SCHED_RUN_PENDING);
-  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanThreshold, 42);
+  EXPECT_EQ(static_cast<IndexGC *>(gc->gcCtx)->cleanBar.threshold, 42);
 }
 
 TEST_P(IndexGCSettingsPolicyTest, testRunIntervalTimerArmsWithTheIndexInterval) {
@@ -1729,23 +1844,30 @@ TEST(IndexGCSettingsHelpers, testEffectiveValues) {
   global.forkGcCleanThreshold = 100;
   global.threadGcRunIntervalSec = 7;
   global.threadGcCleanThreshold = 50;
+  global.forkGcCleanRatioPpm = 300;
+  global.gcCleanRatioPpm = 2000;
 
   IndexGCSettings s;
   IndexGCSettings_Init(&s);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 30);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 100);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 300);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 7);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 50);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 2000);
 
   s.runIntervalSec = {true, 1};
   s.cleanThreshold = {true, 0};
+  s.cleanRatioPpm = {true, 0};
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 0);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 0);
 
   RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
   RSGlobalConfig.gcConfigParams.gcSettings = saved;
@@ -1759,6 +1881,9 @@ TEST(IndexGCSettingsHelpers, testValueRanges) {
   EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, 0));
   EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, LLONG_MAX));
   EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, (size_t)LLONG_MAX + 1));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 0));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 1000000));
+  EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 1000001));
   EXPECT_FALSE(IndexGCSettings_IsValid((IndexGCSettingId)99, 1));
 }
 
@@ -1802,12 +1927,26 @@ TEST(IndexGCSettingsParse, testSetsAndClears) {
   EXPECT_TRUE(s.cleanThreshold.isSet);
   EXPECT_EQ(s.cleanThreshold.value, 0);
 
+  EXPECT_EQ(parseGCSet(s, {"clean_ratio_ppm", "200"}, &setsRunInterval), "");
+  EXPECT_FALSE(setsRunInterval);
+  EXPECT_TRUE(s.cleanRatioPpm.isSet);
+  EXPECT_EQ(s.cleanRatioPpm.value, 200);
+  EXPECT_EQ(s.cleanThreshold.value, 0);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "0"}), "");
+  EXPECT_TRUE(s.cleanRatioPpm.isSet);
+  EXPECT_EQ(s.cleanRatioPpm.value, 0);
+
   EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "default"}, &setsRunInterval), "");
   EXPECT_TRUE(setsRunInterval);
   EXPECT_FALSE(s.runIntervalSec.isSet);
   EXPECT_TRUE(s.cleanThreshold.isSet);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "DEFAULT"}), "");
+  EXPECT_FALSE(s.cleanRatioPpm.isSet);
+  EXPECT_TRUE(s.cleanThreshold.isSet);
   // DEFAULT on an unset override leaves it unset.
-  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "DEFAULT", "CLEAN_THRESHOLD", "DEFAULT"}), "");
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "DEFAULT", "CLEAN_THRESHOLD", "DEFAULT",
+                           "CLEAN_RATIO_PPM", "DEFAULT"}),
+            "");
   IndexGCSettings unset;
   IndexGCSettings_Init(&unset);
   EXPECT_EQ(memcmp(&s, &unset, sizeof(s)), 0);
@@ -1825,6 +1964,8 @@ TEST(IndexGCSettingsParse, testBounds) {
   EXPECT_EQ(s.runIntervalSec.value, GC_MAX_INTERVAL_SEC);
   EXPECT_EQ(parseGCSet(s, {"CLEAN_THRESHOLD", maxThreshold.c_str()}), "");
   EXPECT_EQ(s.cleanThreshold.value, (size_t)LLONG_MAX);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000000"}), "");
+  EXPECT_EQ(s.cleanRatioPpm.value, 1000000);
 
   const IndexGCSettings before = s;
   for (const char *bad : {"0", overInterval.c_str(), "-1", "1.5", "1e3", "+5", " 5", "", "abc",
@@ -1833,6 +1974,9 @@ TEST(IndexGCSettingsParse, testBounds) {
   }
   for (const char *bad : {overThreshold.c_str(), "-1", "0.0", "x"}) {
     EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", bad}), "") << bad;
+  }
+  for (const char *bad : {"1000001", "-1", "0.5", "1e3", "100%"}) {
+    EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", bad}), "") << bad;
   }
   EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
 }
@@ -1852,6 +1996,11 @@ TEST(IndexGCSettingsParse, testErrorsChangeNothing) {
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_THRESHOLD"}), "");
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL"}), "");
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_RATIO", "5"}), "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "5", "CLEAN_RATIO_PPM", "DEFAULT"}), "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "5", "CLEAN_THRESHOLD", "1", "CLEAN_RATIO_PPM",
+                           "6"}),
+            "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "CLEAN_RATIO_PPM", "1000001"}), "");
   EXPECT_NE(parseGCSet(s, {"DEFAULT", "RUN_INTERVAL", "100"}), "");
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "RUN_INTERVAL", "0"}, &setsRunInterval), "");
   EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
@@ -1863,7 +2012,13 @@ TEST(IndexGCSettingsParse, testErrorText) {
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find("RUN_INTERVAL"), std::string::npos);
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find(std::to_string(GC_MAX_INTERVAL_SEC)),
             std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000001"}).find("CLEAN_RATIO_PPM"),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000001"}).find("from 0 to 1000000"),
+            std::string::npos);
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "CLEAN_THRESHOLD", "1"}).find("more than once"),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1", "CLEAN_RATIO_PPM", "1"}).find("more than once"),
             std::string::npos);
   EXPECT_NE(parseGCSet(s, {"FOO", "1"}).find("Unknown GC setting"), std::string::npos);
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD"}).find("Missing value"), std::string::npos);

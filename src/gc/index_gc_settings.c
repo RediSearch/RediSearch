@@ -10,6 +10,7 @@
 #include "index_gc_settings.h"
 
 #include <limits.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "config.h"
@@ -23,24 +24,52 @@ void IndexGCSettings_Init(IndexGCSettings *settings) {
   *settings = (IndexGCSettings){0};
 }
 
-// The accepted range of `id`, or false for an id this binary does not know.
-static bool settingRange(IndexGCSettingId id, size_t *min, size_t *max) {
-  switch (id) {
-    case INDEX_GC_SETTING_RUN_INTERVAL:
-      *min = 1;
-      *max = GC_MAX_INTERVAL_SEC;
-      return true;
-    case INDEX_GC_SETTING_CLEAN_THRESHOLD:
-      *min = 0;
-      *max = LLONG_MAX;
-      return true;
+// Every setting an index may override, in the order the RDB block saves them. Parsing and
+// persistence read only this table, so a new setting is a row here, an IndexGCSettingId and an
+// override field.
+typedef struct {
+  IndexGCSettingId id;
+  const char *name;  // the keyword GC SET takes
+  size_t min, max;
+  size_t offset;  // of its IndexGCOverride in IndexGCSettings
+} SettingDesc;
+
+static const SettingDesc settingDescs[] = {
+    {INDEX_GC_SETTING_RUN_INTERVAL, "RUN_INTERVAL", 1, GC_MAX_INTERVAL_SEC,
+     offsetof(IndexGCSettings, runIntervalSec)},
+    {INDEX_GC_SETTING_CLEAN_THRESHOLD, "CLEAN_THRESHOLD", 0, LLONG_MAX,
+     offsetof(IndexGCSettings, cleanThreshold)},
+    {INDEX_GC_SETTING_CLEAN_RATIO_PPM, "CLEAN_RATIO_PPM", 0, MAX_GC_CLEAN_RATIO_PPM,
+     offsetof(IndexGCSettings, cleanRatioPpm)},
+};
+#define NUM_SETTINGS (sizeof(settingDescs) / sizeof(settingDescs[0]))
+
+// The descriptor of `id`, or NULL for an id this binary does not know.
+static const SettingDesc *descFor(uint64_t id) {
+  for (size_t i = 0; i < NUM_SETTINGS; ++i) {
+    if ((uint64_t)settingDescs[i].id == id) {
+      return &settingDescs[i];
+    }
   }
-  return false;
+  return NULL;
+}
+
+static IndexGCOverride *overrideOf(IndexGCSettings *settings, const SettingDesc *desc) {
+  return (IndexGCOverride *)((char *)settings + desc->offset);
+}
+
+static const IndexGCOverride *constOverrideOf(const IndexGCSettings *settings,
+                                              const SettingDesc *desc) {
+  return (const IndexGCOverride *)((const char *)settings + desc->offset);
+}
+
+static bool inRange(const SettingDesc *desc, size_t value) {
+  return value >= desc->min && value <= desc->max;
 }
 
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value) {
-  size_t min, max;
-  return settingRange(id, &min, &max) && value >= min && value <= max;
+  const SettingDesc *desc = descFor(id);
+  return desc && inRange(desc, value);
 }
 
 static size_t effective(const IndexGCOverride *override, size_t global) {
@@ -61,6 +90,11 @@ size_t IndexGCSettings_GlobalCleanThreshold(void) {
   return threadPolicy() ? global->threadGcCleanThreshold : global->forkGcCleanThreshold;
 }
 
+size_t IndexGCSettings_GlobalCleanRatioPpm(void) {
+  const GCSettings *global = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicy() ? global->gcCleanRatioPpm : global->forkGcCleanRatioPpm;
+}
+
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings) {
   return effective(&settings->runIntervalSec, IndexGCSettings_GlobalRunIntervalSec());
 }
@@ -69,26 +103,9 @@ size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings) {
   return effective(&settings->cleanThreshold, IndexGCSettings_GlobalCleanThreshold());
 }
 
-// The override for `id`, or NULL for an id this binary does not know.
-static IndexGCOverride *overrideFor(IndexGCSettings *settings, uint64_t id) {
-  switch (id) {
-    case INDEX_GC_SETTING_RUN_INTERVAL:
-      return &settings->runIntervalSec;
-    case INDEX_GC_SETTING_CLEAN_THRESHOLD:
-      return &settings->cleanThreshold;
-  }
-  return NULL;
+size_t IndexGCSettings_CleanRatioPpm(const IndexGCSettings *settings) {
+  return effective(&settings->cleanRatioPpm, IndexGCSettings_GlobalCleanRatioPpm());
 }
-
-// The settings `GC SET` takes, by keyword. A new setting needs only an entry here, an id and an
-// override field.
-static const struct {
-  const char *name;
-  IndexGCSettingId id;
-} settingNames[] = {
-    {"RUN_INTERVAL", INDEX_GC_SETTING_RUN_INTERVAL},
-    {"CLEAN_THRESHOLD", INDEX_GC_SETTING_CLEAN_THRESHOLD},
-};
 
 // A non-negative decimal integer, digits only: no sign, fraction or exponent, so "-1" and "1.5"
 // are rejected rather than wrapped or truncated.
@@ -119,23 +136,22 @@ int IndexGCSettings_ParseSet(ArgsCursor *ac, IndexGCSettings *settings, bool *se
     return REDISMODULE_ERR;
   }
   IndexGCSettings updated = *settings;
-  bool given[sizeof(settingNames) / sizeof(settingNames[0])] = {0};
+  bool given[NUM_SETTINGS] = {0};
   while (!AC_IsAtEnd(ac)) {
     const char *name;
     size_t nameLen;
     AC_GetString(ac, &name, &nameLen, 0);
     size_t i = 0;
-    while (i < sizeof(settingNames) / sizeof(settingNames[0]) &&
-           !STR_EQCASE(name, nameLen, settingNames[i].name)) {
+    while (i < NUM_SETTINGS && !STR_EQCASE(name, nameLen, settingDescs[i].name)) {
       ++i;
     }
-    if (i == sizeof(settingNames) / sizeof(settingNames[0])) {
+    if (i == NUM_SETTINGS) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Unknown GC setting",
                                     " `%.*s`", (int)nameLen, name);
       return REDISMODULE_ERR;
     }
-    const char *settingName = settingNames[i].name;
-    const IndexGCSettingId id = settingNames[i].id;
+    const SettingDesc *desc = &settingDescs[i];
+    const char *settingName = desc->name;
     if (given[i]) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                        "GC setting %s given more than once", settingName);
@@ -150,27 +166,25 @@ int IndexGCSettings_ParseSet(ArgsCursor *ac, IndexGCSettings *settings, bool *se
                                        "Missing value for GC setting %s", settingName);
       return REDISMODULE_ERR;
     }
-    IndexGCOverride *override = overrideFor(&updated, id);
+    IndexGCOverride *override = overrideOf(&updated, desc);
     if (STR_EQCASE(value, valueLen, INDEX_GC_SETTING_DEFAULT_STR)) {
       *override = (IndexGCOverride){0};
       continue;
     }
     size_t parsed = 0;
-    if (!parseUnsigned(value, valueLen, &parsed) || !IndexGCSettings_IsValid(id, parsed)) {
-      size_t min = 0, max = 0;
-      settingRange(id, &min, &max);
+    if (!parseUnsigned(value, valueLen, &parsed) || !inRange(desc, parsed)) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
                                        "Invalid value for GC setting %s: expected an integer from "
                                        "%zu to %zu, or " INDEX_GC_SETTING_DEFAULT_STR,
-                                       settingName, min, max);
+                                       settingName, desc->min, desc->max);
       return REDISMODULE_ERR;
     }
     *override = (IndexGCOverride){.isSet = true, .value = parsed};
   }
   *settings = updated;
   *setsRunInterval = false;
-  for (size_t i = 0; i < sizeof(settingNames) / sizeof(settingNames[0]); ++i) {
-    if (given[i] && settingNames[i].id == INDEX_GC_SETTING_RUN_INTERVAL) {
+  for (size_t i = 0; i < NUM_SETTINGS; ++i) {
+    if (given[i] && settingDescs[i].id == INDEX_GC_SETTING_RUN_INTERVAL) {
       *setsRunInterval = true;
     }
   }
@@ -202,22 +216,16 @@ static bool decodeNumericValue(const char *buf, size_t len, uint64_t *value) {
 }
 
 void IndexGCSettings_RdbSave(RedisModuleIO *rdb, const IndexGCSettings *settings) {
-  const struct {
-    IndexGCSettingId id;
-    const IndexGCOverride *override;
-  } all[] = {
-      {INDEX_GC_SETTING_RUN_INTERVAL, &settings->runIntervalSec},
-      {INDEX_GC_SETTING_CLEAN_THRESHOLD, &settings->cleanThreshold},
-  };
   uint64_t count = 0;
-  for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
-    count += all[i].override->isSet;
+  for (size_t i = 0; i < NUM_SETTINGS; ++i) {
+    count += constOverrideOf(settings, &settingDescs[i])->isSet;
   }
   RedisModule_SaveUnsigned(rdb, count);
-  for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); ++i) {
-    if (all[i].override->isSet) {
-      RedisModule_SaveUnsigned(rdb, all[i].id);
-      saveNumericValue(rdb, all[i].override->value);
+  for (size_t i = 0; i < NUM_SETTINGS; ++i) {
+    const IndexGCOverride *override = constOverrideOf(settings, &settingDescs[i]);
+    if (override->isSet) {
+      RedisModule_SaveUnsigned(rdb, settingDescs[i].id);
+      saveNumericValue(rdb, override->value);
     }
   }
 }
@@ -231,8 +239,8 @@ int IndexGCSettings_RdbLoad(RedisModuleIO *rdb, IndexGCSettings *settings) {
     const uint64_t id = LoadUnsigned_IOError(rdb, return REDISMODULE_ERR);
     size_t len = 0;
     char *buf = LoadStringBuffer_IOError(rdb, &len, return REDISMODULE_ERR);
-    IndexGCOverride *override = overrideFor(settings, id);
-    if (!override) {
+    const SettingDesc *desc = descFor(id);
+    if (!desc) {
       // Written by a newer binary. Every GC setting only tunes when garbage is collected, never
       // what a query returns, so loading without it is safe.
       RedisModule_Free(buf);
@@ -242,7 +250,8 @@ int IndexGCSettings_RdbLoad(RedisModuleIO *rdb, IndexGCSettings *settings) {
     uint64_t value = 0;
     const bool decoded = decodeNumericValue(buf, len, &value);
     RedisModule_Free(buf);
-    if (!decoded || override->isSet || !IndexGCSettings_IsValid((IndexGCSettingId)id, value)) {
+    IndexGCOverride *override = overrideOf(settings, desc);
+    if (!decoded || override->isSet || !inRange(desc, value)) {
       RedisModule_LogIOError(rdb, "warning", "RDB Load: invalid GC setting %llu",
                              (unsigned long long)id);
       return REDISMODULE_ERR;

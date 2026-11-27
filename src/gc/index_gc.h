@@ -55,6 +55,14 @@ typedef enum {
   INDEX_GC_SCHED_FORK_FAILED,  // the last fork failed; retry after the retry interval
 } IndexGCSchedState;
 
+// What a scheduled cycle's counted deletions and updates must reach before it cleans: the
+// threshold, and when ratioPpm is not 0 also that many per million of the index's live documents
+// at the check. An empty index thus leaves it to the threshold.
+typedef struct {
+  size_t threshold;
+  size_t ratioPpm;
+} IndexGCCleanBar;
+
 /* Internal definition of the garbage collector context (each index has one) */
 typedef struct IndexGC {
 
@@ -79,10 +87,10 @@ typedef struct IndexGC {
   // counts the doc table's deleted set, and a cycle subtracts the IDs it prunes from it.
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
 
-  // The index's effective clean threshold, copied by the GCCallbacks.onQueueRun hook. The only
-  // threshold a scheduled cycle checks. Written on the main thread; the GC pool's queue lock
-  // publishes it to the run.
-  size_t cleanThreshold;
+  // The index's effective clean bar, copied by the GCCallbacks.onQueueRun hook. The only bar a
+  // scheduled cycle checks. Written on the main thread; the GC pool's queue lock publishes it to
+  // the run.
+  IndexGCCleanBar cleanBar;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.

@@ -503,6 +503,25 @@ int SetFtAlterInfo(RedisModuleCommand *cmd) {
                   {0}
                 },
               },
+              {
+                .name = "clean_ratio_ppm",
+                .token = "CLEAN_RATIO_PPM",
+                .summary = "Deleted or updated documents per million live documents the index also needs before a garbage collection run cleans it; 0 leaves only the clean threshold. `DEFAULT` inherits the active GC policy's global clean ratio.",
+                .type = REDISMODULE_ARG_TYPE_ONEOF,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                  {
+                    .name = "ppm",
+                    .type = REDISMODULE_ARG_TYPE_INTEGER,
+                  },
+                  {
+                    .name = "default",
+                    .token = "DEFAULT",
+                    .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                  },
+                  {0}
+                },
+              },
               {0}
             },
           },

@@ -950,12 +950,15 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     env.expect('PING').equal(True)
 
 
-def queuedRunKeepsItsCleanThreshold(env, raiseThreshold):
-    """A run checks the clean threshold the index had when the run was queued. Raising it while
-    the run waits reaches only the runs queued after the change. `env` runs the GC every second
-    with a threshold of 0; `raiseThreshold` raises it to 1000."""
+def queuedRunKeepsItsCleanThreshold(env, raiseThreshold, live_docs=0):
+    """A run checks the clean threshold and ratio the index had when the run was queued. Raising
+    either while the run waits reaches only the runs queued after the change. `env` runs the GC
+    every second with a threshold of 0; `raiseThreshold` raises the threshold, or the ratio of
+    the `live_docs` the index holds, above what is deleted."""
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    for i in range(live_docs):
+        env.cmd('HSET', f'doc{i}', 't', 'hello')
 
     def oneShotArms():
         return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'FROM_ONESHOT'))
@@ -966,7 +969,7 @@ def queuedRunKeepsItsCleanThreshold(env, raiseThreshold):
     arms = oneShotArms()
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
 
-    # Nothing was deleted, so only a threshold of 0 lets the parked run collect.
+    # Nothing was deleted, so only the bar of 0 it was queued with lets the parked run collect.
     collected = waitForGCCycles(env, 'idx', before, timeout=30)
     env.assertEqual(collected, before + 1)
 
@@ -991,6 +994,21 @@ def testGCQueuedRunKeepsItsCleanThresholdThread():
               redisConfigFile=thread_gc_conf(run_interval=1, clean_threshold=0))
     queuedRunKeepsItsCleanThreshold(
         env, lambda: env.expect('CONFIG', 'SET', 'search-thread-gc-clean-threshold', 1000).ok())
+
+
+@skip(cluster=True)
+def testGCQueuedRunKeepsItsCleanRatioFork():
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    queuedRunKeepsItsCleanThreshold(
+        env, lambda: alterGC(env, 'idx', 'CLEAN_RATIO_PPM', 1_000_000).ok(), live_docs=5)
+
+
+@skip(cluster=True)
+def testGCQueuedRunKeepsItsCleanRatioThread():
+    env = Env(moduleArgs='GC_POLICY THREAD',
+              redisConfigFile=thread_gc_conf(run_interval=1, clean_threshold=0))
+    queuedRunKeepsItsCleanThreshold(
+        env, lambda: alterGC(env, 'idx', 'CLEAN_RATIO_PPM', 1_000_000).ok(), live_docs=5)
 
 
 @skip(cluster=True)
@@ -1368,8 +1386,10 @@ def testLongGCIntervalKeepsTheEventLoopIdle(env):
 GC_MAX_INTERVAL_SEC = (2**63 - 1) // 4 // 1000 // 1000  # src/gc/gc.h
 
 GC_GLOBAL_CONFIGS = {
-    'FORK': ('search-fork-gc-run-interval', 'search-fork-gc-clean-threshold'),
-    'THREAD': ('search-thread-gc-run-interval', 'search-thread-gc-clean-threshold'),
+    'FORK': ('search-fork-gc-run-interval', 'search-fork-gc-clean-threshold',
+             'search-fork-gc-clean-ratio-ppm'),
+    'THREAD': ('search-thread-gc-run-interval', 'search-thread-gc-clean-threshold',
+               'search-gc-clean-ratio-ppm'),
 }
 
 
@@ -1382,9 +1402,9 @@ def gcPolicyEnv(policy, run_interval=1000, clean_threshold=1000, **kwargs):
                redisConfigFile=thread_gc_conf(run_interval, clean_threshold), **kwargs)
 
 
-def setGlobalGC(env, policy, run_interval=None, clean_threshold=None):
-    interval_name, threshold_name = GC_GLOBAL_CONFIGS[policy]
-    for name, value in ((interval_name, run_interval), (threshold_name, clean_threshold)):
+def setGlobalGC(env, policy, run_interval=None, clean_threshold=None, clean_ratio_ppm=None):
+    names = GC_GLOBAL_CONFIGS[policy]
+    for name, value in zip(names, (run_interval, clean_threshold, clean_ratio_ppm)):
         if value is not None:
             verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', name, value)
 
@@ -1452,6 +1472,8 @@ def testGCAlterSyntax():
     env.assertEqual(timer['interval_ms'], GC_MAX_INTERVAL_SEC * 1000)
     env.assertGreaterEqual(timer['remaining_ms'], GC_MAX_INTERVAL_SEC * 1000 - 60000)
     alterGC(env, 'idx', 'RUN_INTERVAL', 30, 'CLEAN_THRESHOLD', 5).ok()
+    for ratio in (0, 1_000_000, 'default'):
+        alterGC(env, 'idx', 'clean_ratio_ppm', ratio).ok()
 
     # Shorter than six words: Redis's arity check, before the handler.
     for short in (['GC', 'SET'], ['GC', 'SET', 'RUN_INTERVAL'], ['GC', 'RUN_INTERVAL', 10]):
@@ -1473,9 +1495,14 @@ def testGCAlterSyntax():
         (['GC', 'SET', 'CLEAN_THRESHOLD', -1], 'CLEAN_THRESHOLD'),
         (['GC', 'SET', 'CLEAN_THRESHOLD', 2**63], 'CLEAN_THRESHOLD'),
         (['GC', 'SET', 'CLEAN_THRESHOLD', '1e3'], 'CLEAN_THRESHOLD'),
+        (['GC', 'SET', 'CLEAN_RATIO_PPM', 1_000_001], 'from 0 to 1000000'),
+        (['GC', 'SET', 'CLEAN_RATIO_PPM', -1], 'CLEAN_RATIO_PPM'),
+        (['GC', 'SET', 'CLEAN_RATIO_PPM', '0.5'], 'CLEAN_RATIO_PPM'),
+        (['GC', 'SET', 'CLEAN_RATIO_PPM', 5, 'CLEAN_RATIO_PPM', 'DEFAULT'], 'more than once'),
         # Every value is checked before any is applied, so the valid ones are not applied.
         (['GC', 'SET', 'RUN_INTERVAL', 100, 'CLEAN_THRESHOLD', -1], 'CLEAN_THRESHOLD'),
         (['GC', 'SET', 'CLEAN_THRESHOLD', 0, 'RUN_INTERVAL', 0], 'RUN_INTERVAL'),
+        (['GC', 'SET', 'CLEAN_THRESHOLD', 0, 'CLEAN_RATIO_PPM', 1_000_001], 'CLEAN_RATIO_PPM'),
         (['SKIPINITIALSCAN', 'GC', 'SET', 'RUN_INTERVAL', 100], 'SKIPINITIALSCAN does not apply'),
         (['FOO', 'a', 'b', 'c'], 'ALTER must be followed by SCHEMA or GC'),
     ]
@@ -1642,6 +1669,93 @@ def testGCThreadRatioAppliesOverTheIndexThreshold():
         env.expect('DEL', f'doc{i}').equal(1)
     runScheduledCycle(env, 'idx')
     env.assertEqual(gcCycles(env, 'idx'), 1, message='5 deleted of 5 did not pass a ratio of half')
+
+
+def indexWithDeletes(env, idx, docs=10, deleted=2):
+    """`idx` over its own prefix with `docs` documents, `deleted` of them deleted. The documents
+    are written once the index's initial scan is done: one the scan also indexed would count as
+    updated and move the index toward its clean bar."""
+    env.expect('FT.CREATE', idx, 'PREFIX', 1, f'{idx}:', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, idx)
+    for i in range(docs):
+        env.cmd('HSET', f'{idx}:{i}', 't', 'hello')
+    for i in range(deleted):
+        env.expect('DEL', f'{idx}:{i}').equal(1)
+
+
+def assertScheduledCycleCollects(env, idx, collects, message=''):
+    before = gcCycles(env, idx)
+    runScheduledCycle(env, idx)
+    env.assertEqual(gcCycles(env, idx), before + int(collects), message=message or idx)
+
+
+def ratioOverridesAndInheritance(policy):
+    """With 2 of 10 documents deleted, 8 remain: a ratio of half waits for 4 deletions, one of a
+    fifth for 1. The active policy's global ratio reaches an index without an override, the
+    other policy's never does, and a later CONFIG SET reaches the next queued run."""
+    env = gcPolicyEnv(policy, clean_threshold=1)
+    setGlobalGC(env, policy, clean_ratio_ppm=500_000)
+    setGlobalGC(env, otherPolicy(policy), clean_ratio_ppm=0)
+    for idx in ('inherit', 'lower', 'zero', 'reset'):
+        indexWithDeletes(env, idx)
+    alterGC(env, 'lower', 'CLEAN_RATIO_PPM', 200_000).ok()
+    alterGC(env, 'zero', 'CLEAN_RATIO_PPM', 0).ok()  # the threshold of 1 alone decides
+    alterGC(env, 'reset', 'CLEAN_RATIO_PPM', 0).ok()
+    alterGC(env, 'reset', 'CLEAN_RATIO_PPM', 'DEFAULT').ok()
+
+    for idx, collects in (('inherit', False), ('lower', True), ('zero', True), ('reset', False)):
+        assertScheduledCycleCollects(env, idx, collects)
+
+    # An override of the threshold leaves the ratio on top of it.
+    alterGC(env, 'inherit', 'CLEAN_THRESHOLD', 0).ok()
+    assertScheduledCycleCollects(env, 'inherit', False, 'a threshold override dropped the ratio')
+
+    setGlobalGC(env, policy, clean_ratio_ppm=0)
+    setGlobalGC(env, otherPolicy(policy), clean_ratio_ppm=1_000_000)
+    for idx in ('inherit', 'reset'):
+        assertScheduledCycleCollects(env, idx, True, f'{idx} after CONFIG SET')
+
+
+@skip(cluster=True)
+def testGCRatioOverridesAndInheritanceFork():
+    ratioOverridesAndInheritance('FORK')
+
+
+@skip(cluster=True)
+def testGCRatioOverridesAndInheritanceThread():
+    ratioOverridesAndInheritance('THREAD')
+
+
+@skip(cluster=True)
+def testGCForkWithoutARatioKeepsItsThreshold():
+    """search-fork-gc-clean-ratio-ppm is 0 by default, so FORK forks on its threshold alone,
+    however small the share of the index that was deleted; THREAD's ratio does not reach it."""
+    env = gcPolicyEnv('FORK', clean_threshold=1)
+    env.expect('CONFIG', 'GET', 'search-fork-gc-clean-ratio-ppm').equal(
+        ['search-fork-gc-clean-ratio-ppm', '0'])
+    env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', 1_000_000).ok()
+    indexWithDeletes(env, 'idx', docs=20, deleted=1)
+    assertScheduledCycleCollects(env, 'idx', True)
+
+
+@skip(cluster=True)
+def testGCRatioSurvivesDebugReload():
+    """The ratio is saved with the index, and DEFAULT clears it in the saved index too. A reload
+    rebuilds the index without its deleted documents, so the deletions come after it."""
+    env = gcPolicyEnv('FORK', clean_threshold=1)
+    for idx in ('kept', 'cleared'):
+        indexWithDeletes(env, idx, deleted=0)
+        alterGC(env, idx, 'CLEAN_RATIO_PPM', 1_000_000).ok()
+    env.expect('DEBUG', 'RELOAD').ok()
+    alterGC(env, 'cleared', 'CLEAN_RATIO_PPM', 'DEFAULT').ok()
+    env.expect('DEBUG', 'RELOAD').ok()
+    for idx in ('kept', 'cleared'):
+        waitForIndex(env, idx)
+
+    for idx, collects in (('kept', False), ('cleared', True)):
+        for i in range(2):
+            env.expect('DEL', f'{idx}:{i}').equal(1)
+        assertScheduledCycleCollects(env, idx, collects)
 
 
 def alterWhileARunIsInFlight(policy, point):
