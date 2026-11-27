@@ -18,7 +18,8 @@ use crate::{
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     composite::{
-        FreeSuspendedShell, repush_borrowed_entries, summed_block_bound, summed_max_score,
+        FreeSuspendedShell, repush_borrowed_entries, scale_by_weight, summed_block_bound,
+        summed_max_score,
     },
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{self, BlockBound, MinCompetitiveScore},
@@ -451,8 +452,8 @@ where
     /// already hold: a child on `target` contributes its own
     /// [`current_max_score`](RQEIterator::current_max_score), one behind it the maximum of the
     /// block it stands in, provided that block reaches `target`. A child whose block does not
-    /// reach `target`, or that reports none, makes the bound infinite. Scaled as in
-    /// [`summed_max_score`].
+    /// reach `target`, or that reports none, makes the bound infinite. Scaled by
+    /// [`scale_by_weight`].
     ///
     /// `target` must be the furthest any child stands, as in
     /// [`read_above_threshold`](Self::read_above_threshold).
@@ -469,7 +470,7 @@ where
                     return child.current_max_score();
                 }
                 if let Some(block) = child.current_block_bound()
-                    && block.last_doc_id >= target
+                    && block.covers(target)
                 {
                     block.max_score
                 } else {
@@ -477,7 +478,7 @@ where
                 }
             })
             .sum();
-        sum * self.result.weight.max(1.0)
+        scale_by_weight(sum, self.result.weight)
     }
 
     /// Reads the next document that can reach `min_competitive_score`, as
@@ -505,7 +506,7 @@ where
             // window that starts there.
             if let Some(BlockBound { last_doc_id, .. }) =
                 summed_block_bound(&self.children, self.result.weight).filter(|window| {
-                    target <= window.last_doc_id
+                    window.covers(target)
                         && score_bound::can_drop(window.max_score, min_competitive_score)
                 })
                 && let Some(past_window) = last_doc_id.checked_add(1)

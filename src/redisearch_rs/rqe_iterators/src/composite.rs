@@ -23,12 +23,20 @@ use crate::{
     score_bound::{self, BlockBound, MinCompetitiveScore},
 };
 
-/// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
-/// the scores of `children`.
+/// Scales `sum`, a sum of children's bounds, into a bound on a composite whose score is `weight`
+/// times the sum of its children's scores. Every composite bound goes through here, so an
+/// enclosing composite's window and a union's own pivot agree.
 ///
 /// Scaling by `max(weight, 1)` rather than `weight` keeps the bound valid for scorers that ignore
 /// the query tree (`DOCSCORE`), for which every child's bound is already a bound on the whole
 /// score.
+#[inline(always)]
+pub(crate) fn scale_by_weight(sum: f64, weight: f64) -> f64 {
+    sum * weight.max(1.0)
+}
+
+/// [`RQEIterator::current_max_score`] of a composite whose score is `weight` times the sum of
+/// the scores of `children`, scaled by [`scale_by_weight`].
 pub(crate) fn summed_max_score<'index, 'c, I>(
     children: impl IntoIterator<Item = &'c I>,
     weight: f64,
@@ -40,11 +48,11 @@ where
         .into_iter()
         .map(|child| child.current_max_score())
         .sum();
-    sum * weight.max(1.0)
+    scale_by_weight(sum, weight)
 }
 
 /// [`RQEIterator::current_block_bound`] of a composite whose score is `weight` times the sum of
-/// the scores of `children`, scaled as in [`summed_max_score`]: `None` unless there is a child
+/// the scores of `children`, scaled by [`scale_by_weight`]: `None` unless there is a child
 /// and every one reports a block.
 pub(crate) fn summed_block_bound<'index, 'c, I>(
     children: impl IntoIterator<Item = &'c I>,
@@ -65,7 +73,7 @@ where
         });
     }
     window.map(|window| BlockBound {
-        max_score: window.max_score * weight.max(1.0),
+        max_score: scale_by_weight(window.max_score, weight),
         ..window
     })
 }
@@ -80,7 +88,7 @@ pub(crate) trait PivotingUnion<'index>: RQEIterator<'index> {
     where
         Self::Child: 'a;
 
-    /// The weight that scales the union's score, applied as in [`summed_max_score`].
+    /// The weight that scales the union's score, applied by [`scale_by_weight`].
     fn score_weight(&self) -> f64;
 
     /// Calls `visit` on every [live child](Self::live_children) in order of
@@ -155,8 +163,9 @@ fn pivot_step<'index, U>(
 where
     U: PivotingUnion<'index>,
 {
-    let scale = union.score_weight().max(1.0);
-    let reaches = |sum: f64| !score_bound::can_drop(sum * scale, min_competitive_score);
+    let weight = union.score_weight();
+    let reaches =
+        |sum: f64| !score_bound::can_drop(scale_by_weight(sum, weight), min_competitive_score);
     let pivot_at = |at: DocId| {
         if at > start {
             PivotStep::SkipTo(at)
@@ -190,7 +199,7 @@ where
         }
         at = Some(from);
         match child.current_block_bound() {
-            Some(block) if block.last_doc_id >= from => {
+            Some(block) if block.covers(from) => {
                 sum += block.max_score;
                 window_end = window_end.min(block.last_doc_id);
             }

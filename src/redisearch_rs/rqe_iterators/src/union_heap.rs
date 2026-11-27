@@ -825,9 +825,20 @@ where
         if self.is_eof {
             return f64::INFINITY;
         }
+        let doc_id = self.last_doc_id();
+        // A full union stands on its heap's minimum after every move, so the children on it are
+        // found by the same pruned descent `build_aggregate_result` uses, not by a scan of every
+        // child: `union_read_with_threshold` asks once per candidate. A quick-exit union can
+        // leave children behind it, below that minimum, and so takes the scan.
+        if !QUICK_EXIT && self.heap.peek().is_some_and(|min| min.doc_id == doc_id) {
+            let mut sum = 0.0;
+            for_each_contributor(self.heap.as_slice(), doc_id, |child_idx| {
+                sum += self.children[child_idx].current_max_score();
+            });
+            return crate::composite::scale_by_weight(sum, self.result.weight);
+        }
         // A superset of the children in the aggregate result: a quick-exit union keeps only the
         // first one, and the bound only loosens.
-        let doc_id = self.last_doc_id();
         crate::composite::summed_max_score(
             self.children
                 .iter()
