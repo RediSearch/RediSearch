@@ -214,9 +214,13 @@ void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 typedef void (*DocTable_LiveIdCallback)(void *ctx, t_docId docId);
+typedef bool (*DocTable_LiveIdVisitor)(void *ctx, t_docId docId);
 
 /* Call `cb` once for every docId DocTable_Exists reports, in no particular order. */
 void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx);
+
+/* Call `cb` for each docId DocTable_Exists reports until `cb` returns false. */
+void DocTable_ForEachLiveIdUntil(const DocTable *t, DocTable_LiveIdVisitor cb, void *ctx);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */

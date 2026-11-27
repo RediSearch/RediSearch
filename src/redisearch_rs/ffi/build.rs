@@ -135,10 +135,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/doc_table.h",
         fns: &[
             "DMD_Free",
+            "DocTable_Borrow",
             "DocTable_BuildKeyMapBatch",
             "DocTable_DeleteById",
             "DocTable_Exists",
             "DocTable_ForEachLiveId",
+            "DocTable_ForEachLiveIdUntil",
             "DocTable_Free",
             "DocTable_IsVisible",
             "DocTable_KeyEquals",

@@ -59,6 +59,14 @@ typedef enum {
   SCORER_TYPE_DOC = 2,
 } ScorerType;
 
+/* A range of the sort field, with each end open or closed. */
+typedef struct SortFieldBounds {
+    double min;
+    double max;
+    bool minInclusive;
+    bool maxInclusive;
+} SortFieldBounds;
+
 typedef struct QOptimizer {
     Q_Optimize_Type type;       // type of optimization
 
@@ -72,6 +80,34 @@ typedef struct QOptimizer {
     QueryNode *sortbyNode;      // pointer to QueryNode
     NumericFilter *nf;          // filter with required parameters
     bool asc;                   // ASC/DESC order of sortby
+
+    // The sort keys after the numeric one, which the optimizer's heap breaks ties on the way the
+    // pipeline's sorter does. Each is a SORTABLE schema field, read from the sorting vector.
+    int16_t tieBreakSortIdx[SORTASCMAP_MAXFIELDS - 1];
+    size_t numTieBreakKeys;
+    uint64_t sortAscMap;        // ASC/DESC order of every sort key, as the arrange step holds it
+
+    // The range of the sort field every matching document lies in, when no range on the field
+    // could be lifted out of the query but the query still confines the field to one. The
+    // optimizer walks this range rather than the whole field.
+    bool hasImpliedBounds;
+    SortFieldBounds impliedBounds;
+
+    // Whether a document can hold several values for the sortby field (a JSON path such as
+    // `$.n[*]`). A query predicate then constrains any of them, not the one the document sorts by.
+    bool sortFieldMayHoldManyValues;
+
+    // Whether the query carries top-level positional constraints (`INORDER` or `SLOP >= 0`),
+    // which disallow splitting a nested union out of an enclosing intersection.
+    bool hasPositionalConstraints;
+
+    // When a keyset/lexicographic union (such as `@n:[(c +inf] | (@n:[c c] @m:[(k +inf])`) has
+    // pure numeric range branches on the sort field, those branches are lifted into
+    // `unconditionalRanges` and the remaining conditional branches are detached into
+    // `boundaryNode` (compiled in `QOptimizer_Iterators`).
+    SortFieldBounds *unconditionalRanges;
+    size_t numUnconditionalRanges;
+    QueryNode *boundaryNode;
 
     QueryIterator *numIter;
     QueryIterator *root;
@@ -96,7 +132,7 @@ void QOptimizer_Parse(AREQ *req);
  * 1. does the query requires scoring
  * 2. can the sortby field be extracted for optimization
  **/
-void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt);
+void QOptimizer_QueryNodes(QueryNode **rootPtr, QOptimizer *opt);
 
 /* iterate over index iterator, check estimations and performs further
  * optimizations.

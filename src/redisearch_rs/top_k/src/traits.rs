@@ -364,6 +364,39 @@ pub trait ScoreSource {
     /// [`suspend`]: rqe_iterators::RQEIteratorBoxed::suspend
     fn release_index_handles(&mut self);
 
+    /// Whether this source should fill remaining heap slots with matching
+    /// documents that lack a score (represented as `f64::NAN`) once batch
+    /// collection finishes with `heap.len() < k`.
+    ///
+    /// Used by unbounded numeric `SORTBY` scans so documents missing the sort
+    /// field rank after every document that has one, matching the pipeline
+    /// sorter. The default is `false`.
+    fn collects_unscored_on_shortfall(&self) -> bool {
+        false
+    }
+
+    /// Stream live unscored document IDs (not satisfying `is_valued`) into
+    /// `on_accepted` when
+    /// [`collects_unscored_on_shortfall`](Self::collects_unscored_on_shortfall)
+    /// runs without a filter child (e.g. an elided wildcard).
+    ///
+    /// Each candidate is checked against `is_valued` and
+    /// [`accept_candidate`](Self::accept_candidate) (validity and timeout) on
+    /// the fly without buffering the table in memory, and enumeration stops
+    /// immediately on any [`RQEIteratorError`].
+    ///
+    /// `heap_count` is the number of scored documents already in the heap; a
+    /// source that knows the live document count can return in O(1) when
+    /// `heap_count` already accounts for every live document.
+    fn for_each_unscored_live_doc(
+        &mut self,
+        _heap_count: usize,
+        _is_valued: &dyn Fn(DocId) -> bool,
+        _on_accepted: &mut dyn FnMut(DocId) -> crate::Offer,
+    ) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
     /// Whether this source can still collect after the index spec read lock
     /// was released and re-acquired, once
     /// [`release_index_handles`](Self::release_index_handles) has run.

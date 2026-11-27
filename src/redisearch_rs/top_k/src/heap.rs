@@ -93,14 +93,8 @@ impl<O: ScoreOrdering> PartialOrd for HeapEntry<'_, O> {
 impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
     fn cmp(&self, other: &Self) -> Ordering {
         // We want the worst element at the top of the heap so eviction is O(log k).
-        // `compare(self, other) == Greater` means self is worse.
-        let score_ord = self.order.compare(self.result.score, other.result.score);
-        match score_ord {
-            Ordering::Less => Ordering::Less,
-            Ordering::Greater => Ordering::Greater,
-            // Tie on score: higher doc_id is worse (evicted first) → Greater
-            Ordering::Equal => self.result.doc_id.cmp(&other.result.doc_id),
-        }
+        // `compare_results(self, other) == Greater` means self is worse.
+        self.order.compare_results(self.result, other.result)
     }
 }
 
@@ -156,8 +150,14 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     }
 
     /// Returns the ordering that ranks the heap's scores.
-    pub const fn order(&self) -> O {
-        self.order
+    pub const fn order(&self) -> &O {
+        &self.order
+    }
+
+    /// Iterates over the document IDs currently retained in the heap in
+    /// unspecified order.
+    pub fn doc_ids(&self) -> impl Iterator<Item = DocId> + '_ {
+        self.inner.iter().map(|e| e.result.doc_id)
     }
 
     /// Returns the number of elements currently in the heap.
@@ -238,18 +238,13 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         }
     }
 
-    /// Whether `candidate` outranks `worst` under [`HeapEntry`]'s ordering, and
-    /// so displaces it from a full heap.
+    /// Whether `candidate` outranks `worst` under [`ScoreOrdering::compare_results`],
+    /// and so displaces it from a full heap.
     ///
     /// An exact match (same score and doc id) does not outrank it, so the heap
     /// never holds a duplicate.
     fn is_better(&self, candidate: ScoredResult, worst: &HeapEntry<'index, O>) -> bool {
-        let probe = HeapEntry {
-            result: candidate,
-            record: None,
-            order: self.order,
-        };
-        probe < *worst
+        self.order.compare_results(candidate, worst.result) == Ordering::Less
     }
 
     /// Inserts `result`, which [`push_with_record_lazy`](Self::push_with_record_lazy)
@@ -266,7 +261,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
         let entry = HeapEntry {
             result,
             record: make_record(),
-            order: self.order,
+            order: self.order.clone(),
         };
         if self.is_full() {
             let mut worst = self
@@ -293,13 +288,13 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// unlike [`push`](Self::push) this performs no eviction, so any excess
     /// would silently exceed capacity.
     pub fn rebuild_from(&mut self, results: impl IntoIterator<Item = HeapResult<'index>>) {
-        let order = self.order;
+        let order = &self.order;
         self.inner = results
             .into_iter()
             .map(|r| HeapEntry {
                 result: r.scored,
                 record: r.record,
-                order,
+                order: order.clone(),
             })
             .collect();
         debug_assert!(self.inner.len() <= self.capacity.get());

@@ -83,6 +83,58 @@ typedef struct RSQueryTerm RSQueryTerm;
 
 typedef struct RedisModuleCtx RedisModuleCtx;
 
+/**
+ * A numeric interval with open or closed endpoints, passed from C's
+ * `QOptimizer` for each pure numeric branch lifted out of a keyset union.
+ */
+typedef struct NumericTopKRangeBound {
+  double min;
+  double max;
+  bool min_inclusive;
+  bool max_inclusive;
+} NumericTopKRangeBound;
+
+/**
+ * Multi-key sorting and missing-value parameters passed from C's `QOptimizer`
+ * to [`NewNumericTopKIterator`].
+ */
+typedef struct NumericTopKSortSpec {
+  /**
+   * Bitmask of sort directions (bit 0 = primary numeric key, bit `i + 1` =
+   * tie-break key `i`; set = ASC, clear = DESC), matching `PLN_ArrangeStep::sortAscMap`.
+   */
+  uint64_t sort_asc_map;
+  /**
+   * Sorting-vector slot indices for the `num_tie_break_keys` keys following
+   * the primary numeric key. May be NULL when `num_tie_break_keys == 0`.
+   */
+  const int16_t *tie_break_sort_idx;
+  /**
+   * Number of tie-break keys in `tie_break_sort_idx`.
+   */
+  size_t num_tie_break_keys;
+  /**
+   * When `true` (unbounded whole-field walk), fill remaining heap slots with
+   * matching documents that lack a value for the primary numeric sort field.
+   */
+  bool collect_missing;
+  /**
+   * Pure numeric range branches lifted out of a keyset/lexicographic union.
+   * May be NULL when `num_unconditional_ranges == 0`.
+   */
+  const struct NumericTopKRangeBound *unconditional_ranges;
+  /**
+   * Number of lifted pure numeric ranges in `unconditional_ranges`.
+   */
+  size_t num_unconditional_ranges;
+  /**
+   * Owning iterator for the remaining conditional branches of a lifted
+   * keyset union (e.g. `@n:[c c] @m:[(k +inf]`). Adopted unconditionally
+   * (freed on drop even if heap reservation fails). May be NULL.
+   */
+  QueryIterator *boundary_iter;
+} NumericTopKSortSpec;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -403,9 +455,20 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the
  *    duration of this call.
  *
+ * 6. `sort_spec`, when non-null, must point to a [valid] [`NumericTopKSortSpec`]
+ *    for the duration of this call:
+ *    - when `num_tie_break_keys > 0`, `tie_break_sort_idx` is non-null, aligned,
+ *      and valid for reads of `num_tie_break_keys` initialized `i16` elements;
+ *    - when `num_unconditional_ranges > 0`, `unconditional_ranges` is non-null,
+ *      aligned, and valid for reads of `num_unconditional_ranges` initialized
+ *      [`NumericTopKRangeBound`] elements;
+ *    - `boundary_iter`, when non-null, is a [valid], uniquely-owned
+ *      `QueryIterator *` with every callback populated (same contract as `child`
+ *      in clause 3), whose ownership transfers to this constructor.
+ *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewNumericTopKIterator(const struct NumericRangeTree *tree, const struct NumericFilter *filter, size_t k, size_t num_docs, enum NumericOptimizerMode mode, QueryIterator *child, const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, const struct NumericTopKSortSpec *sort_spec);
 
 /**
  * Creates a new iterator over a list of sorted document IDs.

@@ -1274,6 +1274,7 @@ name = "iterators_ffi"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
+ "document_metadata",
  "ffi",
  "field",
  "global_config",
@@ -1295,8 +1296,10 @@ dependencies = [
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "rstest",
+ "sorting_vector",
  "top_k",
  "trie_rs",
+ "value",
  "vecsim",
  "vector_score_source",
  "workspace_hack",

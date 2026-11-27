@@ -204,3 +204,31 @@ def testFilteredRetryReachesMatchPastMultivalueInflatedRanges(env):
                   'SORTBY', 'v', 'DESC', 'LIMIT', '0', '1',
                   'NOCONTENT', 'DIALECT', '4')
     env.assertEqual(res, [1, 'doc:match'])
+
+
+@skip(cluster=True)
+def testHashNonNumericStringInNumericFieldMatchesPlain(env):
+    """A hash document holding a non-numeric string in a NUMERIC field produces the same rows and
+    order under WITHOUTCOUNT as under plain WITHCOUNT in both ASC and DESC, for both SORTABLE and
+    non-SORTABLE schemas."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'h_ns', 'ON', 'HASH', 'SCHEMA',
+               'n', 'NUMERIC', 't', 'TAG').ok()
+    env.expect('FT.CREATE', 'h_s', 'ON', 'HASH', 'SCHEMA',
+               'n', 'NUMERIC', 'SORTABLE', 't', 'TAG').ok()
+
+    conn.execute_command('HSET', 'h1', 'n', '10', 't', 'a')
+    conn.execute_command('HSET', 'h2', 'n', 'not_a_number', 't', 'a')
+    conn.execute_command('HSET', 'h3', 'n', '20', 't', 'a')
+    conn.execute_command('HSET', 'h4', 't', 'a')
+    conn.execute_command('HSET', 'h5', 'n', '5', 't', 'a')
+
+    for idx in ('h_ns', 'h_s'):
+        for direction in ('ASC', 'DESC'):
+            for q in ('*', '@t:{a}'):
+                for lim in (2, 10):
+                    base = ['ft.search', idx, q, 'SORTBY', 'n', direction,
+                            'LIMIT', 0, lim, 'NOCONTENT']
+                    env.assertEqual(env.cmd(*base, 'WITHOUTCOUNT')[1:],
+                                    env.cmd(*base, 'WITHCOUNT')[1:],
+                                    message=f'{idx} {direction} {q} lim={lim}')

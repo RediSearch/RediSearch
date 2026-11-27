@@ -142,6 +142,16 @@ void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void 
   }
 }
 
+void DocTable_ForEachLiveIdUntil(const DocTable *t, DocTable_LiveIdVisitor cb, void *ctx) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md) && !cb(ctx, md->id)) {
+        return;
+      }
+    }
+  }
+}
+
 DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
   if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
   t->keyMap = DocKeyMap_New();
