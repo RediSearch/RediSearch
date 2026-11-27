@@ -74,7 +74,20 @@ pub(crate) fn eval<'index>(
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing. The offset requirement is
         // not inherited; see `OffsetRequirement`.
-        Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
+        let filter = if config.dense_numeric_knn {
+            // SAFETY: the query evaluation context keeps the request timeout live
+            // for the resulting tree, including the iterator created below.
+            let mut timeout = unsafe { ctx.build_timeout_context() };
+            crate::dense_numeric_knn::try_plan(ctx, node.as_ref().child(0), vq, &mut timeout)
+                .map(|plan| (plan, timeout))
+        } else {
+            None
+        };
+        let regular = eval_node(ctx, node.child_mut(0), config)?;
+        Some(match filter {
+            Some((filter, timeout)) => filter.into_iterator(regular, timeout),
+            None => regular.into_c_iterator(),
+        })
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a

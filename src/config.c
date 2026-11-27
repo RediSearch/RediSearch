@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
+#include <stdatomic.h>
 
 #include <string.h>
 #include <limits.h>
@@ -35,11 +36,50 @@
 #include "search_disk_api.h"
 #include "util/config_macros.h"
 #include "util/dict/dict.h"
+#include "util/redis_mem_info.h"
 #include "util/references.h"
 #include "util/strconv.h"
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+
+static bool denseNumericKnnConfigured;
+static atomic_bool denseNumericKnnEnabled;
+
+bool RSConfig_DenseNumericKnnEnabled(void) {
+  return atomic_load_explicit(&denseNumericKnnEnabled, memory_order_relaxed);
+}
+
+bool RSConfig_DenseNumericKnnCanCache(void) {
+  return RSConfig_DenseNumericKnnEnabled() &&
+         RedisMemory_GetUsedMemoryRatioEstimate() < REDIS_MEMORY_OOM_RATIO;
+}
+
+// Config callbacks have the server lock. An older server cannot measure pressure from a
+// query worker, so skip the dense path when that server has a memory limit.
+void RSConfig_UpdateDenseNumericKnn(void) {
+  bool enabled = denseNumericKnnConfigured && RSGlobalConfig.enableUnstableFeatures;
+  if (enabled && !RedisModule_GetUsedMemoryRatioEstimate) {
+    enabled = RedisMemory_GetUsedMemoryRatio() == 0;
+  }
+  atomic_store_explicit(&denseNumericKnnEnabled, enabled, memory_order_relaxed);
+}
+
+static int get_dense_numeric_knn(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  return denseNumericKnnConfigured;
+}
+
+static int set_dense_numeric_knn(const char *name, int value, void *privdata,
+                                 RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  REDISMODULE_NOT_USED(err);
+  denseNumericKnnConfigured = value != 0;
+  RSConfig_UpdateDenseNumericKnn();
+  return REDISMODULE_OK;
+}
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
@@ -336,6 +376,13 @@ static int set_bool_config(const char *name, int val, void *privdata,
   REDISMODULE_NOT_USED(err);
   *(bool *)privdata = val;
   return REDISMODULE_OK;
+}
+
+static int set_unstable_features_config(const char *name, int val, void *privdata,
+                                        RedisModuleString **err) {
+  int result = set_bool_config(name, val, privdata, err);
+  RSConfig_UpdateDenseNumericKnn();
+  return result;
 }
 
 static void warnPartialIndexedDocsDeprecated(void) {
@@ -1418,8 +1465,16 @@ CONFIG_GETTER(getIndexCursorLimit) {
 }
 
 // ENABLE_UNSTABLE_FEATURES
-CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_SETTER(parse_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
+CONFIG_SETTER(set_EnableUnstableFeatures) {
+  int result = parse_EnableUnstableFeatures(config, ac, externalTriggerId, status);
+  if (result == REDISMODULE_OK && config == &RSGlobalConfig) {
+    RSConfig_UpdateDenseNumericKnn();
+  }
+  return result;
+}
 
 // OPTIMIZE_PARTIAL_UPDATE
 CONFIG_BOOLEAN_SETTER(set_OptimizePartialUpdate, optimizePartialUpdate)
@@ -2765,10 +2820,14 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-enable-unstable-features", DEFAULT_UNSTABLE_FEATURES_ENABLE,
       REDISMODULE_CONFIG_UNPREFIXED,
-      get_bool_config, set_bool_config, NULL,
+      get_bool_config, set_unstable_features_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-_dense-numeric-knn", 0, REDISMODULE_CONFIG_UNPREFIXED,
+      get_dense_numeric_knn, set_dense_numeric_knn, NULL, NULL))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

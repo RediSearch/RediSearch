@@ -121,7 +121,10 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/config.h",
-        fns: &[],
+        fns: &[
+            "RSConfig_DenseNumericKnnCanCache",
+            "RSConfig_DenseNumericKnnEnabled",
+        ],
         types: &[],
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },

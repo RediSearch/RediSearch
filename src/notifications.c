@@ -830,6 +830,9 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
     if (strcmp(conf, REDIS_LOGLEVEL) == 0) {
       onUpdatedLogLevel(ctx);
     }
+    if (strcmp(conf, "maxmemory") == 0) {
+      RSConfig_UpdateDenseNumericKnn();
+    }
   }
 }
 
