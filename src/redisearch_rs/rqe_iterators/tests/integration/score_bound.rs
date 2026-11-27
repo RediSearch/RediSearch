@@ -10,12 +10,9 @@
 //! Composition of [`RQEIterator::current_max_score`] across composite iterators, and the
 //! forwarding of the other score-bound hooks through wrappers, over [`Blocked`] leaves.
 
-use index_result::RSIndexResult;
-use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 use rqe_iterators::{
-    Intersection, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
-    UnionFullFlat, UnionFullHeap, UnionQuickFlat,
+    Intersection, RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat,
     c2rust::CRQEIterator,
     id_list::IdListSorted,
     interop::RQEIteratorWrapper,
@@ -28,6 +25,8 @@ use rqe_iterators::{
 };
 
 use crate::utils::blocked::{Block, Blocked, drain_above};
+
+type DynIterator = Box<dyn RQEIterator<'static>>;
 
 /// The threshold `value`, which the test knows to be positive.
 fn min_score(value: f64) -> MinCompetitiveScore {
@@ -53,19 +52,19 @@ fn leaves_report_no_bound_by_default() {
 /// A composite reports bounds only when every child does.
 #[test]
 fn reports_score_bounds_composes() {
-    let term = || TermOrPlain::Term(Blocked::single([1], 1.0));
-    let plain = || TermOrPlain::Plain(IdListSorted::new(vec![1]));
+    let term = || -> DynIterator { Box::new(Blocked::single([1], 1.0)) };
+    let plain = || -> DynIterator { Box::new(IdListSorted::new(vec![1])) };
 
     assert!(Intersection::new(vec![term(), term()], 1.0, false).reports_score_bounds());
     assert!(!Intersection::new(vec![term(), plain()], 1.0, false).reports_score_bounds());
-    assert!(!Intersection::<TermOrPlain>::new(vec![], 1.0, false).reports_score_bounds());
+    assert!(!Intersection::<DynIterator>::new(vec![], 1.0, false).reports_score_bounds());
 
     assert!(UnionFullFlat::new(vec![term(), term()]).reports_score_bounds());
     assert!(UnionFullHeap::new(vec![term(), term()]).reports_score_bounds());
     assert!(UnionQuickFlat::new(vec![term(), term()]).reports_score_bounds());
     assert!(!UnionFullFlat::new(vec![term(), plain()]).reports_score_bounds());
     assert!(!UnionFullHeap::new(vec![plain(), term()]).reports_score_bounds());
-    assert!(!UnionFullFlat::<TermOrPlain>::new(vec![]).reports_score_bounds());
+    assert!(!UnionFullFlat::<DynIterator>::new(vec![]).reports_score_bounds());
 
     let not = Not::new(Blocked::single([1], 1.0), 5, 1.0, NoTimeoutChecker);
     assert!(!not.reports_score_bounds());
@@ -170,8 +169,8 @@ fn not_and_optional_report_no_bound() {
     // An intersection with a NOT or optional child can no longer be bounded.
     let mut and_not = Intersection::new(
         vec![
-            TermOrNot::Term(Blocked::single([1, 3], 1.0)),
-            TermOrNot::Not(Not::new(
+            Box::new(Blocked::single([1, 3], 1.0)) as DynIterator,
+            Box::new(Not::new(
                 Blocked::single([2], 1.0),
                 5,
                 1.0,
@@ -321,108 +320,3 @@ fn c_threshold_that_cannot_drop_is_a_plain_read() {
     let it = unsafe { CRQEIterator::new(raw) };
     assert_eq!(it.last_doc_id(), 5);
 }
-
-/// Mixes a leaf that reports bounds with one that does not under one composite child type.
-enum TermOrPlain {
-    Term(Blocked<'static>),
-    Plain(IdListSorted<'static>),
-}
-
-/// Mixes a scored leaf with a NOT under one composite child type.
-enum TermOrNot {
-    Term(Blocked<'static>),
-    Not(Not<'static, Blocked<'static>, NoTimeoutChecker>),
-}
-
-macro_rules! forward_either {
-    ($ty:ident, $a:ident, $b:ident) => {
-        impl RQEIterator<'static> for $ty {
-            fn current(&mut self) -> Option<&mut RSIndexResult<'static>> {
-                match self {
-                    Self::$a(it) => it.current(),
-                    Self::$b(it) => it.current(),
-                }
-            }
-
-            fn read(&mut self) -> Result<Option<&mut RSIndexResult<'static>>, RQEIteratorError> {
-                match self {
-                    Self::$a(it) => it.read(),
-                    Self::$b(it) => it.read(),
-                }
-            }
-
-            fn skip_to(
-                &mut self,
-                doc_id: DocId,
-            ) -> Result<Option<SkipToOutcome<'_, 'static>>, RQEIteratorError> {
-                match self {
-                    Self::$a(it) => it.skip_to(doc_id),
-                    Self::$b(it) => it.skip_to(doc_id),
-                }
-            }
-
-            fn revalidate(
-                &mut self,
-                spec: &IndexSpecReadGuard,
-            ) -> Result<RQEValidateStatus<'_, 'static>, RQEIteratorError> {
-                match self {
-                    Self::$a(it) => it.revalidate(spec),
-                    Self::$b(it) => it.revalidate(spec),
-                }
-            }
-
-            fn rewind(&mut self) {
-                match self {
-                    Self::$a(it) => it.rewind(),
-                    Self::$b(it) => it.rewind(),
-                }
-            }
-
-            fn num_estimated(&self) -> usize {
-                match self {
-                    Self::$a(it) => it.num_estimated(),
-                    Self::$b(it) => it.num_estimated(),
-                }
-            }
-
-            fn last_doc_id(&self) -> DocId {
-                match self {
-                    Self::$a(it) => it.last_doc_id(),
-                    Self::$b(it) => it.last_doc_id(),
-                }
-            }
-
-            fn at_eof(&self) -> bool {
-                match self {
-                    Self::$a(it) => it.at_eof(),
-                    Self::$b(it) => it.at_eof(),
-                }
-            }
-
-            fn type_(&self) -> IteratorType {
-                IteratorType::Mock
-            }
-
-            fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
-                1.0
-            }
-
-            fn reports_score_bounds(&self) -> bool {
-                match self {
-                    Self::$a(it) => it.reports_score_bounds(),
-                    Self::$b(it) => it.reports_score_bounds(),
-                }
-            }
-
-            fn current_max_score(&self) -> f64 {
-                match self {
-                    Self::$a(it) => it.current_max_score(),
-                    Self::$b(it) => it.current_max_score(),
-                }
-            }
-        }
-    };
-}
-
-forward_either!(TermOrPlain, Term, Plain);
-forward_either!(TermOrNot, Term, Not);

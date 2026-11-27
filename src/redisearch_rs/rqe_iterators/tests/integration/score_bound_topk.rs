@@ -170,7 +170,7 @@ proptest! {
     #[test]
     #[cfg_attr(miri, ignore = "Hundreds of random trees: too slow under Miri")]
     fn thresholded_top_k_matches_plain_top_k(
-        tree in tree(400, 120),
+        tree in tree(400, 120, false),
         k in prop::sample::select(vec![1usize, 2, 3, 5, 10, 50]),
     ) {
         let scores = tree.scores();

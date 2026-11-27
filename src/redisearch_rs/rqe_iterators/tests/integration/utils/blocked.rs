@@ -19,7 +19,7 @@ use rqe_core::{DocId, RS_FIELDMASK_ALL};
 use rqe_iterators::{
     Intersection, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
     RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome, UnionFullFlat,
-    UnionFullHeap,
+    UnionFullHeap, UnionQuickFlat, UnionQuickHeap,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore, can_drop},
 };
@@ -436,13 +436,18 @@ pub(crate) struct LeafSpec {
     pub(crate) reports_blocks: bool,
 }
 
-/// A query tree over [`Blocked`] leaves, from which both the iterator and the exact score of
-/// every match are derived.
+/// A query tree over [`Blocked`] leaves, from which both the iterator and the score of every
+/// match are derived.
 #[derive(Debug, Clone)]
 pub(crate) enum Tree {
     Leaf(LeafSpec),
     And(Vec<Tree>),
-    Or { children: Vec<Tree>, heap: bool },
+    Or {
+        children: Vec<Tree>,
+        heap: bool,
+        /// A quick-exit union, which scores a document by one of the children that match it.
+        quick_exit: bool,
+    },
 }
 
 impl Tree {
@@ -466,20 +471,28 @@ impl Tree {
                 1.0,
                 false,
             )),
-            Self::Or { children, heap } => {
+            Self::Or {
+                children,
+                heap,
+                quick_exit,
+            } => {
                 let children: Vec<_> = children.iter().map(|child| child.build(logs)).collect();
-                if *heap {
-                    Box::new(UnionFullHeap::new(children))
-                } else {
-                    Box::new(UnionFullFlat::new(children))
+                match (*heap, *quick_exit) {
+                    (true, false) => Box::new(UnionFullHeap::new(children)),
+                    (false, false) => Box::new(UnionFullFlat::new(children)),
+                    (true, true) => Box::new(UnionQuickHeap::new(children)),
+                    (false, true) => Box::new(UnionQuickFlat::new(children)),
                 }
             }
         }
     }
 
     /// The score of every matching document, as the composites define it at weight 1: an
-    /// intersection sums all its children, a union those that match. This is the oracle a
+    /// intersection sums all its children, a full union those that match. This is the oracle a
     /// correct result is checked against.
+    ///
+    /// Which child a quick-exit union scores a document by depends on how far each has been
+    /// read, so under one this is only a lower bound: the weakest matching child's score.
     pub(crate) fn scores(&self) -> BTreeMap<DocId, f64> {
         match self {
             Self::Leaf(spec) => spec
@@ -496,11 +509,24 @@ impl Tree {
                         .collect()
                 })
             }
-            Self::Or { children, .. } => {
+            Self::Or {
+                children,
+                quick_exit,
+                ..
+            } => {
                 let mut scores = BTreeMap::new();
                 for child in children {
                     for (doc, score) in child.scores() {
-                        *scores.entry(doc).or_insert(0.0) += score;
+                        scores
+                            .entry(doc)
+                            .and_modify(|acc: &mut f64| {
+                                *acc = if *quick_exit {
+                                    acc.min(score)
+                                } else {
+                                    *acc + score
+                                };
+                            })
+                            .or_insert(score);
                     }
                 }
                 scores
@@ -544,14 +570,32 @@ pub(crate) fn leaf_spec(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Val
     )
 }
 
-/// A random tree of intersections and full unions, up to two composite levels deep, over leaves
-/// drawn by [`leaf_spec`].
-pub(crate) fn tree(max_doc_id: DocId, max_docs: usize) -> impl Strategy<Value = Tree> {
-    leaf_spec(max_doc_id, max_docs).prop_recursive(2, 8, 3, |inner| {
+/// A random tree of intersections and unions, up to two composite levels deep, over leaves drawn
+/// by [`leaf_spec`]. Its unions are full ones unless `quick_exit_unions`, which makes
+/// [`Tree::scores`] only a lower bound.
+pub(crate) fn tree(
+    max_doc_id: DocId,
+    max_docs: usize,
+    quick_exit_unions: bool,
+) -> impl Strategy<Value = Tree> {
+    leaf_spec(max_doc_id, max_docs).prop_recursive(2, 8, 3, move |inner| {
+        let quick_exit = if quick_exit_unions {
+            any::<bool>().boxed()
+        } else {
+            Just(false).boxed()
+        };
         prop_oneof![
             proptest::collection::vec(inner.clone(), 2..=3).prop_map(Tree::And),
-            (proptest::collection::vec(inner, 2..=3), any::<bool>())
-                .prop_map(|(children, heap)| Tree::Or { children, heap }),
+            (
+                proptest::collection::vec(inner, 2..=3),
+                any::<bool>(),
+                quick_exit
+            )
+                .prop_map(|(children, heap, quick_exit)| Tree::Or {
+                    children,
+                    heap,
+                    quick_exit,
+                }),
         ]
     })
 }

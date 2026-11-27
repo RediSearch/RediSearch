@@ -195,39 +195,69 @@ fn phrase_intersection_drops_by_bound_and_by_relevancy() {
 /// Builds a union over leaves, under the name of its variant.
 struct UnionCase {
     name: &'static str,
-    build: fn(Vec<Blocked<'static>>) -> DynIterator,
+    /// Whether the union returns on the first child that matches a document rather than
+    /// aggregating every one.
+    quick_exit: bool,
+    /// Builds the union over the leaves, its score scaled by the weight.
+    build_weighted: fn(Vec<Blocked<'static>>, f64) -> DynIterator,
+}
+
+impl UnionCase {
+    fn build(&self, children: Vec<Blocked<'static>>) -> DynIterator {
+        (self.build_weighted)(children, 1.0)
+    }
 }
 
 const UNIONS: &[UnionCase] = &[
     UnionCase {
         name: "full flat",
-        build: |children| Box::new(UnionFullFlat::new(children)),
+        quick_exit: false,
+        build_weighted: |children, weight| weighted(UnionFullFlat::new(children), weight),
     },
     UnionCase {
         name: "full heap",
-        build: |children| Box::new(UnionFullHeap::new(children)),
+        quick_exit: false,
+        build_weighted: |children, weight| weighted(UnionFullHeap::new(children), weight),
     },
     UnionCase {
         name: "quick flat",
-        build: |children| Box::new(UnionQuickFlat::new(children)),
+        quick_exit: true,
+        build_weighted: |children, weight| weighted(UnionQuickFlat::new(children), weight),
     },
     UnionCase {
         name: "quick heap",
-        build: |children| Box::new(UnionQuickHeap::new(children)),
+        quick_exit: true,
+        build_weighted: |children, weight| weighted(UnionQuickHeap::new(children), weight),
     },
     UnionCase {
         name: "opaque flat, through the C ABI",
-        build: |children| opaque_union(children, usize::MAX),
+        quick_exit: false,
+        build_weighted: |children, weight| opaque_union(children, usize::MAX, weight),
     },
     UnionCase {
         name: "opaque heap, through the C ABI",
-        build: |children| opaque_union(children, 0),
+        quick_exit: false,
+        build_weighted: |children, weight| opaque_union(children, 0, weight),
     },
 ];
 
+/// `union` with its score scaled by `weight`, which a Rust union takes from its result, as the
+/// query builder sets it.
+fn weighted<U: RQEIterator<'static> + 'static>(mut union: U, weight: f64) -> DynIterator {
+    union
+        .current()
+        .expect("an unread union over children holds a result")
+        .weight = weight;
+    Box::new(union)
+}
+
 /// The union a query builds: an opaque union over C-wrapped children, itself reached through
 /// the C vtable.
-fn opaque_union(children: Vec<Blocked<'static>>, min_union_iter_heap: usize) -> DynIterator {
+fn opaque_union(
+    children: Vec<Blocked<'static>>,
+    min_union_iter_heap: usize,
+    weight: f64,
+) -> DynIterator {
     let children = children
         .into_iter()
         .map(CRQEIterator::from_rust_leaf)
@@ -237,7 +267,7 @@ fn opaque_union(children: Vec<Blocked<'static>>, min_union_iter_heap: usize) -> 
         false,
         min_union_iter_heap,
         QueryNodeType::Union,
-        1.0,
+        weight,
     );
     // SAFETY: `build_union` returns a uniquely-owned header with every required callback set.
     Box::new(unsafe { CRQEIterator::new(header) })
@@ -260,7 +290,7 @@ fn union_children() -> [(Blocked<'static>, Log); 2] {
 fn unions_skip_windows_whose_block_sum_is_below_the_threshold() {
     for case in UNIONS {
         let [(b, _), (a, a_log)] = union_children();
-        let mut it = (case.build)(vec![b, a]);
+        let mut it = case.build(vec![b, a]);
 
         assert_eq!(
             drain_above(&mut it, min_competitive(3.0)),
@@ -279,7 +309,7 @@ fn unions_skip_up_to_a_child_without_a_block_boundary() {
         // `b` reports no block, but it stands at 40 and matches nothing before it, so it does not
         // hold back the skips through `a`.
         let [(b, _), (a, a_log)] = union_children();
-        let mut it = (case.build)(vec![b.without_block_bounds(), a]);
+        let mut it = case.build(vec![b.without_block_bounds(), a]);
 
         assert_eq!(
             drain_above(&mut it, min_competitive(3.0)),
@@ -296,7 +326,7 @@ fn full_unions_do_not_skip_past_a_child_without_a_block_boundary() {
     for case in full_unions() {
         let [_, (a, a_log)] = union_children();
         let (c, _) = leaf(vec![Block::uniform([3], 0.0)]);
-        let mut it = (case.build)(vec![c.without_block_bounds(), a]);
+        let mut it = case.build(vec![c.without_block_bounds(), a]);
 
         assert_eq!(
             drain_above(&mut it, min_competitive(3.0)),
@@ -330,9 +360,9 @@ fn full_unions_follow_misaligned_block_boundaries() {
             ]),
         ]
     };
-    for case in &UNIONS[..2] {
+    for case in full_unions() {
         let [(a, a_log), (b, b_log)] = build();
-        let mut it = (case.build)(vec![a, b]);
+        let mut it = case.build(vec![a, b]);
 
         // Windows: [2, 4] and [6, 6] both sum to 2. From 7, `a` alone covers 8, since `b` stands
         // at 10, past `a`'s block end.
@@ -351,7 +381,7 @@ fn full_unions_follow_misaligned_block_boundaries() {
 /// the first child that matches, so which children it has positioned, and so where it can pivot,
 /// depends on their order.
 fn full_unions() -> impl Iterator<Item = &'static UnionCase> {
-    UNIONS.iter().filter(|case| !case.name.starts_with("quick"))
+    UNIONS.iter().filter(|case| !case.quick_exit)
 }
 
 #[test]
@@ -361,7 +391,7 @@ fn full_unions_pivot_past_documents_only_earlier_children_match() {
         // before 10 only `a` can match, and `a` alone cannot.
         let (a, a_log) = leaf(vec![Block::uniform(1..=20, 1.0)]);
         let (b, b_log) = leaf(vec![Block::uniform(10..=20, 2.5)]);
-        let mut it = (case.build)(vec![a, b]);
+        let mut it = case.build(vec![a, b]);
 
         assert_eq!(
             drain_above(&mut it, min_competitive(3.0)),
@@ -386,7 +416,7 @@ fn full_unions_do_not_pivot_past_the_end_of_an_earlier_block() {
             Block::uniform(6..=20, 3.0),
         ]);
         let (b, _) = leaf(vec![Block::uniform(12..=20, 2.5)]);
-        let mut it = (case.build)(vec![a, b]);
+        let mut it = case.build(vec![a, b]);
 
         assert_eq!(
             drain_above(&mut it, min_competitive(3.0)),
@@ -411,9 +441,9 @@ fn quick_flat_union_never_pivots_past_an_unpositioned_child() {
         .expect("a quick flat case");
     let (a, a_log) = leaf(vec![Block::uniform(1..=20, 1.0)]);
     let (b, b_log) = leaf(vec![Block::uniform(10..=20, 2.5)]);
-    let mut it = (case.build)(vec![a, b]);
+    let mut it = case.build(vec![a, b]);
 
-    let mut plain = (case.build)(vec![
+    let mut plain = case.build(vec![
         Blocked::new(vec![Block::uniform(1..=20, 1.0)]),
         Blocked::new(vec![Block::uniform(10..=20, 2.5)]),
     ]);
@@ -495,11 +525,73 @@ fn unions_keep_windows_that_reach_the_threshold() {
         for case in edge_cases() {
             let (a, a_log) = edge_leaf(case.window_bound);
             let (b, _) = leaf(vec![Block::uniform([40], 0.0)]);
-            let mut it = (union.build)(vec![b, a]);
+            let mut it = union.build(vec![b, a]);
             let mut yielded = drain_above(&mut it, min_competitive(4.0));
             // Doc 40 scores 0 and is dropped either way.
             yielded.retain(|&doc| doc != 40);
             assert_edge(&case, union.name, &[1], yielded, &a_log);
+        }
+    }
+}
+
+/****************************** weight ******************************/
+
+/// Weights for which the composites' skip bounds are scaled up (`true`), or left unscaled
+/// (`false`): a weight below 1 must skip exactly as weight 1 does.
+const WEIGHTS: [(f64, bool); 3] = [(2.0, true), (1.0, false), (0.5, false)];
+
+/// Every block sums to 2, below the threshold of 3 unless the weight scales it up: the window
+/// check, the target check and the drop of agreed documents must all apply the weight.
+#[test]
+fn intersection_scales_its_skip_bounds_by_weight_but_never_down() {
+    for (weight, scaled_up) in WEIGHTS {
+        let (a, a_log) = leaf(vec![Block::uniform(1..=10, 1.0)]);
+        let (b, _) = leaf(vec![Block::uniform(1..=10, 1.0)]);
+        let mut it = Intersection::new(vec![a, b], weight, false);
+
+        let (kept, a_visits) = if scaled_up {
+            (ids(1..=10), ids(1..=10))
+        } else {
+            // The first two documents are read before the window is known.
+            (vec![], vec![1, 2])
+        };
+        assert_eq!(
+            drain_above(&mut it, min_competitive(3.0)),
+            kept,
+            "weight {weight}"
+        );
+        assert_eq!(visited(&a_log), a_visits, "weight {weight}");
+    }
+}
+
+/// `a`'s block maximum of 1 is below the threshold of 1.5 unless the weight scales it up: the
+/// pivot and the drop of landed documents must both apply the weight.
+#[test]
+fn unions_scale_their_skip_bounds_by_weight_but_never_down() {
+    for case in UNIONS {
+        for (weight, scaled_up) in WEIGHTS {
+            // `b` stands far ahead, as in `union_children`, so every variant positions both.
+            let (b, _) = leaf(vec![Block::uniform([40], 0.0)]);
+            let (a, a_log) = leaf(vec![Block::uniform(1..=8, 1.0)]);
+            let mut it = (case.build_weighted)(vec![b, a], weight);
+
+            let (kept, a_visits) = if scaled_up {
+                (ids(1..=8), ids(1..=8))
+            } else {
+                (vec![], vec![1])
+            };
+            assert_eq!(
+                drain_above(&mut it, min_competitive(1.5)),
+                kept,
+                "{} at weight {weight}",
+                case.name
+            );
+            assert_eq!(
+                visited(&a_log),
+                a_visits,
+                "{} at weight {weight}",
+                case.name
+            );
         }
     }
 }
@@ -532,10 +624,10 @@ fn composites_report_the_earliest_block_end_and_the_summed_maximum() {
     assert_eq!(heavy.current_block_bound().map(|b| b.max_score), Some(8.0));
 
     for union in UNIONS {
-        let mut it = (union.build)(children());
+        let mut it = union.build(children());
         assert_eq!(it.current_block_bound(), None, "{}: unread", union.name);
         it.read().expect("read failed");
-        if union.name.starts_with("quick") {
+        if union.quick_exit {
             // A quick-exit union leaves its second child unread.
             continue;
         }
@@ -566,7 +658,7 @@ fn composites_do_not_pass_the_threshold_to_their_children() {
     );
     for case in UNIONS {
         let [(c, c_log), (d, d_log)] = union_children();
-        drain_above(&mut (case.build)(vec![c, d]), min_competitive(3.0));
+        drain_above(&mut case.build(vec![c, d]), min_competitive(3.0));
         for log in [&c_log, &d_log] {
             assert_eq!(log.borrow().thresholded_reads, 0, "{}", case.name);
         }
@@ -662,43 +754,90 @@ fn thresholds() -> impl Strategy<Value = Vec<MinCompetitiveScore>> {
     })
 }
 
+/// Checks that thresholded reads of `tree` keep every document a plain read yields that reaches
+/// the threshold in force while it is passed, and yield only real matches, in increasing order,
+/// then EOF. Only the root may receive the threshold.
+fn check_thresholded_reads(
+    tree: &Tree,
+    thresholds: &[MinCompetitiveScore],
+) -> Result<(), TestCaseError> {
+    let scores = tree.scores();
+    let mut logs = Vec::new();
+    let mut it = tree.build(&mut logs);
+    let is_leaf = matches!(tree, Tree::Leaf(_));
+
+    let mut previous: DocId = 0;
+    for call in 0.. {
+        let min = thresholds[call.min(thresholds.len() - 1)];
+        let yielded = it
+            .read_with_threshold(min)
+            .expect("read failed")
+            .map(|r| r.doc_id);
+        // Every document passed during this call that reaches `min` must be the one returned.
+        let passed_to = yielded.unwrap_or(DocId::MAX);
+        for (&doc, &score) in scores.range(previous + 1..=passed_to) {
+            if !can_drop(score, min) {
+                prop_assert_eq!(
+                    Some(doc),
+                    yielded,
+                    "doc {} scoring {} skipped under {:?}",
+                    doc,
+                    score,
+                    min
+                );
+            }
+        }
+        let Some(doc) = yielded else { break };
+        prop_assert!(doc > previous, "doc {} after {}", doc, previous);
+        prop_assert!(scores.contains_key(&doc), "doc {} is not a match", doc);
+        prop_assert!(
+            !can_drop(it.current_max_score(), min),
+            "doc {} below {:?}",
+            doc,
+            min
+        );
+        previous = doc;
+    }
+    prop_assert!(it.read().expect("read failed").is_none(), "EOF is terminal");
+
+    let thresholded = logs
+        .iter()
+        .filter(|log| log.borrow().thresholded_reads > 0)
+        .count();
+    prop_assert!(thresholded <= usize::from(is_leaf));
+    Ok(())
+}
+
 proptest! {
     // Competitive documents inside skippable-looking windows are rare in random trees, so it
     // takes more cases than the default to reach them reliably.
     #![proptest_config(ProptestConfig::with_cases(2048))]
 
-    /// Thresholded reads keep every document a plain read yields that reaches the threshold in
-    /// force while it is passed, and yield only real matches, in increasing order, then EOF.
+    /// [`check_thresholded_reads`] over random trees, quick-exit unions included.
     #[test]
     #[cfg_attr(miri, ignore = "Thousands of random trees: too slow under Miri")]
-    fn thresholded_reads_keep_every_competitive_document(tree in tree(40, 30), thresholds in thresholds()) {
-        let scores = tree.scores();
-        let mut logs = Vec::new();
-        let mut it = tree.build(&mut logs);
-        let is_leaf = matches!(tree, Tree::Leaf(_));
+    fn thresholded_reads_keep_every_competitive_document(
+        tree in tree(40, 30, true),
+        thresholds in thresholds(),
+    ) {
+        check_thresholded_reads(&tree, &thresholds)?;
+    }
+}
 
-        let mut previous: DocId = 0;
-        for call in 0.. {
-            let min = thresholds[call.min(thresholds.len() - 1)];
-            let yielded = it.read_with_threshold(min).expect("read failed").map(|r| r.doc_id);
-            // Every document passed during this call that reaches `min` must be the one returned.
-            let passed_to = yielded.unwrap_or(DocId::MAX);
-            for (&doc, &score) in scores.range(previous + 1..=passed_to) {
-                if !can_drop(score, min) {
-                    prop_assert_eq!(Some(doc), yielded, "doc {} scoring {} skipped under {:?}", doc, score, min);
-                }
-            }
-            let Some(doc) = yielded else { break };
-            prop_assert!(doc > previous, "doc {} after {}", doc, previous);
-            prop_assert!(scores.contains_key(&doc), "doc {} is not a match", doc);
-            prop_assert!(!can_drop(it.current_max_score(), min), "doc {} below {:?}", doc, min);
-            previous = doc;
-        }
-        prop_assert!(it.read().expect("read failed").is_none(), "EOF is terminal");
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
 
-        // Only the root may receive the threshold.
-        let thresholded = logs.iter().filter(|log| log.borrow().thresholded_reads > 0).count();
-        prop_assert!(thresholded <= usize::from(is_leaf));
+    /// [`check_thresholded_reads`] over wide quick-exit unions. Only a quick-exit union leaves
+    /// children behind it, and a wide one is where the heap variant walks its heap for the pivot.
+    #[test]
+    #[cfg_attr(miri, ignore = "Hundreds of random unions: too slow under Miri")]
+    fn wide_quick_exit_unions_keep_every_competitive_document(
+        leaves in proptest::collection::vec(leaf_spec(60, 30), 2..=24),
+        heap in any::<bool>(),
+        thresholds in thresholds(),
+    ) {
+        let tree = Tree::Or { children: leaves, heap, quick_exit: true };
+        check_thresholded_reads(&tree, &thresholds)?;
     }
 }
 
@@ -715,6 +854,7 @@ fn trace_union(
     let tree = Tree::Or {
         children: leaves.to_vec(),
         heap,
+        quick_exit: false,
     };
     let mut logs = Vec::new();
     let mut it = tree.build(&mut logs);
@@ -744,7 +884,9 @@ proptest! {
 
     /// The heap union finds its pivot by walking its heap rather than rescanning its children,
     /// and must reach the same decisions: the same documents come back, and every leaf is read
-    /// and skipped the same way as under the flat union.
+    /// and skipped the same way as under the flat union. Full unions only: the quick-exit
+    /// variants position their children differently by design (see
+    /// `quick_flat_union_never_pivots_past_an_unpositioned_child`).
     #[test]
     #[cfg_attr(miri, ignore = "Hundreds of random unions: too slow under Miri")]
     fn heap_and_flat_unions_pivot_alike(
