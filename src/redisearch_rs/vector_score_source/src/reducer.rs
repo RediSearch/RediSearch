@@ -13,12 +13,12 @@
 use std::{num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{QueryRequestLimits, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
-use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
 use top_k::{ChildReduction, TopKIterator, reduce_child};
 
 use crate::{
-    VectorScoreSource, VectorTopKIterator, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
+    DocIdBound, VectorScoreSource, VectorTopKIterator, new_vector_top_k_filtered,
+    new_vector_top_k_unfiltered,
 };
 
 /// Result of [`new_vector_top_k`]: the iterator to expose, already reduced to
@@ -35,7 +35,7 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 /// Build the vector top-k iterator for the given query, applying the child
 /// reduction and choosing the unfiltered or filtered construction accordingly.
 ///
-/// `max_doc_id` is passed to [`VectorScoreSource::with_max_doc_id`].
+/// `doc_id_bound` is passed to [`VectorScoreSource::with_doc_id_bound`].
 ///
 /// # Safety
 ///
@@ -44,6 +44,8 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 ///    invariant for `index`.
 /// 3. `timeout` must be non-null, remain valid for the returned iterator's lifetime, and satisfy
 ///    the [`VectorScoreSource`] source-transition and serialization contract.
+/// 4. `doc_id_bound`, when set, must satisfy the
+///    [`VectorScoreSource::with_doc_id_bound`] contract.
 #[expect(clippy::too_many_arguments)]
 pub unsafe fn new_vector_top_k<'index, E>(
     index: NonNull<VecSimIndex>,
@@ -54,7 +56,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,
-    max_doc_id: DocId,
+    doc_id_bound: Option<DocIdBound>,
 ) -> NewVectorTopK<'index, E>
 where
     E: ExpirationChecker + 'index,
@@ -84,8 +86,9 @@ where
                     0, // dynamic batch size
                     expiration,
                 )
-            }
-            .with_max_doc_id(max_doc_id);
+            };
+            // SAFETY: guaranteed by invariant 4.
+            let source = unsafe { source.with_doc_id_bound(doc_id_bound) };
             NewVectorTopK::Unfiltered(new_vector_top_k_unfiltered(source, k))
         }
         ChildReduction::Filtered(child) => {
@@ -103,8 +106,9 @@ where
                     query_params.batchSize,
                     expiration,
                 )
-            }
-            .with_max_doc_id(max_doc_id);
+            };
+            // SAFETY: guaranteed by invariant 4.
+            let source = unsafe { source.with_doc_id_bound(doc_id_bound) };
             NewVectorTopK::Filtered(new_vector_top_k_filtered(
                 source,
                 child,

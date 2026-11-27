@@ -16,9 +16,9 @@
 //! neighbours are simply the highest ids — making every expected ordering
 //! trivially predictable.
 
-use std::{collections::HashSet, num::NonZeroUsize, ptr};
+use std::{collections::HashSet, num::NonZeroUsize, ptr, ptr::NonNull};
 
-use ffi::{RLookupKey, t_docId};
+use ffi::{DocTable, RLookupKey, t_docId};
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{
     Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed,
@@ -28,7 +28,7 @@ use rqe_iterators_test_utils::{MockContext, MockExpirationChecker};
 use top_k::{ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::test_utils::{TestIndex, asc, collect_ids, make_child, uniform_blob};
 use vector_score_source::{
-    VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
+    DocIdBound, VectorScoreSource, new_vector_top_k_filtered, new_vector_top_k_unfiltered,
 };
 
 const DIM: usize = 4;
@@ -370,6 +370,14 @@ fn filtered_adhoc_drops_expired_without_refill() {
     assert_eq!(ids, vec![99, 98]);
 }
 
+/// A doc table whose highest doc id is `max_doc_id`.
+fn doc_table_with_max_doc_id(max_doc_id: t_docId) -> DocTable {
+    // SAFETY: `DocTable` is a C struct, for which all zeroes is a valid value.
+    let mut docs: DocTable = unsafe { std::mem::zeroed() };
+    docs.maxDocId = max_doc_id;
+    docs
+}
+
 /// Runs a filtered top-3 over `90..=100` with the bound at 97 in `mode`. The
 /// three nearest documents are above the bound.
 fn filtered_ids_with_max_doc_id(mode: TopKMode) -> Vec<t_docId> {
@@ -377,7 +385,14 @@ fn filtered_ids_with_max_doc_id(mode: TopKMode) -> Vec<t_docId> {
     let k = 3;
     let index = build_hnsw_index(n);
     let child_ids: Vec<t_docId> = (90..=100).collect();
-    let source = make_source(&index, n, k, child_ids.len()).with_max_doc_id(97);
+    let docs = doc_table_with_max_doc_id(100);
+    // SAFETY: `docs` outlives the source and is not written while it runs.
+    let source = unsafe {
+        make_source(&index, n, k, child_ids.len()).with_doc_id_bound(Some(DocIdBound {
+            max_doc_id: 97,
+            doc_table: NonNull::from(&docs),
+        }))
+    };
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child(child_ids)),
@@ -406,16 +421,38 @@ fn filtered_adhoc_refills_k_below_max_doc_id() {
     );
 }
 
-#[test]
-#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn unfiltered_drops_above_max_doc_id_without_refill() {
+/// Runs an unfiltered top-3 over `1..=100` with the bound at 98, where the
+/// index reports `current_max_doc_id` as its highest doc id. The two nearest
+/// documents are above the bound.
+fn unfiltered_ids_with_max_doc_id(current_max_doc_id: t_docId) -> Vec<t_docId> {
     let n = 100;
     let k = 3;
     let index = build_hnsw_index(n);
-    // VecSim picks the k results itself, so the ones above the bound are not replaced.
-    let source = make_source(&index, n, k, 0).with_max_doc_id(98);
+    let docs = doc_table_with_max_doc_id(current_max_doc_id);
+    // SAFETY: `docs` outlives the source and is not written while it runs.
+    let source = unsafe {
+        make_source(&index, n, k, 0).with_doc_id_bound(Some(DocIdBound {
+            max_doc_id: 98,
+            doc_table: NonNull::from(&docs),
+        }))
+    };
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
-    assert_eq!(collect_ids(&mut it), vec![98]);
+    collect_ids(&mut it)
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_refills_k_below_max_doc_id() {
+    assert_eq!(unfiltered_ids_with_max_doc_id(100), vec![98, 97, 96]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_caps_the_query_at_the_index_size() {
+    assert_eq!(
+        unfiltered_ids_with_max_doc_id(t_docId::MAX),
+        vec![98, 97, 96]
+    );
 }
 
 #[test]

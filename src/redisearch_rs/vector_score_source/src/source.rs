@@ -16,8 +16,9 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestLimits, RS_VecSimCheckMemory, RS_VecSimCheckMemoryEvery, RS_VecSimCheckTimeout,
-    VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
+    DocTable, QueryRequestLimits, RS_VecSimCheckMemory, RS_VecSimCheckMemoryEvery,
+    RS_VecSimCheckTimeout, VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex,
+    VecSimQueryParams,
 };
 use index_result::RSIndexResult;
 use rlookup::{KeyHandleSlot, RLookupKey};
@@ -29,6 +30,15 @@ use vecsim::{
 };
 
 use crate::score_batch::VecSimScoreBatch;
+
+/// The view of the index a query was built on: documents added later have doc
+/// ids above [`max_doc_id`](Self::max_doc_id).
+pub struct DocIdBound {
+    /// Highest doc id the query may return.
+    pub max_doc_id: DocId,
+    /// The index's doc table, read for its current highest doc id.
+    pub doc_table: NonNull<DocTable>,
+}
 
 /// Adhoc-BF path selection and the scan-scoped state owned by each path.
 ///
@@ -119,8 +129,10 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
     /// Highest doc id a candidate may have to take a heap slot. Set by
-    /// [`with_max_doc_id`](Self::with_max_doc_id).
+    /// [`with_doc_id_bound`](Self::with_doc_id_bound).
     max_doc_id: DocId,
+    /// [`DocIdBound::doc_table`]; `None` without a bound.
+    doc_table: Option<NonNull<DocTable>>,
 
     /// Score key for this iterator's metric output. The metrics loader writes
     /// through the address returned by [`interop::own_key_ref`]. Boxed so that
@@ -139,9 +151,10 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
 }
 
 // SAFETY: VectorScoreSource is used from a single thread (the query execution
-// thread). The `index`, `timeout`, `own_key` and `key_handle` pointers are non-owning; the
-// constructor contract requires the first two to outlive the source, and the caller keeps the
-// key pointers valid for as long. Everything else is owned and managed by the struct itself.
+// thread). The `index`, `timeout`, `doc_table`, `own_key` and `key_handle` pointers are
+// non-owning; the constructor contract requires the first two to outlive the source,
+// `with_doc_id_bound` the third, and the caller keeps the key pointers valid for as long.
+// Everything else is owned and managed by the struct itself.
 unsafe impl<E: ExpirationChecker + Send> Send for VectorScoreSource<'_, E> {}
 
 impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
@@ -208,16 +221,42 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             expiration,
             unfiltered_consumed: false,
             max_doc_id: DocId::MAX,
+            doc_table: None,
             own_key: Box::new(ptr::null_mut()),
             key_handle: KeyHandleSlot::new(),
         }
     }
 
-    /// Reject candidates above `max_doc_id`, so documents added after the
-    /// caller's view of the index cannot take one of the k places.
-    pub fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
-        self.max_doc_id = max_doc_id;
+    /// Reject candidates above [`DocIdBound::max_doc_id`], so documents added
+    /// after the caller's view of the index cannot take one of the k places.
+    /// `None` keeps every candidate.
+    ///
+    /// # Safety
+    ///
+    /// [`DocIdBound::doc_table`] must stay valid for the source's lifetime, and
+    /// nothing may write it while an operation on the source runs.
+    pub unsafe fn with_doc_id_bound(mut self, bound: Option<DocIdBound>) -> Self {
+        if let Some(bound) = bound {
+            self.max_doc_id = bound.max_doc_id;
+            self.doc_table = Some(bound.doc_table);
+        }
         self
+    }
+
+    /// `k` plus room for the results [`accept_candidate`](ScoreSource::accept_candidate)
+    /// rejects: doc ids only grow, so at most `maxDocId - max_doc_id` of them
+    /// are late, and never more than the index holds.
+    fn unfiltered_query_k(&self) -> usize {
+        let Some(docs) = self.doc_table else {
+            return self.k;
+        };
+        // SAFETY: guaranteed by the `with_doc_id_bound` contract.
+        let late = unsafe { docs.as_ref() }
+            .maxDocId
+            .saturating_sub(self.max_doc_id);
+        let late =
+            usize::try_from(late).map_or(self.index_size(), |late| late.min(self.index_size()));
+        self.k.saturating_add(late)
     }
 
     /// Return the request-owned timeout as the opaque context expected by VecSim.
@@ -272,11 +311,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return Ok(None);
         }
         self.query_params.stopCtx = self.stop_ctx_ptr();
+        let query_k = self.unfiltered_query_k();
         let reply = self
             .index
             .top_k_query(
                 &self.query_vector,
-                self.k,
+                query_k,
                 &mut self.query_params,
                 ReplyOrder::ByScore,
             )

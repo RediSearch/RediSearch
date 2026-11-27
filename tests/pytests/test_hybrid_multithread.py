@@ -275,10 +275,9 @@ def test_hybrid_cursor_reports_subquery_error():
         env.assertContains(INDEX_CHANGED_ERROR, outcome[0][1])
 
 
-@skip(cluster=True)
-def test_hybrid_filtered_knn_keeps_k_with_late_document():
+def _late_document_keeps_k(*filter_args):
     """A document added after the build of a background hybrid query must not
-    take one of the K places of its filtered KNN subquery.
+    take one of the K places of its KNN subquery.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
@@ -288,7 +287,7 @@ def test_hybrid_filtered_knn_keeps_k_with_late_document():
     # The SEARCH clause matches nothing, so the reply holds only the KNN results.
     query = ('FT.HYBRID', 'idx', 'SEARCH', '@text:(nomatch)',
              'VSIM', '@vector', '$BLOB', 'KNN', '2', 'K', str(k),
-             'FILTER', '@type:{vector}', 'PARAMS', '2', 'BLOB', query_vector,
+             *filter_args, 'PARAMS', '2', 'BLOB', query_vector,
              'LIMIT', '0', '100')
 
     sync_point = 'BeforeHybridDepletion'
@@ -327,3 +326,13 @@ def test_hybrid_filtered_knn_keeps_k_with_late_document():
     env.assertEqual(len(keys), k, message=f'expected {k} KNN results, got: {sorted(keys)}')
     # The late document is a top match, so its absence above comes from the bound.
     env.assertContains('late:vector', hybrid_reply_keys(env.cmd(*query)))
+
+
+@skip(cluster=True)
+def test_hybrid_filtered_knn_keeps_k_with_late_document():
+    _late_document_keeps_k('FILTER', '@type:{vector}')
+
+
+@skip(cluster=True)
+def test_hybrid_unfiltered_knn_keeps_k_with_late_document():
+    _late_document_keeps_k()

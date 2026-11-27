@@ -122,7 +122,9 @@ pub trait ScoreSource {
     /// Called exactly once by [`TopKIterator`] in [`Unfiltered`](crate::TopKMode::Unfiltered)
     /// mode. Implementations that can answer the full query in one call (e.g.
     /// `VecSimIndex_TopKQuery`) should override this; the default delegates to
-    /// [`next_batch`](Self::next_batch).
+    /// [`next_batch`](Self::next_batch). The batch may hold more than k results:
+    /// [`TopKIterator`] yields the first k that pass
+    /// [`accept_candidate`](Self::accept_candidate).
     ///
     /// [`TopKIterator`]: crate::TopKIterator
     fn all_results_unfiltered_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {

@@ -473,6 +473,8 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
  *    `spec`, both outliving the returned iterator.
  * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+ * 8. When `sctx->maxVisibleDocId` is set, the returned iterator is read only
+ *    while the spec read lock is held.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty

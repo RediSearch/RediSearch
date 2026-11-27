@@ -426,6 +426,25 @@ fn rewind_resets_to_not_started() {
     assert_eq!(result.doc_id, 1);
 }
 
+/// The unfiltered batch may hold more than k results, to leave room for the
+/// rejected ones.
+#[test]
+fn unfiltered_yields_first_k_accepted() {
+    let batch = vec![(1, 1.0), (2, 2.0), (3, 3.0), (4, 4.0), (5, 5.0)];
+    let source = MockScoreSource::new(vec![batch], vec![], |_, _| BatchStrategy::Continue)
+        .with_candidate_filter(|doc_id, _| Ok(doc_id != 2));
+    let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
+        source,
+        NonZeroUsize::new(3).unwrap(),
+        Ascending,
+    ));
+    let mut ids = Vec::new();
+    while let Some(result) = it.read().unwrap() {
+        ids.push(result.doc_id);
+    }
+    assert_eq!(ids, vec![1, 3, 4]);
+}
+
 #[test]
 fn eof_set_after_results_exhausted() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
