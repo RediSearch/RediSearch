@@ -21,6 +21,8 @@
 #include "redismodule.h"
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
+#include "query_memory.h"
+#include "debug_commands.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
@@ -60,6 +62,34 @@ bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
   return false;
 }
 
+bool ShardReply_ReportsOom(const MRCommand *cmd, MRReply *rep) {
+  if (MRReply_Type(rep) == MR_REPLY_ERROR) {
+    return QueryError_GetCodeFromMessage(MRReply_String(rep, NULL)) ==
+           QUERY_ERROR_CODE_OUT_OF_MEMORY;
+  }
+  if (MRReply_Type(rep) == MR_REPLY_STRING || MRReply_Type(rep) == MR_REPLY_STATUS) {
+    const char *str = MRReply_String(rep, NULL);
+    return str && !strcmp(str, QUERY_WOOM_SHARD);
+  }
+  if (cmd->protocol != 3 || MRReply_Type(rep) != MR_REPLY_ARRAY) {
+    return false;
+  }
+  MRReply *meta = MRReply_ArrayElement(rep, 0);
+  if (meta && cmd->forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
+    meta = MRReply_MapElement(meta, "results");  // profile has an extra level
+  }
+  MRReply *warnings =
+      meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning") : NULL;
+  const size_t len = warnings ? MRReply_Length(warnings) : 0;
+  for (size_t i = 0; i < len; i++) {
+    const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
+    if (str && !strcmp(str, QUERY_WOOM_SHARD)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Cursor callback for network responses.
 // Handles DEL commands, error replies, reply structure assertions,
 // cursor continuation, and reply fan-in to the channel.
@@ -80,6 +110,9 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     const char* error = MRReply_String(rep, NULL);
     RedisModule_Log(RSDummyContext, "notice", "Coordinator got an error '%.*s' from a shard", GetRedisErrorCodeLength(error), error);
     RedisModule_Log(RSDummyContext, "verbose", "Shard error: %s", error);
+    // Before the push, so a reader that pops this reply sees the flag (release / acquire).
+    if (ShardReply_ReportsOom(cmd, rep))
+      MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
     MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
     MRIteratorCallback_Done(ctx, 1);
     return;
@@ -171,6 +204,24 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
   }
 
+  // Without a cursor every reply is resent at once, so replies pile up in the channel while the
+  // reader is slower than the shards: read memory once per reply, and on pressure stop resending.
+  // This reply is kept; the reader stops its request.
+  MRIteratorCtx *itCtx = MRIteratorCallback_GetCtx(ctx);
+  if (cursorId != CURSOR_EOF && !cmd->forCursor && !cmd->forProfiling &&
+      MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx)) {
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_RESEND_CHECKPOINT);
+    // A shard's later reads only, not its first reply.
+    if (cmd->rootCommand == C_READ) SyncPoint_Wait(SYNC_POINT_BEFORE_FOLLOW_UP_RESEND_CHECKPOINT);
+#endif
+    if (QueryMemory_CheckpointExact(NULL)) {
+      MRIteratorCallback_SetMemoryStopped(ctx);
+    }
+  }
+
+  // Before the push, as for an error reply.
+  if (ShardReply_ReportsOom(cmd, rep)) MRIterator_SetShardOom(MRIteratorCallback_GetIterator(ctx));
   // Push the reply down the chain, to be picked up by getNextReply
   MRIteratorCallback_AddReply(ctx, rep); // take ownership of the reply
 

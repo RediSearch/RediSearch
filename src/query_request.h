@@ -218,6 +218,19 @@ void QueryRequestLimits_Reset(QueryRequestLimits *limits);
  */
 void QueryRequestLimits_BeginCycle(QueryRequestLimits *limits, QueryRequestTimeoutKind kind);
 /**
+ * Debug hook for `_FT.DEBUG FORCE_TIMEOUT`, process-wide. Makes the `n`-th CLOCK_DEADLINE
+ * cycle (1-based, counted across all requests) from now start with its deadline already
+ * elapsed, whatever the request's timeout, so that process's query times out through the real
+ * limits path. BLOCKED_CLIENT cycles are not counted: their timeout is the blocked-client
+ * callback's, which a debug hook must not fake. 0 disarms it. Either way the cycle count
+ * restarts from 0; a fired hook disarms itself by never matching again.
+ */
+void QueryRequestLimits_SetForcedTimeoutAtCycle(uint64_t n);
+uint64_t QueryRequestLimits_GetForcedTimeoutAtCycle(void);
+/** CLOCK_DEADLINE cycles counted since the last QueryRequestLimits_SetForcedTimeoutAtCycle. */
+uint64_t QueryRequestLimits_GetClockCycles(void);
+
+/**
  * Atomically publishes a timeout to readers of the active BLOCKED_CLIENT
  * cycle. Together with QueryRequestLimits_RequestMemoryStop, this is the only
  * state transition permitted concurrently with timeout checks; it communicates

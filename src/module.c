@@ -3306,6 +3306,12 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
   return REDISMODULE_OK;
 }
 
+// Every shard reply is held until the last one lands, so memory is read once per reply.
+static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  return QueryMemory_CheckpointExact(&req->base.limits);
+}
+
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
   struct MRCtx *mrctx = req->mrctx;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
@@ -3535,6 +3541,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (useBlockedClientTimeout) {
     MRCtx_SetAbortFlag(mrctx, QueryRequestLimits_GetBlockedClientFlag(&req->base.limits));
   }
+  // Under every timeout policy, including RETURN, which arms no abort flag.
+  MRCtx_SetStopFlag(mrctx, QueryRequestLimits_GetMemoryStopFlag(&req->base.limits));
+  MRCtx_SetReplyCheckpoint(mrctx, searchReplyCheckpoint);
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
 

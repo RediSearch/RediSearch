@@ -130,3 +130,62 @@ def test_raw_ratio_reports_the_memory_api(env):
         env.assertLess(raw_ratio, 1.0)
     finally:
         env.expect('CONFIG', 'SET', 'maxmemory', max_memory).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3, moduleArgs='WORKERS 0')
+def test_force_timeout_hook(env):
+    """FORCE_TIMEOUT AT_CALL makes the n-th query that arms a clock deadline time out, through
+    the policy's own reply: an error under ON_TIMEOUT FAIL, a warning under RETURN. It fires
+    once, RESET disarms it, and bad arguments leave it unchanged."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.execute_command('HSET', f'doc{i}', 'n', i)
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'TIMEOUT', 0)
+
+    def force_timeout(*args):
+        return env.cmd(debug_cmd(), 'FORCE_TIMEOUT', *args)
+
+    def status():
+        return force_timeout('STATUS')
+
+    def expect_complete():
+        res = env.cmd(*query)
+        env.assertEqual(len(res['results']), 10)
+        env.assertEqual(res['warning'], [])
+
+    try:
+        env.assertEqual(status(), ['at_call', 0, 'cycles', 0])
+        expect_complete()
+
+        env.expect(debug_cmd(), 'FORCE_TIMEOUT').error().contains('wrong number of arguments')
+        env.expect(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL').error().contains(
+            'wrong number of arguments')
+        env.expect(debug_cmd(), 'FORCE_TIMEOUT', 'RESET', 'x').error().contains(
+            'wrong number of arguments')
+        env.expect(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', '-1').error().contains(
+            'Invalid count')
+        env.expect(debug_cmd(), 'FORCE_TIMEOUT', 'BOGUS', '1').error().contains(
+            "Invalid command for 'FORCE_TIMEOUT'")
+
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+        env.assertEqual(force_timeout('AT_CALL', 2), 'OK')
+        expect_complete()
+        env.expect(*query).error().contains('Timeout limit was reached')
+        env.assertEqual(status(), ['at_call', 2, 'cycles', 2])
+        expect_complete()
+
+        env.assertEqual(force_timeout('AT_CALL', 1), 'OK')
+        env.assertEqual(force_timeout('RESET'), 'OK')
+        env.assertEqual(status(), ['at_call', 0, 'cycles', 0])
+        expect_complete()
+
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+        env.assertEqual(force_timeout('AT_CALL', 1), 'OK')
+        res = env.cmd(*query)
+        env.assertContains('Timeout limit was reached', res['warning'])
+        env.assertEqual(env.cmd('PING'), True)
+    finally:
+        force_timeout('RESET')
+        env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')

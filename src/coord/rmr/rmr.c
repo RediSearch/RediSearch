@@ -98,6 +98,8 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 
   const RS_Atomic(bool) * abortFlag;
+  const RS_Atomic(bool) * stopFlag;
+  MRReplyCheckpoint replyCheckpoint;
   MRCtxFreePrivDataCB freePrivDataCB;
 } MRCtx;
 
@@ -212,6 +214,21 @@ bool MRCtx_IsAborted(const struct MRCtx *ctx) {
   return ctx->abortFlag && RS_AtomicBoolLoadRelaxed(ctx->abortFlag);
 }
 
+void MRCtx_SetStopFlag(struct MRCtx *ctx, const RS_Atomic(bool) * stopFlag) {
+  ctx->stopFlag = stopFlag;
+}
+
+void MRCtx_SetReplyCheckpoint(struct MRCtx *ctx, MRReplyCheckpoint checkpoint) {
+  ctx->replyCheckpoint = checkpoint;
+}
+
+static bool searchReplyStops(MRCtx *ctx) {
+  if (ctx->stopFlag && RS_AtomicBoolLoadRelaxed(ctx->stopFlag)) {
+    return true;
+  }
+  return ctx->replyCheckpoint && ctx->replyCheckpoint(ctx);
+}
+
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
   ctx->validateConnections = validateConnections;
 }
@@ -282,6 +299,14 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
   if (!MRCtx_IsAborted(ctx)) {
+    // Failed sends and error replies hold no rows; they reach the reducer as before.
+    if (r && MRReply_Type(r) != MR_REPLY_ERROR && searchReplyStops(ctx)) {
+      // The reducer still owns the reply: count this one as errored and complete as usual.
+      if (r) {
+        MRReply_Free(r);
+      }
+      r = NULL;
+    }
     fanoutCallback(c, r, privdata);
     return;
   }
@@ -630,6 +655,9 @@ struct MRIteratorCtx {
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
+  bool memoryCheckpoint;
+  bool memoryStopped;        // set on the IO thread, read by the reader
+  uint32_t shardOomReplies;  // counted on the IO thread, read by the reader
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
@@ -707,6 +735,34 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
   return __atomic_load_n(&ctx->timedOut, __ATOMIC_ACQUIRE);
 }
 
+bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx) {
+  return ctx->it->ctx.memoryCheckpoint;
+}
+
+void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx) {
+  MRIteratorCtx *itCtx = &ctx->it->ctx;
+  __atomic_store_n(&itCtx->memoryStopped, true, __ATOMIC_RELAXED);
+  // Release: a reader that acquires this timedOut also sees memoryStopped, so it never resets
+  // timedOut for a memory stop it cannot see.
+  __atomic_store_n(&itCtx->timedOut, true, __ATOMIC_RELEASE);
+}
+
+bool MRIterator_IsMemoryStopped(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.memoryStopped, __ATOMIC_ACQUIRE);
+}
+
+void MRIterator_SetShardOom(MRIterator *it) {
+  __atomic_add_fetch(&it->ctx.shardOomReplies, 1, __ATOMIC_RELEASE);
+}
+
+uint32_t MRIterator_ShardOomReplies(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.shardOomReplies, __ATOMIC_ACQUIRE);
+}
+
+bool MRIterator_HasShardOom(MRIterator *it) {
+  return MRIterator_ShardOomReplies(it) > 0;
+}
+
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
   // Atomically set the timedOut field of the ctx
   __atomic_store_n(&ctx->timedOut, true, __ATOMIC_RELAXED);
@@ -753,6 +809,10 @@ MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx) {
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
+#ifdef ENABLE_ASSERT
+  // Hit-count only (armed with a short auto-release): tells a test every shard reply is queued.
+  SyncPoint_Wait(SYNC_POINT_SHARD_REPLY_QUEUED);
+#endif
 }
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {
@@ -965,20 +1025,22 @@ static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config)
   IORuntimeCtx *ioRuntime = config->ioRuntime ? config->ioRuntime
       : MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
   *ret = (MRIterator){
-    .ctx = {
-      .chan = MR_NewChannel(),
-      .successCB = config->successCB,
-      .errorCB = config->errorCB,
-      .pending = 1,
-      .inProcess = 1,
-      .timedOut = false,
-      .itRefCount = 2,
-      .ioRuntime = ioRuntime,
-      .privateDataDestructor = config->cbPrivateDataDestructor,
-      .commandModifier = config->commandModifier,
-    },
-    .cbxs = rm_new(MRIteratorCallbackCtx),
-    .len = 1,
+      .ctx =
+          {
+              .chan = MR_NewChannel(),
+              .successCB = config->successCB,
+              .errorCB = config->errorCB,
+              .pending = 1,
+              .inProcess = 1,
+              .timedOut = false,
+              .itRefCount = 2,
+              .ioRuntime = ioRuntime,
+              .privateDataDestructor = config->cbPrivateDataDestructor,
+              .commandModifier = config->commandModifier,
+              .memoryCheckpoint = config->memoryCheckpoint,
+          },
+      .cbxs = rm_new(MRIteratorCallbackCtx),
+      .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
     .cmd = cmd,
@@ -1000,6 +1062,17 @@ MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *c
 
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {
   IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, it);
+}
+
+void MRIterator_DiscardUnstarted(MRIterator *it) {
+  // Nothing was sent, so no shard holds a cursor: without this, the final release would send a
+  // DEL for the initial command, which has no target shard. The writers' ref is never dropped by
+  // a start that never happens, so drop it here to let the reader's release free the iterator.
+  it->ctx.pending = 0;
+  it->ctx.inProcess = 0;
+  int8_t refcount = MRIterator_DecreaseRefCount(it);
+  REFCOUNT_DECR_MSG("MRIterator_DiscardUnstarted", refcount);
+  RS_ASSERT(refcount == 1);
 }
 
 IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it) {
