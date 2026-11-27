@@ -9,6 +9,8 @@
 
 #include "index_loading.h"
 
+#include <ctype.h>
+
 #include "config.h"
 #include "query.h"
 #include "query_error_ffi.h"
@@ -19,19 +21,13 @@
 // `property` rule, which also accepts punctuation escaped with a backslash (`@a\-b`); relaxing it
 // later is not a breaking change.
 static bool isValidPropertyName(const char *name, size_t len) {
-  if (len == 0) {
-    return false;
-  }
   for (size_t i = 0; i < len; i++) {
     unsigned char c = name[i];
-    bool asciiPunct = (c >= 0x21 && c <= 0x2f) || (c >= 0x3a && c <= 0x40) ||
-                      (c >= 0x5b && c <= 0x60) || (c >= 0x7b && c <= 0x7e);
-    bool asciiCntrlOrSpace = c <= 0x20 || c == 0x7f;
-    if (c != '_' && (asciiPunct || asciiCntrlOrSpace)) {
+    if (c != '_' && (ispunct(c) || c <= ' ' || c == 0x7f)) {
       return false;
     }
   }
-  return true;
+  return len > 0;
 }
 
 int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
@@ -66,4 +62,12 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
   attr->value = NULL;
   qn->opts.flags |= QueryNodeFlags_LoadsValue;
   return 1;
+}
+
+static int nodeDoesNotLoad(QueryNode *qn, QueryNode *root, void *ctx) {
+  return !IndexLoading_NodeLoads(qn);
+}
+
+bool IndexLoading_TreeLoads(QueryNode *root) {
+  return !QueryNode_ForEach(root, nodeDoesNotLoad, NULL, 0);
 }

@@ -17,11 +17,12 @@ use std::{
 use ffi::QueryIterator;
 use query_types::QueryNodeType;
 
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
     IteratorsConfig, RQEIterator,
     c2rust::CRQEIterator,
     interop::RQEIteratorWrapper,
-    union_opaque::{UnionOpaque, build_union, build_union_with_q_str, is_union_wrapper},
+    union_opaque::{UnionOpaque, build_union, build_union_with_q_str},
 };
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
@@ -132,26 +133,19 @@ pub unsafe extern "C" fn NewUnionIterator(
 /// Trims a union iterator for the LIMIT optimizer, then switches to unsorted
 /// sequential read mode.
 ///
-/// Does nothing unless `it` is a non-reduced union created via
-/// [`NewUnionIterator`], whatever its type tag says: an iterator decorating a
-/// union reports the union's type.
-///
 /// # Safety
 ///
-/// 1. `it` must be a valid non-null pointer to a live iterator that the caller
-///    holds exclusively for the duration of the call.
+/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+///    created via [`NewUnionIterator`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize, asc: bool) {
     debug_assert!(!it.is_null());
     // SAFETY: `it` is non-null per 1.
     let it = unsafe { NonNull::new_unchecked(it) };
-    // SAFETY: `it` is valid per 1.
-    if !is_union_wrapper(unsafe { it.as_ref() }) {
-        return;
-    }
-    // SAFETY: 1. and 2. `it` is a union built by `build_union*`, checked above. 3. The caller
-    // holds it exclusively (1). 4. The borrow ends within this call, while 1 keeps the iterator
-    // alive.
+    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
+    debug_assert_eq!(unsafe { it.as_ref().type_ }, IteratorType::Union);
+    // SAFETY: 1. and 2. by 1. 3. C does not touch the union while trimming it. 4. The borrow
+    // ends within this call, while 1 keeps the iterator alive.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(it) };
     let dispatch = wrapper.inner_mut();
 

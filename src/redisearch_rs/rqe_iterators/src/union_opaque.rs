@@ -13,6 +13,13 @@
 //! [`RQEIteratorWrapper`] produced by the
 //! FFI `NewUnionIterator` constructor. It holds one of the five concrete
 //! union variants and forwards every [`RQEIterator`] call via match dispatch.
+//!
+//! This module lives in `rqe_iterators` (rather than in the FFI bridge crate)
+//! so that [`c2rust::CRQEIterator`](crate::c2rust::CRQEIterator) can recover
+//! the wrapper via
+//! [`ref_from_header_ptr`](crate::interop::RQEIteratorWrapper::ref_from_header_ptr)
+//! and call methods such as [`UnionOpaque::num_children_active`] directly,
+//! without going through a C FFI trampoline.
 
 use std::ffi::CStr;
 use std::ptr::NonNull;
@@ -362,9 +369,6 @@ type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEI
 ///
 /// `base` must be a valid, owning pointer to a `UnionWrapper` created via
 /// [`build_union`].
-// A function that may be inlined across crates can have several copies, each
-// with its own address, and `is_union_wrapper` tells unions apart by this one's.
-#[inline(never)]
 unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
     debug_assert!(!base.is_null());
     // SAFETY: the caller guarantees `base` is a valid owning pointer, so it is non-null.
@@ -385,24 +389,6 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
         unsafe { std::ptr::write(child, profiled) };
     }
     base.as_ptr()
-}
-
-/// Whether `header` heads a union [`build_union`] or [`build_union_with_q_str`]
-/// lowered, the one layout `RQEIteratorWrapper<UnionOpaque<CRQEIterator>>`
-/// recovers.
-///
-/// The [`IteratorType::Union`] tag does not tell: a decorator may report the
-/// type of the union it wraps (see
-/// [`IteratorType::is_transparently_wrappable`]). Only those unions carry
-/// [`union_profile_children`], which, neither generic nor inlinable, has a
-/// single address.
-pub fn is_union_wrapper(header: &QueryIterator) -> bool {
-    header.ProfileChildren.is_some_and(|profile_children| {
-        std::ptr::fn_addr_eq(
-            profile_children,
-            union_profile_children as unsafe extern "C" fn(_) -> _,
-        )
-    })
 }
 
 /// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`]

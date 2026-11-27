@@ -534,14 +534,10 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
  * sequential read mode.
  *
- * Does nothing unless `it` is a non-reduced union created via
- * [`NewUnionIterator`], whatever its type tag says: an iterator decorating a
- * union reports the union's type.
- *
  * # Safety
  *
- * 1. `it` must be a valid non-null pointer to a live iterator that the caller
- *    holds exclusively for the duration of the call.
+ * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ *    created via [`NewUnionIterator`].
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 

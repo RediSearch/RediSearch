@@ -27,7 +27,4 @@ typedef struct QueryEvalCtx {
   // visiting every branch to accumulate a score. Saved and restored around the
   // child evaluation so nested `NOT`s (e.g. `-(-foo)`) keep it set correctly.
   bool inNotSubTree;
-  // How many clauses loading a value through `$as` have been evaluated so far. A `UNION` compares
-  // it around its children's evaluation to learn, in the same pass, whether one of them loads.
-  uint32_t numLoadingClauses;
 } QueryEvalCtx;

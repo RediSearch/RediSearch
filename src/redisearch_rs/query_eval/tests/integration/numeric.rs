@@ -227,8 +227,9 @@ fn eval_numeric_with_alias_decorates_and_binds() {
         "the decorator must be bound to the request"
     );
     // SAFETY: non-null checked; the handle is owned by the request array.
+    let is_valid = unsafe { handle.as_ref() }.unwrap().is_valid;
     assert!(
-        !unsafe { (*handle).is_valid },
+        !is_valid,
         "freeing the decorator must invalidate its handle"
     );
 }

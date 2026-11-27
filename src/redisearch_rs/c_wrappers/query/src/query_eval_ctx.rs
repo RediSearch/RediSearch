@@ -62,7 +62,7 @@ impl MetricRequestId {
 ///
 /// # Mutability
 ///
-/// Most fields are read-only during evaluation, but four are mutated:
+/// Most fields are read-only during evaluation, but three are mutated:
 ///
 /// - `tokenId` — monotonically incremented to assign a unique ID to each
 ///   token iterator created during evaluation.
@@ -71,8 +71,6 @@ impl MetricRequestId {
 /// - `inNotSubTree` — temporarily set to `true` while evaluating the child of
 ///   a `NOT` node so that descendant `UNION` nodes know they can exit early
 ///   on the first match. Restored to its previous value afterwards.
-/// - `numLoadingClauses` — incremented for each clause that loads a value
-///   through `$as`; see [`count_loading_clause`](Self::count_loading_clause).
 pub struct QueryEvalContext(NonNull<ffi::QueryEvalCtx>);
 
 impl QueryEvalContext {
@@ -539,18 +537,6 @@ impl QueryEvalContext {
         let prev = inner.inNotSubTree;
         inner.inNotSubTree = value;
         prev
-    }
-
-    /// How many clauses loading a value through `$as` have been evaluated so
-    /// far. Comparing it before and after evaluating a subtree tells whether
-    /// the subtree holds one, without walking it.
-    pub const fn num_loading_clauses(&self) -> u32 {
-        self.as_ref().numLoadingClauses
-    }
-
-    /// Record the evaluation of a clause that loads a value through `$as`.
-    pub const fn count_loading_clause(&mut self) {
-        self.as_mut().numLoadingClauses += 1;
     }
 
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this

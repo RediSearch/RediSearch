@@ -148,8 +148,8 @@ impl<'index> Evaluated<'index> {
             Evaluated::C(it) | Evaluated::RustCompound(it) => {
                 // SAFETY: both handle variants hold a valid, owning `QueryIterator`
                 // with all required callbacks populated — `Evaluated::C` came from
-                // a C iterator constructor, `Evaluated::RustCompound` from
-                // `RQEIteratorWrapper::boxed_new_compound` — exactly the
+                // a C iterator constructor, `Evaluated::RustCompound` from an
+                // `RQEIteratorWrapper` constructor — exactly the
                 // preconditions of `CRQEIterator::new`.
                 Box::new(unsafe { CRQEIterator::new(it) })
             }

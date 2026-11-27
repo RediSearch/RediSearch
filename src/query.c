@@ -663,7 +663,6 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   RS_ASSERT(!QueryError_HasError(status));
   dst->numTokens = qpCtx.numTokens;
   dst->numParams = qpCtx.numParams;
-  dst->loadsValues = qpCtx.loadsValues;
   return REDISMODULE_OK;
 }
 
@@ -684,7 +683,6 @@ void QAST_Destroy(QueryAST *q) {
   q->metricRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
-  q->loadsValues = false;
   rm_free(q->query);
   q->nquery = 0;
   q->query = NULL;
@@ -1411,10 +1409,4 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, 
     }
   }
   return 1;
-}
-
-void QueryParseCtx_ApplyAttributes(QueryParseCtx *q, QueryNode *qn, QueryAttribute *attrs,
-                                   size_t len) {
-  QueryNode_ApplyAttributes(qn, attrs, len, q->status);
-  q->loadsValues |= IndexLoading_NodeLoads(qn);
 }

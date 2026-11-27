@@ -7,169 +7,121 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Index loading: a decorator that hands the numeric value a hit was matched
-//! on to the result pipeline, as a metric, so the pipeline reads it as a field
-//! instead of loading it from the document.
+//! Index loading: a decorator that hands the numeric value each hit was
+//! matched on to the result pipeline as a metric, so the pipeline reads it as a
+//! field instead of loading it from the document.
 //!
 //! This is the iterator half of the `$as` query attribute, an unstable
-//! feature. The value reaches the row the same way a vector range query's
-//! distance does: the decorator pushes it into the hit's
-//! [`metrics`](RSIndexResult::metrics_mut) under the [`RLookupKey`] the
-//! pipeline resolved for the alias, and the metrics loader writes it into the
-//! row.
+//! feature. The value reaches the row the way a vector range query's distance
+//! does: through the hit's [`metrics`](RSIndexResult::metrics_mut), under the
+//! [`RLookupKey`] pipeline construction resolved for the alias.
 
-use std::ptr::NonNull;
+use std::{cell::Cell, mem::offset_of, ptr::NonNull, rc::Rc};
 
 use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
-use ref_mode::{Active, Ref, Suspended};
 use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    boxed::{resume_single_child, suspend_single_child},
+    boxed::{
+        ResumeSlotOutcome, assert_layout_compatible, finish_resume_in_place,
+        resume_child_slot_in_place, suspend_child_slot_in_place,
+    },
     c2rust::CRQEIterator,
     interop::{ProfileChildren, RQEIteratorWrapper, rust_profile_children},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     score_bound::{BlockBound, MinCompetitiveScore},
 };
 
-/// The heap cell pipeline construction writes the alias's [`RLookupKey`]
-/// into, through an [`RLookupKeyHandle`] that points at it.
-///
-/// It lives on the heap, apart from the decorator, because the decorator moves
-/// after the handle is bound: profiling re-boxes every compound iterator, and
-/// it runs before pipeline construction writes the key.
-///
-/// # Invariants
-///
-/// The pointer comes from [`Box::into_raw`] and is owned by this slot until it
-/// is dropped.
-struct KeySlot<'query>(NonNull<*mut RLookupKey<'query>>);
-
-impl<'query> KeySlot<'query> {
-    fn new() -> Self {
-        Self(
-            NonNull::new(Box::into_raw(Box::new(std::ptr::null_mut())))
-                .expect("Box pointers are non-null"),
-        )
-    }
-
-    /// The key pipeline construction bound, or null while it has bound none.
-    const fn key(&self) -> *mut RLookupKey<'query> {
-        // SAFETY: the cell is live by the type invariant. Pipeline construction
-        // writes it only while it builds the pipeline, never while the
-        // iterator runs.
-        unsafe { self.0.read() }
-    }
+/// The key pipeline construction writes for the alias, and the handle it
+/// writes it through.
+struct KeyBinding<'query> {
+    /// Null until pipeline construction writes it through
+    /// [`key_slot`](IndexLoad::key_slot), after binding; `FT.PROFILE` then
+    /// re-boxes (moves) the decorator, so the cell needs an address that
+    /// survives the move. Moving a [`Box`] retags it as unique, invalidating
+    /// the pointer C holds (Miri flags it); moving an [`Rc`] does not. Each hit
+    /// costs one load, with no refcount traffic.
+    key: Rc<Cell<*mut RLookupKey<'query>>>,
+    handle: KeyHandleSlot<'query>,
 }
 
-impl Drop for KeySlot<'_> {
-    fn drop(&mut self) {
-        // SAFETY: by the type invariant the pointer came from `Box::into_raw`
-        // and nothing else owns it.
-        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
-    }
-}
-
-/// A decorator that attaches the numeric value of each hit of its child to
-/// the hit, as a metric under the alias's [`RLookupKey`].
+/// A decorator that attaches the numeric value of each hit of its child to the
+/// hit, as a metric under the alias's [`RLookupKey`].
 ///
-/// Parameterised over a [`Ref`] mode — see [`IndexLoad`] for the [`Active`]
-/// instantiation that implements [`RQEIterator`].
+/// One `#[repr(C)]` struct serves both modes: `I` is the active child in an
+/// [`IndexLoad`] and its suspended form otherwise. The decorator's own field
+/// does not depend on the mode, so the two forms are layout-identical when the
+/// child's are, which [`suspend_child_slot_in_place`] enforces.
 ///
 /// It reports its child's [`type_`](RQEIterator::type_), so it is invisible to
 /// everything that dispatches on the type: loading is an option of the clause,
 /// not a kind of iterator.
 ///
-/// The value is the hit's own number when the hit is a numeric leaf, and
-/// otherwise a numeric record among its children: a numeric range over several
-/// range-tree leaves is a union, which keeps the value in the child that
-/// produced the document. When several values of one document match, one of
-/// them is loaded; which one is unspecified. Parents move a child's metrics
-/// into their own result, so the metric is pushed afresh on every positioning,
-/// replacing whatever the hit carried.
+/// The value is the hit's own number, or else a numeric record among its
+/// children: a range over several range-tree leaves is a union, which keeps the
+/// value in the child that produced the document. When several values of one
+/// document match, which one is loaded is unspecified. It is the value the index
+/// stores, which a tree built with `search-_numeric-compress` may round.
 ///
-/// The value is the one the index stores: a range tree built with
-/// `search-_numeric-compress` may store a float slightly off the document's.
-///
-/// Until pipeline construction binds a key, the decorator pushes nothing: the
-/// metrics loader writes every metric through its key, and a null one cannot
-/// be written.
-///
-/// # Invariants
-///
-/// 1. **Layout compatibility across modes.** `RawIndexLoad` is `#[repr(C)]`
-///    and carries no `Rf`-dependent field other than the zero-sized
-///    `_marker`, so its `Active` and `Suspended` instantiations are
-///    layout-identical given that the child `I` and its `I::Suspended` are,
-///    which [`suspend_child_slot_in_place`](crate::boxed::suspend_child_slot_in_place) enforces. The `const` block below
-///    proves the wrapper's own part.
-/// 2. **The child is transparently wrappable.** The child's type satisfies
-///    [`IteratorType::is_transparently_wrappable`], so the decorator may
-///    report it as its own. [`IndexLoad::new`] checks it.
+/// Until pipeline construction writes the key, nothing is attached.
 #[repr(C)]
-pub struct RawIndexLoad<'query, Rf: Ref, I> {
+pub struct RawIndexLoad<'query, I> {
     child: I,
-    key: KeySlot<'query>,
-    /// The handle tracking [`key`](Self::key), invalidated when this iterator
-    /// is dropped or the handle is replaced.
-    key_handle: KeyHandleSlot<'query>,
-    _marker: std::marker::PhantomData<Rf>,
+    binding: KeyBinding<'query>,
 }
 
-impl<'query, Rf: Ref, I> RawIndexLoad<'query, Rf, I> {
-    /// The child field of the decorator at `raw`, formed without a reference.
+/// The active form of [`RawIndexLoad`].
+pub type IndexLoad<'index, I> = RawIndexLoad<'index, I>;
+
+impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {
+    /// Decorate `child`, with no key bound yet.
+    pub fn new(child: I) -> Self {
+        // Reporting the child's type is sound only for types no code casts on by
+        // tag. Of the types it wraps, only `Union` is cast by tag, by
+        // `TrimUnionIterator`, whose only caller already skips loading trees.
+        debug_assert!(
+            matches!(
+                child.type_(),
+                IteratorType::InvIdxNumeric
+                    | IteratorType::Union
+                    | IteratorType::Empty
+                    | IteratorType::Mock
+            ),
+            "index loading wraps a {} iterator",
+            child.type_()
+        );
+        Self {
+            child,
+            binding: KeyBinding {
+                key: Rc::new(Cell::new(std::ptr::null_mut())),
+                handle: KeyHandleSlot::new(),
+            },
+        }
+    }
+
+    /// The slot pipeline construction writes the key into. It stays at this
+    /// address until the decorator is dropped, however the decorator moves.
+    pub fn key_slot(&self) -> *mut *mut RLookupKey<'index> {
+        self.binding.key.as_ptr()
+    }
+
+    /// Set the [`RLookupKeyHandle`] that points at [`key_slot`](Self::key_slot),
+    /// invalidating any different previously attached handle.
     ///
     /// # Safety
     ///
-    /// 1. `raw` points to a live allocation of `Self`.
-    unsafe fn child_ptr(raw: *mut Self) -> *mut I {
+    /// 1. The conditions of [`KeyHandleSlot::set`], with this iterator as the
+    ///    slot's owner.
+    pub unsafe fn set_handle(&mut self, handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
         // SAFETY: 1.
-        unsafe { &raw mut (*raw).child }
-    }
-
-    /// Drop every field of the decorator at `raw` but the child, in place.
-    ///
-    /// # Safety
-    ///
-    /// 1. `raw` points to a live, exclusively owned allocation of `Self` whose
-    ///    fields other than the child are valid. The child slot is not read.
-    /// 2. Those fields are not used again.
-    unsafe fn drop_rest(raw: *mut Self) {
-        // SAFETY: 1.
-        let key = unsafe { &raw mut (*raw).key };
-        // SAFETY: 1 and 2: the field is valid, owned and never used again.
-        unsafe { std::ptr::drop_in_place(key) };
-        // SAFETY: 1.
-        let key_handle = unsafe { &raw mut (*raw).key_handle };
-        // SAFETY: 1 and 2: the field is valid, owned and never used again.
-        unsafe { std::ptr::drop_in_place(key_handle) };
+        unsafe { self.binding.handle.set(handle) };
     }
 }
-
-/// Alias for an [`Active`] [`RawIndexLoad`] — the only instantiation with an
-/// [`RQEIterator`] impl.
-pub type IndexLoad<'index, I> = RawIndexLoad<'index, Active<'index>, I>;
-
-// Compile-time proof of invariant 1 on `RawIndexLoad`, for a representative
-// child whose `Active`/`Suspended` forms differ but stay layout-compatible.
-const _: () = {
-    use crate::Wildcard;
-    use std::mem::{align_of, offset_of, size_of};
-    type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
-    type A = RawIndexLoad<'static, Active<'static>, AChild>;
-    type S = RawIndexLoad<'static, Suspended, SChild>;
-    assert!(offset_of!(A, child) == offset_of!(S, child));
-    assert!(offset_of!(A, key) == offset_of!(S, key));
-    assert!(offset_of!(A, key_handle) == offset_of!(S, key_handle));
-    assert!(size_of::<A>() == size_of::<S>());
-    assert!(align_of::<A>() == align_of::<S>());
-};
 
 /// The value index loading attaches to `result`: its own number, or the first
 /// one among its children, depth first.
@@ -183,13 +135,14 @@ fn hit_value(result: &RSIndexResult<'_>) -> Option<f64> {
 
 /// Replace `result`'s metrics with `(key, value of the hit)`, or leave them
 /// untouched when `key` is null or the hit holds no number.
+///
+/// Parents move a child's metrics into their own result, so the metric is
+/// pushed afresh on every positioning.
 fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'index>) {
-    // The metrics vector types the key the way C sees it: the header
-    // `RLookupKey` is exported under, which is this key's first field.
-    //
-    // SAFETY: a non-null `key` is the key pipeline construction bound, owned by
-    // the pipeline's lookup, which outlives every result the iterator tree
-    // yields.
+    // SAFETY: a non-null `key` was written by pipeline construction and is
+    // owned by the pipeline's lookup, which outlives every result the iterator
+    // tree yields. `RLookupKey` starts with the `#[repr(C)]` header the metrics
+    // vector types it as.
     let Some(key) = (unsafe { key.cast::<ffi::RLookupKey>().as_ref() }) else {
         return;
     };
@@ -201,56 +154,6 @@ fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'inde
     metrics.push_with_key(key, value);
 }
 
-impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {
-    /// Decorate `child`, with no key bound yet.
-    ///
-    /// # Errors
-    ///
-    /// Returns the child's type, dropping the child, when the decorator may
-    /// not report it (invariant 2).
-    pub fn new(child: I) -> Result<Self, IteratorType> {
-        let type_ = child.type_();
-        if !type_.is_transparently_wrappable() {
-            return Err(type_);
-        }
-        Ok(Self {
-            child,
-            key: KeySlot::new(),
-            key_handle: KeyHandleSlot::new(),
-            _marker: std::marker::PhantomData,
-        })
-    }
-
-    /// The decorated iterator.
-    pub const fn child(&self) -> &I {
-        &self.child
-    }
-
-    /// The slot pipeline construction writes the bound key into.
-    ///
-    /// The slot lives on the heap, so the pointer stays valid across moves of
-    /// the decorator, until it is dropped.
-    pub const fn key_slot(&mut self) -> NonNull<*mut RLookupKey<'index>> {
-        self.key.0
-    }
-
-    /// Set the [`RLookupKeyHandle`] that tracks [`key_slot`](Self::key_slot),
-    /// invalidating any different previously attached handle.
-    ///
-    /// # Safety
-    ///
-    /// 1. The conditions of [`KeyHandleSlot::set`], with this iterator as the
-    ///    slot's owner.
-    pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
-        // SAFETY: (1).
-        unsafe { self.key_handle.set(key_handle) };
-    }
-
-    const fn bound_key(&self) -> *mut RLookupKey<'index> {
-        self.key.key()
-    }
-}
-
 impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
@@ -258,7 +161,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let key = self.bound_key();
+        let key = self.binding.key.get();
         let mut result = self.child.read()?;
         if let Some(result) = result.as_deref_mut() {
             attach(result, key);
@@ -270,7 +173,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        let key = self.bound_key();
+        let key = self.binding.key.get();
         // A `NotFound` hit is attached too: parents keep it as the next
         // candidate and consume it later without reading the child again.
         Ok(self.child.skip_to(doc_id)?.map(|outcome| match outcome {
@@ -305,7 +208,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let key = self.bound_key();
+        let key = self.binding.key.get();
         Ok(match self.child.revalidate(spec)? {
             RQEValidateStatus::Moved {
                 current: Some(result),
@@ -345,7 +248,7 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
         &mut self,
         min_competitive_score: MinCompetitiveScore,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        let key = self.bound_key();
+        let key = self.binding.key.get();
         let mut result = self.child.read_with_threshold(min_competitive_score)?;
         if let Some(result) = result.as_deref_mut() {
             attach(result, key);
@@ -354,12 +257,8 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for IndexLoad<'index, I
     }
 }
 
-/// Transparent: the profile shows the decorated iterator as it would without
-/// index loading.
-///
-/// Implemented for the [`CRQEIterator`] child alone, the instantiation
-/// [`boxed_new`] lowers.
-impl<'index> ProfilePrint for IndexLoad<'index, CRQEIterator> {
+/// Transparent: the profile shows the child as it would without index loading.
+impl<I: ProfilePrint> ProfilePrint for RawIndexLoad<'_, I> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.child.print_profile(map, ctx);
     }
@@ -367,38 +266,35 @@ impl<'index> ProfilePrint for IndexLoad<'index, CRQEIterator> {
 
 impl<'index> ProfileChildren<'index> for IndexLoad<'index, CRQEIterator> {
     fn profile_children(self) -> Self {
-        let Self {
-            child,
-            key,
-            key_handle,
-            _marker,
-        } = self;
         Self {
-            child: child.into_profiled(),
-            key,
-            key_handle,
-            _marker,
+            child: self.child.into_profiled(),
+            binding: self.binding,
         }
     }
 }
 
-impl<'index, I> RQEIteratorBoxed<'index> for IndexLoad<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawIndexLoad<'index, Suspended, I::Suspended>;
+impl<'index, I: RQEIteratorBoxed<'index>> RQEIteratorBoxed<'index> for IndexLoad<'index, I> {
+    type Suspended = RawIndexLoad<'index, I::Suspended>;
 
+    /// Suspends the child in place and relabels the allocation, which must not
+    /// move: the C wrapper resumes into the allocation it suspended.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
-        // reference. (2) The `Active` and `Suspended` forms are layout-identical
-        // apart from that slot (invariant 1).
-        unsafe { suspend_single_child(self, Self::child_ptr) }
+        const { assert_layout_compatible::<Self, Self::Suspended>() };
+        let raw = Box::into_raw(self);
+        let child = raw.wrapping_byte_add(offset_of!(Self, child)).cast::<I>();
+        // SAFETY: `child` is the child field of the live allocation `raw`
+        // exclusively owns, which holds a valid `I`.
+        unsafe { suspend_child_slot_in_place(NonNull::new(child).expect("non-null field")) };
+        // SAFETY: `raw` came from `Box::into_raw`. With the child field holding
+        // an `I::Suspended` the allocation is a valid `Self::Suspended`: the
+        // other field does not depend on the mode, and the layout check above
+        // with `#[repr(C)]` puts both fields at the same offsets.
+        unsafe { Box::from_raw(raw.cast::<Self::Suspended>()) }
     }
 }
 
-impl<'query, S> RQESuspendedIterator<'query> for RawIndexLoad<'query, Suspended, S>
-where
-    S: RQESuspendedIterator<'query>,
+impl<'query, S: RQESuspendedIterator<'query>> RQESuspendedIterator<'query>
+    for RawIndexLoad<'query, S>
 {
     type Resumed<'a>
         = IndexLoad<'a, S::Resumed<'a>>
@@ -412,23 +308,35 @@ where
     where
         'query: 'a,
     {
-        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
-        // reference. (2) The forms are layout-identical apart from that slot
-        // (invariant 1). (3) `drop_rest` drops every other field in place,
-        // without reading the child slot.
-        let outcome = unsafe {
-            resume_single_child::<_, _, Self::Resumed<'a>>(
-                self,
-                guard,
-                Self::child_ptr,
-                Self::drop_rest,
-            )
-        }?;
+        let raw = Box::into_raw(self);
+        let child = raw.wrapping_byte_add(offset_of!(Self, child)).cast::<S>();
+        // SAFETY: `child` is the child field of the live allocation `raw`
+        // exclusively owns, which holds a valid `S`.
+        let slot = unsafe {
+            resume_child_slot_in_place(NonNull::new(child).expect("non-null field"), guard)
+        };
+        if !matches!(
+            slot,
+            Ok(ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)
+        ) {
+            let binding = raw
+                .wrapping_byte_add(offset_of!(Self, binding))
+                .cast::<KeyBinding<'query>>();
+            // SAFETY: the child is gone, but the binding is still valid and
+            // owned, and the allocation is freed below without reading it again.
+            unsafe { std::ptr::drop_in_place(binding) };
+        }
+        // SAFETY: 1. `raw` came from `Box::into_raw` and nothing borrows into
+        // it. 2. `slot` is its child's outcome, and on a teardown outcome the
+        // binding was dropped above. 3. With the child resumed, the allocation is
+        // a valid `Self::Resumed<'a>`, as in `suspend`; the binding narrows from
+        // `'query` to `'a`, which the pipeline's key outlives.
+        let outcome = unsafe { finish_resume_in_place::<Self, Self::Resumed<'a>>(raw, slot) }?;
         // A move repositions the child onto a hit whose value was never
         // attached, or was taken by a parent.
         Ok(match outcome {
             ResumeOutcome::Moved(mut active) => {
-                let key = active.bound_key();
+                let key = active.binding.key.get();
                 if let Some(result) = active.child.current() {
                     attach(result, key);
                 }
@@ -439,18 +347,19 @@ where
     }
 
     fn last_doc_id(&self) -> DocId {
-        S::last_doc_id(&self.child)
+        self.child.last_doc_id()
     }
 
     fn num_estimated(&self) -> usize {
-        S::num_estimated(&self.child)
+        self.child.num_estimated()
     }
 }
 
-/// Lower `decorator` to the C ABI.
+/// Lower `decorator` to the C ABI, with the `ProfileChildren` callback that
+/// profiles its child.
 pub fn boxed_new(decorator: IndexLoad<'_, CRQEIterator>) -> NonNull<QueryIterator> {
-    // Not `boxed_new_compound`: the decorator reports its child's type, which
-    // may be a leaf's, yet it has a child to profile.
+    // Not `boxed_new_compound`, which asserts a compound type: the decorator
+    // reports its child's, which may be a leaf's.
     RQEIteratorWrapper::boxed_new_inner(
         decorator,
         Some(rust_profile_children::<IndexLoad<'_, CRQEIterator>>),

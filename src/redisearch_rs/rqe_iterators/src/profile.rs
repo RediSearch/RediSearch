@@ -13,12 +13,14 @@
 //! (read/skip counts and wall-clock time) from a child iterator without
 //! modifying its behavior.
 
+use std::ptr::NonNull;
+
 use std::time::{Duration, Instant};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
-    boxed::{resume_single_child, suspend_single_child},
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -71,7 +73,7 @@ impl ProfileCounters {
 ///    `_marker: PhantomData<Rf>`, so its `Active` and `Suspended`
 ///    instantiations are layout-identical given that the child `I` and its
 ///    `I::Suspended` are. That child-level compatibility is enforced at
-///    monomorphization by [`suspend_child_slot_in_place`](crate::boxed::suspend_child_slot_in_place); the wrapper's own
+///    monomorphization by [`suspend_child_slot_in_place`]; the wrapper's own
 ///    mode-independence is proven by the `const` block below. Together they let
 ///    [`suspend`](RQEIteratorBoxed::suspend) reinterpret the owning `Box` in
 ///    place.
@@ -93,36 +95,6 @@ pub struct RawProfile<Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawProfile`] — the only instantiation with an
 /// [`RQEIterator`] impl today.
 pub type Profile<'index, I> = RawProfile<Active<'index>, I>;
-
-impl<Rf: Ref, I> RawProfile<Rf, I> {
-    /// The child field of the decorator at `raw`, formed without a reference.
-    ///
-    /// # Safety
-    ///
-    /// 1. `raw` points to a live allocation of `Self`.
-    unsafe fn child_ptr(raw: *mut Self) -> *mut I {
-        // SAFETY: 1.
-        unsafe { &raw mut (*raw).child }
-    }
-
-    /// Drop every field of the decorator at `raw` but the child, in place.
-    ///
-    /// # Safety
-    ///
-    /// 1. `raw` points to a live, exclusively owned allocation of `Self` whose
-    ///    fields other than the child are valid. The child slot is not read.
-    /// 2. Those fields are not used again.
-    unsafe fn drop_rest(raw: *mut Self) {
-        // SAFETY: 1.
-        let counters = unsafe { &raw mut (*raw).counters };
-        // SAFETY: 1 and 2: the field is valid, owned and never used again.
-        unsafe { std::ptr::drop_in_place(counters) };
-        // SAFETY: 1.
-        let wall_time = unsafe { &raw mut (*raw).wall_time };
-        // SAFETY: 1 and 2: the field is valid, owned and never used again.
-        unsafe { std::ptr::drop_in_place(wall_time) };
-    }
-}
 
 // Compile-time proof of invariant 1 on `RawProfile`: for a representative
 // concrete child, the `Active` and `Suspended` instantiations are
@@ -308,13 +280,68 @@ where
     type Suspended = RawProfile<Suspended, I::Suspended>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // Profile delegates `current()` into the child's storage, which the
-        // reused allocation keeps in place.
-        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
-        // reference. (2) The `Active` and `Suspended` forms are layout-identical
-        // apart from that slot (invariant 1 on `RawProfile`).
-        unsafe { suspend_single_child(self, Self::child_ptr) }
+        // Suspend the child in place and reuse this box's allocation, mirroring
+        // `resume`. A whole-box cast alone is *not* enough: for a type-erased
+        // child (`TypeErasedRQEIterator`) the active and suspended forms carry
+        // different `dyn` vtables, so the transition must be dispatched through
+        // the child's own `suspend` — reinterpreting the bytes would leave the
+        // active vtable in place and make the later `resume` dispatch through the
+        // wrong vtable (UB). `suspend_child_slot_in_place` performs that dispatch
+        // (a no-op whole-box cast for concrete children, a vtable swap for erased
+        // ones). Reusing the allocation also keeps the box (and child-slot)
+        // address stable, which Profile relies on because it delegates
+        // `current()` — and hence the FFI wrapper's cached `header.current`
+        // pointer — into the child's storage.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned). `&raw mut` forms a field pointer to
+        // the `child` slot without creating a reference.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
+        // SAFETY: `child_slot` points at the valid, exclusively-owned active
+        // child. `suspend_child_slot_in_place` drives the child's own `suspend`
+        // and reinitialises the slot as a valid `I::Suspended` in place.
+        unsafe { suspend_child_slot_in_place(child_slot) };
+        // SAFETY: the child slot now holds a valid `I::Suspended`, so the
+        // allocation is a valid `RawProfile<Suspended, I::Suspended>`: the
+        // `Active` and `Suspended` forms are layout-identical by invariant 1 on
+        // `RawProfile` (const proof above) — `counters`/`wall_time` carry no `Rf`
+        // and `_marker` is a ZST, while the child slot's `I`/`I::Suspended`
+        // size/alignment match is statically enforced by
+        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the same
+        // allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw as *mut RawProfile<Suspended, I::Suspended>) }
     }
+}
+
+/// Free a [`RawProfile`] allocation whose `child` slot has already been consumed
+/// (moved-from) by an aborted/failed child resume, without running the child's
+/// drop glue.
+///
+/// # Safety
+///
+/// * `raw` came from `Box::into_raw` and is still exclusively owned by the caller.
+/// * `(*raw).child` is moved-from (uninitialised) and must NOT be dropped.
+/// * No other reference to the allocation exists.
+unsafe fn dealloc_after_child_gone<S>(raw: *mut RawProfile<Suspended, S>) {
+    // SAFETY: `raw` is valid; `&raw mut` forms a field pointer without a reference.
+    let counters = unsafe { &raw mut (*raw).counters };
+    // SAFETY: `counters` is still a valid, owned value; drop it in place.
+    unsafe { std::ptr::drop_in_place(counters) };
+    // SAFETY: `raw` is valid; `&raw mut` forms a field pointer without a reference.
+    let wall_time = unsafe { &raw mut (*raw).wall_time };
+    // SAFETY: `wall_time` is still a valid, owned value; drop it in place.
+    unsafe { std::ptr::drop_in_place(wall_time) };
+    // `_marker` is a ZST with no drop glue.
+    // SAFETY: `raw` was allocated by `Box` with exactly this layout; the `child`
+    // slot is moved-from so it is not dropped. Frees the allocation.
+    unsafe {
+        std::alloc::dealloc(
+            raw.cast::<u8>(),
+            std::alloc::Layout::new::<RawProfile<Suspended, S>>(),
+        )
+    };
 }
 
 impl<'query, S> RQESuspendedIterator<'query> for RawProfile<Suspended, S>
@@ -333,14 +360,54 @@ where
     where
         'query: 'a,
     {
-        // Profile owns no aggregate result and simply mirrors the child's
-        // `Ok`/`Moved`/`Aborted` outcome.
-        //
-        // SAFETY: (1) `child_ptr` projects to the child slot without forming a
-        // reference. (2) The forms are layout-identical apart from that slot
-        // (invariant 1 on `RawProfile`). (3) `drop_rest` drops every other field
-        // in place, without reading the child slot.
-        unsafe { resume_single_child(self, guard, Self::child_ptr, Self::drop_rest) }
+        // Resume the child in place and reuse this box's allocation, mirroring
+        // `RawInvIndIterator::resume`. Profile delegates `current()` — and hence
+        // the FFI wrapper's cached `header.current` pointer — into the child's
+        // storage, so the box (and the child slot inside it) must keep its
+        // address across the cycle; rebuilding via `Box::new` would dangle that
+        // pointer. Profile owns no aggregate result and simply mirrors the
+        // child's `Ok`/`Moved`/`Aborted` outcome.
+        let raw = Box::into_raw(self);
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned). `&raw mut` forms a field pointer to
+        // the `child` slot without creating a reference.
+        let child_slot = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child_slot` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child_slot = unsafe { NonNull::new_unchecked(child_slot) };
+        // SAFETY: `child_slot` points at the valid, exclusively-owned suspended
+        // child. On `Unchanged`/`Moved` the helper reinitialises the slot as
+        // `S::Resumed<'a>`; on `Aborted`/`Err` the child is consumed and the slot
+        // is left uninitialised (handled by the teardown arms below).
+        match unsafe { resume_child_slot_in_place(child_slot, guard) } {
+            Ok(outcome @ (ResumeSlotOutcome::Unchanged | ResumeSlotOutcome::Moved)) => {
+                // SAFETY: the child slot now holds a valid `S::Resumed<'a>`, so
+                // the allocation is a valid `Profile<'a, S::Resumed<'a>>`: the
+                // `Suspended` and `Active` forms are layout-identical by
+                // invariant 1 on `RawProfile` (const proof above) — the non-child
+                // fields carry no `Rf`, while the child slot's `S`/`S::Resumed`
+                // size/alignment match is statically enforced by
+                // `resume_child_slot_in_place`. `Box::from_raw` reuses the same
+                // allocation, preserving the box and child-slot addresses.
+                let active = unsafe { Box::from_raw(raw.cast::<Profile<'a, S::Resumed<'a>>>()) };
+                Ok(if matches!(outcome, ResumeSlotOutcome::Moved) {
+                    ResumeOutcome::Moved(active)
+                } else {
+                    ResumeOutcome::Ok(active)
+                })
+            }
+            Ok(ResumeSlotOutcome::Aborted) => {
+                // SAFETY: the child was consumed by its `resume` (slot
+                // uninitialised); free the reused allocation without dropping the
+                // moved-from child.
+                unsafe { dealloc_after_child_gone(raw) };
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                // SAFETY: as the `Aborted` arm — the child is gone, tear the rest down.
+                unsafe { dealloc_after_child_gone(raw) };
+                Err(e)
+            }
+        }
     }
 
     fn last_doc_id(&self) -> DocId {

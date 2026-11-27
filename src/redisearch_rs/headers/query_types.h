@@ -495,11 +495,11 @@ typedef struct QueryNodeOptions {
    */
   PhoneticMode phonetic;
   /**
-   * Name of the per-hit value to emit in results: the distance of a vector
-   * node (`yield_distance_as`), the score of a sparse vector node
-   * (`yield_score_as`), or the value a numeric node matched (`as`, an
-   * unstable feature). Owned null-terminated C string, freed with `rm_free`
-   * when the query node is destroyed. `NULL` when no value is requested.
+   * Name of the distance field to emit in results (set via the
+   * `yield_distance_as` query attribute on vector nodes), or of the value a
+   * numeric node loads (see [`QueryNodeFlags::LoadsValue`]). Owned
+   * null-terminated C string, freed with `rm_free` when the query
+   * node is destroyed. `NULL` when no distance field is requested.
    */
   char *distField;
   /**

@@ -28,7 +28,7 @@ use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, index_load};
 /// sub-ranges. Returns `None` when the field has no numeric index yet,
 /// no sub-range matches, or, with the failure reported via
 /// [`status`](QueryEvalContext::status), when the disk iterator cannot be
-/// created or the node's `$as` alias is rejected (as under a `NOT`).
+/// created or the node's `$as` alias is rejected.
 ///
 /// A node with a `$as` alias is otherwise wrapped by [`index_load::decorate`].
 pub(crate) fn eval<'index>(
@@ -83,7 +83,7 @@ pub(crate) fn eval<'index>(
         // a disk index is in use; `field_index` belongs to the numeric node's
         // field spec; `view` is the disk read view taken at query start.
         return match unsafe { disk.new_numeric_iterator(nf, field_index, view) } {
-            Ok(it) => index_load::decorate(ctx, load, Evaluated::RustLeaf(it)),
+            Ok(it) => Some(index_load::decorate(ctx, load, Evaluated::RustLeaf(it))),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
                 // error rather than silently returning empty results.
@@ -109,5 +109,5 @@ pub(crate) fn eval<'index>(
     let iter =
         unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
-    iter.and_then(|it| index_load::decorate(ctx, load, Evaluated::RustCompound(it)))
+    iter.map(|it| index_load::decorate(ctx, load, Evaluated::RustCompound(it)))
 }

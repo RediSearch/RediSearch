@@ -525,7 +525,7 @@ attribute_list(A) ::= . {
 
 expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
-    QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
   array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
   A = B;
@@ -533,7 +533,7 @@ expr(A) ::= expr(B) ARROW LB attribute_list(C) RB . {
 
 text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
   if (B && C) {
-    QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
   array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
   A = B;
@@ -1140,7 +1140,7 @@ query ::= expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB.
   RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
-    QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+    QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
   array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr)->value));
 
@@ -1154,7 +1154,7 @@ query ::= text_expr(A) ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C
   RS_LOG_ASSERT(B->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = B;
   if (B && C) {
-     QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
   array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
 
@@ -1170,7 +1170,7 @@ query ::= star ARROW LSQB vector_query(B) RSQB ARROW LB attribute_list(C) RB. {
 
   ctx->root = B;
   if (B && C) {
-     QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+     QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
   }
   array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
 

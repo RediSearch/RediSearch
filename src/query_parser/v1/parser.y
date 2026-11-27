@@ -323,7 +323,7 @@ attribute_list(A) ::= . {
 expr(A) ::= expr(B) ARROW  LB attribute_list(C) RB . {
 
     if (B && C) {
-        QueryParseCtx_ApplyAttributes(ctx, B, C, array_len(C));
+        QueryNode_ApplyAttributes(B, C, array_len(C), ctx->status);
     }
     array_free_ex(C, rm_free((char*)((QueryAttribute*)ptr )->value));
     A = B;

@@ -17,6 +17,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
+#include "index_loading.h"
 #include "numeric_score_source.h"
 #include "obfuscation/hidden.h"
 #include "query_error.h"
@@ -174,17 +175,15 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
-void QOptimizer_QueryNodes(QueryAST *ast, QOptimizer *opt) {
-  QueryNode *root = ast->root;
+void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
 
-  // The numeric top-k the optimizer can put at the root, only ever for a numeric SORTBY, yields
-  // results of its own, without the values a loading clause attaches. Without SORTBY the optimizer
-  // only decides on the scorer, which a loading clause does not affect.
-  if (isSortby && ast->loadsValues) {
+  // Every rewrite a numeric SORTBY enables drops the values a loading clause attaches: the numeric
+  // top-k yields results of its own. Without SORTBY the optimizer only picks the scorer.
+  if (isSortby && IndexLoading_TreeLoads(root)) {
     opt->type = Q_OPT_NONE;
     return;
   }
@@ -339,7 +338,8 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
         }
       } else if (req->ast.root->type == QN_NUMERIC) {
         // trim the union numeric iterator to have the minimal number of ranges
-        if (root->type == UNION_ITERATOR) {
+        // A loading clause's decorator reports its union's type, but is not one.
+        if (root->type == UNION_ITERATOR && !IndexLoading_NodeLoads(req->ast.root)) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {

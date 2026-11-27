@@ -96,7 +96,7 @@ void QOptimizer_Parse(AREQ *req);
  * 1. does the query requires scoring
  * 2. can the sortby field be extracted for optimization
  **/
-void QOptimizer_QueryNodes(QueryAST *ast, QOptimizer *opt);
+void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt);
 
 /* iterate over index iterator, check estimations and performs further
  * optimizations.

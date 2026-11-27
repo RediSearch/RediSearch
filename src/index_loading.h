@@ -35,4 +35,7 @@ static inline bool IndexLoading_NodeLoads(const QueryNode *qn) {
   return qn->opts.flags & QueryNodeFlags_LoadsValue;
 }
 
+/* Whether a node of the tree under `root` loads a value through `$as`. */
+bool IndexLoading_TreeLoads(QueryNode *root);
+
 #endif  // INDEX_LOADING_H__

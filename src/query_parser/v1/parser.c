@@ -1383,7 +1383,7 @@ static YYACTIONTYPE yy_reduce(
 {
 
     if (yymsp[-4].minor.yy17 && yymsp[-1].minor.yy63) {
-        QueryParseCtx_ApplyAttributes(ctx, yymsp[-4].minor.yy17, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63));
+        QueryNode_ApplyAttributes(yymsp[-4].minor.yy17, yymsp[-1].minor.yy63, array_len(yymsp[-1].minor.yy63), ctx->status);
     }
     array_free_ex(yymsp[-1].minor.yy63, rm_free((char*)((QueryAttribute*)ptr )->value));
     yylhsminor.yy17 = yymsp[-4].minor.yy17;
