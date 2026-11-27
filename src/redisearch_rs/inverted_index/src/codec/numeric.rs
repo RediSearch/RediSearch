@@ -19,13 +19,13 @@
 //! ```text
 //! ┌─────────────┬─────────────┬─────────────┐
 //! │ Header      │ Delta       │ Value       │
-//! │ (1 byte)    │ (0-7 bytes) │ (0-8 bytes) │
+//! │ (1 byte)    │ (0-7 bytes) │ (0-9 bytes) │
 //! └─────────────┴─────────────┴─────────────┘
 //! ```
 //!
 //! 1. **Header byte** (1 byte) - always present, encodes type information and metadata
 //! 2. **Delta bytes** (0-7 bytes) - document ID delta from previous record, may be empty
-//! 3. **Value bytes** (0-8 bytes) - the numeric value if not encoded in header, may be empty
+//! 3. **Value bytes** (0-9 bytes) - the numeric value if not encoded in header, may be empty
 //!
 //! ## Header Byte Layout {#header-layout}
 //! The header, which is the first section, always takes up one byte and is laid out as follows:
@@ -70,27 +70,44 @@
 //!      ┌───┬───┬───┐
 //!      │ F │ N │ I │
 //!      └───┴───┴───┘
-//!        │   │   └─── Infinite flag
+//!        │   │   └─── Infinite flag (decimal when F64 is set too)
 //!        │   └─────── Negative flag
 //!        └─────────── F64 flag (0=f32, 1=f64)
 //! ```
 //!
-//! These flags allows for the following combinations:
+//! These flags allow for the following combinations:
 //!
-//! | F64 | Neg | Inf | Value Bytes | Description  |
-//! |-----|-----|-----|-------------|--------------|
-//! | 0   | 0   | 0   | 4           | Positive f32 |
-//! | 0   | 1   | 0   | 4           | Negative f32 |
-//! | 1   | 0   | 0   | 8           | Positive f64 |
-//! | 1   | 1   | 0   | 8           | Negative f64 |
-//! | 0   | 0   | 1   | 0           | +∞           |
-//! | 0   | 1   | 1   | 0           | -∞           |
-//! | 1   | 0   | 1   | 0           | *Unused*     |
-//! | 1   | 1   | 1   | 0           | *Unused*     |
+//! | F64 | Neg | Inf | Value Bytes | Description      |
+//! |-----|-----|-----|-------------|------------------|
+//! | 0   | 0   | 0   | 4           | Positive f32     |
+//! | 0   | 1   | 0   | 4           | Negative f32     |
+//! | 1   | 0   | 0   | 8           | Positive f64     |
+//! | 1   | 1   | 0   | 8           | Negative f64     |
+//! | 0   | 0   | 1   | 0           | +∞               |
+//! | 0   | 1   | 1   | 0           | -∞               |
+//! | 1   | 0   | 1   | 2-9         | Positive decimal |
+//! | 1   | 1   | 1   | 2-9         | Negative decimal |
 //!
-//! Here value bytes indicate how many bytes follow the delta to represent the value.
-//! This means for f32 values, 4 bytes will follow the delta, and for f64 values, 8 bytes will
-//! follow. While the infinite flag indicates no value will follow the delta.
+//! Here value bytes is how many bytes follow the delta to represent the value. An f32 or f64
+//! writes its IEEE 754 bytes, an infinity writes none, and a decimal writes an info byte
+//! followed by its mantissa, laid out [below](#decimal-value).
+//!
+//! #### Decimal value bytes {#decimal-value}
+//!
+//! A decimal stores the magnitude as an integer mantissa and a power-of-ten scale, so that
+//! `magnitude = mantissa / 10^scale` reproduces the original `f64` bit for bit. The value
+//! section starts with one info byte, followed by the mantissa in little-endian order with
+//! trailing zero bytes trimmed:
+//!
+//! ```text
+//! Bit:   7   6   5   4   3   2   1   0
+//!      ┌───┬───┐ ┌───┬───┬───┐ ┌───┬───┬───┐
+//!      │ 0 │ 0 │ │   Scale   │ │ Length - 1│
+//!      └───┴───┘ └───┴───┴───┘ └───┴───┴───┘
+//! ```
+//!
+//! The scale is at most [`Decimal::MAX_SCALE`]. An encoder only picks this representation
+//! when it is exact and shorter than the float it would otherwise write.
 //!
 //! #### INT_POS Type (10) - Bits 5-7 {#pos-int-type}
 //!
@@ -139,6 +156,7 @@
 //!      │  │   └─ Delta bytes: 1                  (256 = 0x0100)
 //!      │  └─ Type: INT_POS (10)
 //!      └─ Value bytes: 1 (001) (ie 2 bytes are used for the value)
+//! ```
 
 use std::io::{Cursor, IoSlice, Read, Write};
 
@@ -168,6 +186,8 @@ impl Numeric {
 /// Like the base [`Numeric`] encoder, but attempts to compress float values to f32 when possible.
 /// This is done by checking if the float value can be represented as f32 without loss of precision,
 /// or if the difference between the f64 and f32 representation is below a certain threshold.
+/// An exact [decimal](self#decimal-value) still wins when it is shorter than that f32, so
+/// short decimals keep their exact value with compression on.
 #[derive(Debug)]
 pub struct NumericFloatCompression;
 
@@ -515,6 +535,26 @@ fn encode_value<W: Write + std::io::Seek>(
                 [IoSlice::new(&header.pack()), IoSlice::new(delta)],
             )?
         }
+        Value::DecimalPositive(decimal) | Value::DecimalNegative(decimal) => {
+            let typ = if matches!(value, Value::DecimalPositive(_)) {
+                HeaderType::DecimalPositive
+            } else {
+                HeaderType::DecimalNegative
+            };
+            let header = Header { delta_bytes, typ };
+            let mut bytes = [0; 9];
+            bytes[0] = decimal.info();
+            bytes[1..].copy_from_slice(&decimal.mantissa.to_le_bytes());
+
+            write_all_vectored(
+                &mut writer,
+                [
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes[..1 + decimal.mantissa_bytes()]),
+                ],
+            )?
+        }
     };
 
     Ok(bytes_written)
@@ -613,15 +653,21 @@ fn decode<'index>(
 
                 (delta, num.copysign(-1.0))
             }
-            0b101 | FLOAT_INFINITE => {
+            FLOAT_INFINITE => {
                 let delta = read_only_u64(cursor, delta_bytes)?;
 
                 (delta, f64::INFINITY)
             }
-            0b111 | FLOAT_NEGATIVE_INFINITE => {
+            FLOAT_NEGATIVE_INFINITE => {
                 let delta = read_only_u64(cursor, delta_bytes)?;
 
                 (delta, f64::NEG_INFINITY)
+            }
+            DECIMAL_POSITIVE => read_u64_and_decimal(cursor, delta_bytes)?,
+            DECIMAL_NEGATIVE => {
+                let (delta, num) = read_u64_and_decimal(cursor, delta_bytes)?;
+
+                (delta, num.copysign(-1.0))
             }
             _ => unreachable!("All upper bits combinations are covered"),
         },
@@ -692,6 +738,55 @@ fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Res
     Ok((first, second))
 }
 
+/// Reads a delta followed by a [decimal value](self#decimal-value), returning its magnitude.
+///
+/// The info byte decides how many mantissa bytes follow, so reading through [`Read`] would
+/// take two variable-length reads. Instead this loads one fixed window straight from the
+/// cursor's buffer, which a delta, info byte and mantissa always fit in, and extracts the
+/// fields with shifts. Records too close to the end of the buffer for the window, which can
+/// be several short ones, take the bounds-checked path instead.
+#[inline(always)]
+fn read_u64_and_decimal(
+    cursor: &mut Cursor<&[u8]>,
+    delta_bytes: usize,
+) -> std::io::Result<(u64, f64)> {
+    const WINDOW: usize = 16;
+    let mask = |bytes: usize| (1u128 << (8 * bytes)) - 1;
+
+    let start = cursor.position() as usize;
+    let rest = cursor.get_ref().get(start..).unwrap_or_default();
+
+    let (delta, decimal, total) = if let Some(window) = rest.first_chunk::<WINDOW>() {
+        let window = u128::from_le_bytes(*window);
+        let info = (window >> (8 * delta_bytes)) as u8;
+        let mantissa_bytes = Decimal::mantissa_bytes_of(info);
+        let mantissa = (window >> (8 * (delta_bytes + 1))) & mask(mantissa_bytes);
+        let decimal = Decimal {
+            scale: Decimal::scale_of(info),
+            mantissa: mantissa as u64,
+        };
+        (
+            (window & mask(delta_bytes)) as u64,
+            decimal,
+            delta_bytes + 1 + mantissa_bytes,
+        )
+    } else {
+        let eof = || std::io::Error::from(std::io::ErrorKind::UnexpectedEof);
+        let info = *rest.get(delta_bytes).ok_or_else(eof)?;
+        let mantissa_bytes = Decimal::mantissa_bytes_of(info);
+        let total = delta_bytes + 1 + mantissa_bytes;
+        let bytes = rest.get(..total).ok_or_else(eof)?;
+        let decimal = Decimal {
+            scale: Decimal::scale_of(info),
+            mantissa: u64::from_slice(&bytes[delta_bytes + 1..]),
+        };
+        (u64::from_slice(&bytes[..delta_bytes]), decimal, total)
+    };
+
+    cursor.set_position((start + total) as u64);
+    Ok((delta, decimal.to_f64()))
+}
+
 /// Helper trait to convert from byte slices to various types
 trait FromSlice {
     /// Creates an instance of Self from a byte slice.
@@ -742,6 +837,97 @@ enum Value {
     Float64Negative(f64),
     FloatInfinity,
     FloatNegInfinity,
+    DecimalPositive(Decimal),
+    DecimalNegative(Decimal),
+}
+
+/// The magnitude of a non-integer value, stored as `mantissa / 10^scale`. See the
+/// [decimal layout](self#decimal-value).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Decimal {
+    /// Number of decimal places, in `1..=`[`Decimal::MAX_SCALE`].
+    scale: u8,
+    /// At most [`Decimal::MANTISSA_LIMIT`], so the conversion to `f64` is exact.
+    mantissa: u64,
+}
+
+impl Decimal {
+    /// The largest scale the three scale bits of the info byte can hold.
+    const MAX_SCALE: u8 = 7;
+
+    /// Every integer below this is exactly representable as an `f64`.
+    const MANTISSA_LIMIT: f64 = (1u64 << f64::MANTISSA_DIGITS) as f64;
+
+    /// Indexed by scale. Every entry is exact in an `f64`, which is what lets
+    /// [`Decimal::exact`] and [`Decimal::to_f64`] agree bit for bit.
+    const POWERS_OF_TEN: [f64; Self::MAX_SCALE as usize + 1] =
+        [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7];
+
+    /// A decimal that decodes back to exactly `magnitude`, at the smallest scale found.
+    ///
+    /// Makes a single exactness check, at the largest scale whose mantissa stays below
+    /// [`Decimal::MANTISSA_LIMIT`]: a magnitude that is exact at a smaller scale is exact
+    /// there too, because both decode the same rational and division rounds it the same
+    /// way. Trailing zeros of the mantissa then give the smaller scale back. One check
+    /// keeps the cost flat for values with no decimal form, which fail it.
+    ///
+    /// Close to the limit, rounding `magnitude * 10^scale` can land on the wrong integer and
+    /// miss a decimal form the value has; the caller then keeps the float. The check is on
+    /// the decoded value itself, so it never accepts an inexact decimal.
+    fn exact(magnitude: f64) -> Option<Self> {
+        for scale in (1..=Self::MAX_SCALE).rev() {
+            let power = Self::POWERS_OF_TEN[scale as usize];
+            let scaled = magnitude * power;
+            if scaled.is_nan() {
+                return None;
+            }
+            if scaled >= Self::MANTISSA_LIMIT {
+                continue;
+            }
+            // Cheaper than `f64::round`, which is a libm call on baseline x86-64. It can
+            // be off by one where adding a half rounds, and the check below then rejects
+            // the decimal instead of storing a wrong one.
+            let mantissa = (scaled + 0.5) as u64;
+            if mantissa as f64 / power != magnitude {
+                return None;
+            }
+
+            let mut decimal = Self { scale, mantissa };
+            while decimal.scale > 1 && decimal.mantissa.is_multiple_of(10) {
+                decimal.mantissa /= 10;
+                decimal.scale -= 1;
+            }
+            return Some(decimal);
+        }
+        None
+    }
+
+    /// Shared by [`Value::to_f64`] and [`decode`], so the value an index predicts it
+    /// stores is the value a reader gets back.
+    const fn to_f64(self) -> f64 {
+        self.mantissa as f64 / Self::POWERS_OF_TEN[self.scale as usize]
+    }
+
+    const fn mantissa_bytes(self) -> usize {
+        let significant = (u64::BITS - self.mantissa.leading_zeros()) as usize;
+        let bytes = significant.div_ceil(8);
+        if bytes == 0 { 1 } else { bytes }
+    }
+
+    /// The info byte, see the [decimal layout](self#decimal-value).
+    const fn info(self) -> u8 {
+        (self.scale << 3) | (self.mantissa_bytes() as u8 - 1)
+    }
+
+    /// The scale an [info byte](Decimal::info) holds.
+    const fn scale_of(info: u8) -> u8 {
+        (info >> 3) & 0b111
+    }
+
+    /// The number of mantissa bytes that follow an [info byte](Decimal::info).
+    const fn mantissa_bytes_of(info: u8) -> usize {
+        (info & 0b111) as usize + 1
+    }
 }
 
 impl Value {
@@ -764,35 +950,17 @@ impl Value {
                 f64::INFINITY => Value::FloatInfinity,
                 f64::NEG_INFINITY => Value::FloatNegInfinity,
                 v => {
-                    let f32_value = abs_val as f32;
-                    let back_to_f64 = f32_value as f64;
+                    let float = Float::new(abs_val, compress_floats);
 
-                    if back_to_f64 == abs_val
-                        || (compress_floats
-                            && (abs_val - f32_value as f64).abs()
-                                < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
-                    {
-                        // A magnitude that rounds to zero has collapsed *onto* zero, so
-                        // store the canonical zero — the representation a literal `0.0`
-                        // gets — rather than a signed f32 zero. Otherwise two inputs this
-                        // encoder decided to represent as zero become two stored values
-                        // that compare equal, and every consumer would have to know which
-                        // stored values are secretly the same value.
-                        //
-                        // Only reachable with compression on: without it this branch needs
-                        // `back_to_f64 == abs_val`, which for a zero `f32_value` means
-                        // `abs_val` is zero — already claimed by the integer branch above.
-                        if f32_value == 0.0 {
-                            Value::TinyInteger(0)
-                        } else if v.is_sign_positive() {
-                            Value::Float32Positive(f32_value)
-                        } else {
-                            Value::Float32Negative(f32_value)
+                    match Decimal::exact(abs_val) {
+                        Some(decimal) if 1 + decimal.mantissa_bytes() < float.value_bytes() => {
+                            if v.is_sign_positive() {
+                                Value::DecimalPositive(decimal)
+                            } else {
+                                Value::DecimalNegative(decimal)
+                            }
                         }
-                    } else if v.is_sign_positive() {
-                        Value::Float64Positive(abs_val)
-                    } else {
-                        Value::Float64Negative(abs_val)
+                        _ => float.with_sign_of(v),
                     }
                 }
             }
@@ -815,6 +983,69 @@ impl Value {
             Value::Float64Negative(f) => f.copysign(-1.0),
             Value::FloatInfinity => f64::INFINITY,
             Value::FloatNegInfinity => f64::NEG_INFINITY,
+            Value::DecimalPositive(d) => d.to_f64(),
+            Value::DecimalNegative(d) => d.to_f64().copysign(-1.0),
+        }
+    }
+}
+
+/// The float representation of a magnitude that is neither an integer nor infinite. A
+/// [`Decimal`] replaces it only when shorter.
+#[derive(Debug, Clone, Copy)]
+enum Float {
+    /// Compression rounded the magnitude onto zero.
+    Zero,
+    F32(f32),
+    F64(f64),
+}
+
+impl Float {
+    const fn new(abs_val: f64, compress_floats: bool) -> Self {
+        let f32_value = abs_val as f32;
+        let back_to_f64 = f32_value as f64;
+
+        if back_to_f64 == abs_val
+            || (compress_floats
+                && (abs_val - f32_value as f64).abs()
+                    < NumericFloatCompression::FLOAT_COMPRESSION_THRESHOLD)
+        {
+            // A magnitude that rounds to zero has collapsed *onto* zero, so
+            // store the canonical zero — the representation a literal `0.0`
+            // gets — rather than a signed f32 zero. Otherwise two inputs this
+            // encoder decided to represent as zero become two stored values
+            // that compare equal, and every consumer would have to know which
+            // stored values are secretly the same value.
+            //
+            // Only reachable with compression on: without it this branch needs
+            // `back_to_f64 == abs_val`, which for a zero `f32_value` means
+            // `abs_val` is zero — already claimed by the integer branch of [`Value::from`].
+            if f32_value == 0.0 {
+                Self::Zero
+            } else {
+                Self::F32(f32_value)
+            }
+        } else {
+            Self::F64(abs_val)
+        }
+    }
+
+    /// How many bytes this representation writes after the delta.
+    const fn value_bytes(self) -> usize {
+        match self {
+            Self::Zero => 0,
+            Self::F32(_) => size_of::<f32>(),
+            Self::F64(_) => size_of::<f64>(),
+        }
+    }
+
+    /// The [`Value`] holding this magnitude with the sign of `v`.
+    const fn with_sign_of(self, v: f64) -> Value {
+        match self {
+            Self::Zero => Value::TinyInteger(0),
+            Self::F32(f) if v.is_sign_positive() => Value::Float32Positive(f),
+            Self::F32(f) => Value::Float32Negative(f),
+            Self::F64(f) if v.is_sign_positive() => Value::Float64Positive(f),
+            Self::F64(f) => Value::Float64Negative(f),
         }
     }
 }
@@ -829,6 +1060,8 @@ enum HeaderType {
     FloatNegInfinite,
     IntegerPositive(u8),
     IntegerNegative(u8),
+    DecimalPositive,
+    DecimalNegative,
 }
 
 /// Binary header for numeric encoding. See the [header layout](self#header-layout) for the bit layout used.
@@ -843,6 +1076,8 @@ const FLOAT64_POSITIVE: u8 = 0b100;
 const FLOAT64_NEGATIVE: u8 = 0b110;
 const FLOAT_INFINITE: u8 = 0b001;
 const FLOAT_NEGATIVE_INFINITE: u8 = 0b011;
+const DECIMAL_POSITIVE: u8 = 0b101;
+const DECIMAL_NEGATIVE: u8 = 0b111;
 
 impl ToBytes<1> for Header {
     fn pack(self) -> [u8; 1] {
@@ -885,6 +1120,14 @@ impl ToBytes<1> for Header {
             HeaderType::FloatNegInfinite => {
                 packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
                 packed |= FLOAT_NEGATIVE_INFINITE << 5; // 3 bits for negative infinite
+            }
+            HeaderType::DecimalPositive => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= DECIMAL_POSITIVE << 5; // 3 bits for positive decimal
+            }
+            HeaderType::DecimalNegative => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= DECIMAL_NEGATIVE << 5; // 3 bits for negative decimal
             }
         }
 

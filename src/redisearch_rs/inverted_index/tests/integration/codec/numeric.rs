@@ -388,25 +388,31 @@ fn numeric_neg_int() {
     }
 }
 
-/// Tests for float values which should use the [FLOAT header](super#float-type) format.:w
+/// Exact in an `f32`, but needs more decimal places than a decimal can hold.
+const F32_EXACT: f64 = 0.0009765625;
+
+/// Has no short decimal form, so only an `f64` holds it.
+const F64_ONLY: f64 = 0.1 + 0.2;
+
+/// Tests for float values which should use the [FLOAT header](super#float-type) format.
 #[test]
 fn numeric_float() {
     let inputs = [
         (
             0,
-            3.125,
+            F32_EXACT,
             5,
             vec![
                 0b000_01_000, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 0
-                0,            // Value: 3.125 in IEEE 754 format
+                0,            // Value: 2^-10 in IEEE 754 format
                 0,
-                72,
-                64,
+                128,
+                58,
             ],
         ),
         (
             72_057_594_037_927_935,
-            3.125,
+            F32_EXACT,
             12,
             vec![
                 0b000_01_111, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 7
@@ -417,27 +423,27 @@ fn numeric_float() {
                 255,
                 255,
                 255,
-                0, // Value: 3.125 in IEEE 754 format
+                0, // Value: 2^-10 in IEEE 754 format
                 0,
-                72,
-                64,
+                128,
+                58,
             ],
         ),
         (
             0,
-            -3.125,
+            -F32_EXACT,
             5,
             vec![
                 0b010_01_000, // FLOAT type, !f64, negative, !infinite, delta_bytes: 0
-                0,            // Value: 3.125 in IEEE 754 format
+                0,            // Value: 2^-10 in IEEE 754 format
                 0,
-                72,
-                64,
+                128,
+                58,
             ],
         ),
         (
             72_057_594_037_927_935,
-            -3.125,
+            -F32_EXACT,
             12,
             vec![
                 0b010_01_111, // FLOAT type, !f64, negative, !infinite, delta_bytes: 7
@@ -448,10 +454,10 @@ fn numeric_float() {
                 255,
                 255,
                 255,
-                0, // Value: 3.125 in IEEE 754 format
+                0, // Value: 2^-10 in IEEE 754 format
                 0,
-                72,
-                64,
+                128,
+                58,
             ],
         ),
         (
@@ -502,23 +508,23 @@ fn numeric_float() {
         ),
         (
             0,
-            3.124,
+            F64_ONLY,
             9,
             vec![
                 0b100_01_000, // FLOAT type, f64, !negative, !infinite, delta_bytes: 0
-                203,          // Value: 3.124 in IEEE 754 format
-                161,
-                69,
-                182,
-                243,
-                253,
-                8,
-                64,
+                52,           // Value: 0.1 + 0.2 in IEEE 754 format
+                51,
+                51,
+                51,
+                51,
+                51,
+                211,
+                63,
             ],
         ),
         (
             72_057_594_037_927_935,
-            3.124,
+            F64_ONLY,
             16,
             vec![
                 0b100_01_111, // FLOAT type, f64, !negative, !infinite, delta_bytes: 7
@@ -529,35 +535,35 @@ fn numeric_float() {
                 255,
                 255,
                 255,
-                203, // Value: 3.124 in IEEE 754 format
-                161,
-                69,
-                182,
-                243,
-                253,
-                8,
-                64,
+                52, // Value: 0.1 + 0.2 in IEEE 754 format
+                51,
+                51,
+                51,
+                51,
+                51,
+                211,
+                63,
             ],
         ),
         (
             0,
-            -3.124,
+            -F64_ONLY,
             9,
             vec![
                 0b110_01_000, // FLOAT type, f64, negative, !infinite, delta_bytes: 0
-                203,          // Value: -3.124 in IEEE 754 format
-                161,
-                69,
-                182,
-                243,
-                253,
-                8,
-                64,
+                52,           // Value: 0.1 + 0.2 in IEEE 754 format
+                51,
+                51,
+                51,
+                51,
+                51,
+                211,
+                63,
             ],
         ),
         (
             72_057_594_037_927_935,
-            -3.124,
+            -F64_ONLY,
             16,
             vec![
                 0b110_01_111, // FLOAT type, f64, negative, !infinite, delta_bytes: 7
@@ -568,14 +574,14 @@ fn numeric_float() {
                 255,
                 255,
                 255,
-                203, // Value: 3.124 in IEEE 754 format
-                161,
-                69,
-                182,
-                243,
-                253,
-                8,
-                64,
+                52, // Value: 0.1 + 0.2 in IEEE 754 format
+                51,
+                51,
+                51,
+                51,
+                51,
+                211,
+                63,
             ],
         ),
     ];
@@ -583,6 +589,263 @@ fn numeric_float() {
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
         test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
     }
+}
+
+/// Tests for short decimals, which should use the [decimal value](super#decimal-value) format.
+#[test]
+fn numeric_decimal() {
+    let inputs = [
+        (
+            0,
+            0.3,
+            3,
+            vec![
+                0b101_01_000, // FLOAT type, positive decimal, delta_bytes: 0
+                0b00_001_000, // scale: 1, mantissa bytes: 0 (+1)
+                3,            // Mantissa: 3
+            ],
+        ),
+        (
+            0,
+            // Exact in an f32 too, but the decimal is shorter.
+            0.5,
+            3,
+            vec![
+                0b101_01_000, // FLOAT type, positive decimal, delta_bytes: 0
+                0b00_001_000, // scale: 1, mantissa bytes: 0 (+1)
+                5,            // Mantissa: 5
+            ],
+        ),
+        (
+            1,
+            -17.05,
+            5,
+            vec![
+                0b111_01_001, // FLOAT type, negative decimal, delta_bytes: 1
+                1,            // Delta
+                0b00_010_001, // scale: 2, mantissa bytes: 1 (+1)
+                169,          // Mantissa: 1705
+                6,
+            ],
+        ),
+        (
+            72_057_594_037_927_935,
+            -73.993896,
+            13,
+            vec![
+                0b111_01_111, // FLOAT type, negative decimal, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                0b00_110_011, // scale: 6, mantissa bytes: 3 (+1)
+                168,          // Mantissa: 73993896
+                14,
+                105,
+                4,
+            ],
+        ),
+    ];
+
+    for (delta, value, expected_bytes_written, expected_buffer) in inputs {
+        test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
+    }
+}
+
+/// A decimal that is no shorter than the `f64` keeps the `f64`, which decodes without a
+/// division.
+#[test]
+fn decimal_not_shorter_keeps_f64() {
+    // A 7-byte mantissa plus the info byte matches the 8 bytes of an f64.
+    let value: f64 = 1_234_567_891_234_567.0 / 1e7;
+    assert_eq!(
+        (value * 1e7).round() / 1e7,
+        value,
+        "the value must have an exact decimal form for this test to mean anything"
+    );
+
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::build_numeric(value).build();
+    let written = Numeric::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
+        .expect("to encode numeric record");
+
+    assert_eq!(written, 9);
+    assert_eq!(buf.get_ref()[0], 0b100_01_000, "should stay an f64");
+}
+
+/// Whether `header` marks a [decimal value](super#decimal-value), of either sign.
+const fn is_decimal_header(header: u8) -> bool {
+    header & 0b101_11_000 == 0b101_01_000
+}
+
+/// Exact powers of ten for building expected decimals. `f64::powi` is not required to be
+/// exact, and Miri deliberately perturbs it, so expected values must not use it.
+const POWERS_OF_TEN: [f64; 8] = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7];
+
+/// A positive [decimal](super#decimal-value) record assembled byte by byte, so the decoder
+/// can be fed every delta and mantissa width the format describes, including mantissas wider
+/// than an encoder writes. Returns the record, its delta and the value a reader must see.
+fn handmade_decimal(delta_bytes: usize, mantissa_bytes: usize) -> (Vec<u8>, u64, f64) {
+    const SCALE: u8 = 7;
+    // Distinct non-zero bytes, so a field read from the wrong offset decodes wrong.
+    const DELTA: [u8; 8] = [0x9b, 0x8a, 0x79, 0x68, 0x57, 0x46, 0x35, 0x24];
+    const MANTISSA: [u8; 8] = [0x21, 0x43, 0x65, 0x87, 0xa9, 0xcb, 0xed, 0x8f];
+
+    let mut record = vec![0b101_01_000 | delta_bytes as u8];
+    record.extend_from_slice(&DELTA[..delta_bytes]);
+    record.push((SCALE << 3) | (mantissa_bytes as u8 - 1));
+    record.extend_from_slice(&MANTISSA[..mantissa_bytes]);
+
+    let mut delta = [0; 8];
+    delta[..delta_bytes].copy_from_slice(&DELTA[..delta_bytes]);
+    let mut mantissa = [0; 8];
+    mantissa[..mantissa_bytes].copy_from_slice(&MANTISSA[..mantissa_bytes]);
+    let value = u64::from_le_bytes(mantissa) as f64 / POWERS_OF_TEN[SCALE as usize];
+
+    (record, u64::from_le_bytes(delta), value)
+}
+
+/// A decimal decodes the same whether it ends the buffer or more bytes follow it, which
+/// decides whether the decoder can read it in one fixed-size load.
+#[test]
+fn decimal_decodes_the_same_with_and_without_trailing_bytes() {
+    let base = 1;
+    for delta_bytes in 0..=7 {
+        for mantissa_bytes in 1..=8 {
+            let (record, delta, value) = handmade_decimal(delta_bytes, mantissa_bytes);
+            // Every length from the record alone to enough for the widest load. The trailing
+            // bytes are all ones, so any of them leaking into a field changes the result.
+            for trailing in 0..=16 {
+                let mut buf = record.clone();
+                buf.resize(record.len() + trailing, 0xff);
+                let mut cursor = Cursor::new(buf.as_slice());
+
+                let decoded =
+                    Numeric::decode_new(&mut cursor, base).expect("to decode numeric record");
+
+                let case = format!(
+                    "delta bytes: {delta_bytes}, mantissa bytes: {mantissa_bytes}, \
+                     trailing bytes: {trailing}"
+                );
+                assert_eq!(decoded.doc_id, base + delta, "{case}");
+                assert_eq!(
+                    decoded.as_numeric().unwrap().to_bits(),
+                    value.to_bits(),
+                    "{case}"
+                );
+                assert_eq!(cursor.position(), record.len() as u64, "{case}");
+            }
+        }
+    }
+}
+
+/// A decimal record of either sign cut short anywhere after its header, inside the delta,
+/// before the info byte or inside the mantissa, is an error rather than a value read from
+/// missing bytes.
+#[test]
+fn truncated_decimal_is_unexpected_eof() {
+    const NEGATIVE_BIT: u8 = 0b010_00_000;
+    for negative in [false, true] {
+        for delta_bytes in 0..=7 {
+            for mantissa_bytes in 1..=8 {
+                let (mut record, _, _) = handmade_decimal(delta_bytes, mantissa_bytes);
+                if negative {
+                    record[0] |= NEGATIVE_BIT;
+                }
+                assert!(is_decimal_header(record[0]));
+
+                for len in 1..record.len() {
+                    let mut cursor = Cursor::new(&record[..len]);
+
+                    let kind = Numeric::decode_new(&mut cursor, 1)
+                        .expect_err("a truncated record must not decode")
+                        .kind();
+
+                    assert_eq!(
+                        kind,
+                        std::io::ErrorKind::UnexpectedEof,
+                        "negative: {negative}, delta bytes: {delta_bytes}, \
+                         mantissa bytes: {mantissa_bytes}, length: {len}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// A fraction too large to scale by any power of ten without leaving the exact integer range
+/// of an `f64` has no decimal form the codec can store, so it keeps the `f64`.
+#[test]
+fn fraction_too_large_to_scale_keeps_f64() {
+    let value: f64 = 1e15 + 0.5;
+    assert_ne!(value.fract(), 0.0, "the value must not be an integer");
+
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::build_numeric(value).build();
+    Numeric::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
+        .expect("to encode numeric record");
+
+    assert_eq!(buf.get_ref()[0], 0b100_01_000, "should stay an f64");
+    assert_eq!(round_trip::<Numeric>(value).to_bits(), value.to_bits());
+}
+
+/// Every record of a block of decimals decodes back, both the early ones that have plenty of
+/// bytes after them and the last few that sit close to the end of the block.
+#[test]
+fn decimal_block_decodes_every_record() {
+    // Deltas of every byte width, widest first, so that the shortest records come last.
+    let records = [
+        (0x12_3456_789a_bcde, 1234567.891234),
+        (0x1234_5678_9abc, -123456.78901),
+        (0x12_3456_789a, -73.993896),
+        (0x1234_5678, 1234.5678),
+        (0x12_3456, -17.05),
+        (0x1234, 0.3),
+        (0x12, 12.34),
+        (0, -0.5),
+    ];
+
+    let mut buf = Cursor::new(Vec::new());
+    let mut starts = Vec::new();
+    for (delta, value) in records {
+        starts.push(buf.position() as usize);
+        let record = RSIndexResult::build_numeric(value).build();
+        Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
+            .expect("to encode numeric record");
+    }
+    let buf = buf.into_inner();
+
+    for (&start, (_, value)) in starts.iter().zip(records) {
+        assert!(
+            is_decimal_header(buf[start]),
+            "{value} must be stored as a decimal for this test to mean anything"
+        );
+    }
+    // The decoder loads 16 bytes at once when it can; the block must have records on both
+    // sides of that limit for this test to mean anything.
+    let far_from_end = starts
+        .iter()
+        .filter(|&&start| buf.len() - start > 16)
+        .count();
+    assert!(0 < far_from_end && far_from_end < starts.len());
+
+    let mut cursor = Cursor::new(buf.as_slice());
+    let mut doc_id = 0;
+    for (delta, value) in records {
+        let decoded = Numeric::decode_new(&mut cursor, doc_id).expect("to decode numeric record");
+        doc_id += delta;
+
+        assert_eq!(decoded.doc_id, doc_id, "failed for value: {value}");
+        assert_eq!(
+            decoded.as_numeric().unwrap().to_bits(),
+            value.to_bits(),
+            "failed for value: {value}"
+        );
+    }
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 fn test_numeric_encode_decode(
@@ -624,7 +887,8 @@ fn test_numeric_encode_decode(
 #[test]
 fn encode_f64_with_compression() {
     let mut buf = Cursor::new(Vec::new());
-    let record = RSIndexResult::build_numeric(3.124).build();
+    // No short decimal form, so the lossy f32 is the smallest representation.
+    let record = RSIndexResult::build_numeric(std::f64::consts::PI).build();
 
     let _bytes_written =
         NumericFloatCompression::encode(&mut buf, NumericDelta::from_u64(0).unwrap(), &record)
@@ -634,9 +898,9 @@ fn encode_f64_with_compression() {
         buf.get_ref(),
         &[
             0b000_01_000, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 0
-            158,          // Value: 3.124 in IEEE 754 format after f32 conversion
-            239,
-            71,
+            219,          // Value: pi in IEEE 754 format after f32 conversion
+            15,
+            73,
             64,
         ],
         "should use a f32 instead"
@@ -746,7 +1010,7 @@ fn encoding_to_slow_writer() {
     }
 
     let mut buffer = SlowWriter::new(Vec::new());
-    let record = RSIndexResult::build_numeric(3.124).doc_id(10).build();
+    let record = RSIndexResult::build_numeric(F64_ONLY).doc_id(10).build();
 
     let result = Numeric::encode(&mut buffer, NumericDelta::from_u64(0).unwrap(), &record)
         .expect("to encode the complete record");
@@ -756,14 +1020,14 @@ fn encoding_to_slow_writer() {
         buffer.inner,
         [
             0b100_01_000, // FLOAT type, f64, !negative, !infinite, delta_bytes: 0
-            203,          // Value: 3.124 in IEEE 754 format
-            161,
-            69,
-            182,
-            243,
-            253,
-            8,
-            64,
+            52,           // Value: 0.1 + 0.2 in IEEE 754 format
+            51,
+            51,
+            51,
+            51,
+            51,
+            211,
+            63,
         ]
     );
     assert_eq!(
@@ -797,6 +1061,17 @@ mod property_based {
     #![cfg(not(miri))]
     use super::*;
     use pretty_assertions::assert_eq;
+    use proptest::strategy::Strategy;
+    use std::ops::RangeInclusive;
+
+    /// Integers below `limit` whose byte width is spread evenly over `widths`, where a
+    /// uniform draw would almost always be as wide as `limit` allows. Width 0 is zero.
+    fn of_any_width(widths: RangeInclusive<u32>, limit: u64) -> impl Strategy<Value = u64> {
+        widths.prop_flat_map(move |bytes| match bytes {
+            0 => 0..1,
+            _ => 1u64 << (8 * (bytes - 1))..(1u64 << (8 * bytes)).min(limit),
+        })
+    }
 
     proptest::proptest! {
         #[test]
@@ -841,6 +1116,63 @@ mod property_based {
                 .expect("to decode numeric record");
 
             assert_eq!(record_decoded, record, "failed for value: {}", value);
+        }
+
+        /// Every value with a short decimal form survives the round trip bit for bit,
+        /// with or without bytes after it, and never takes more room than the float it
+        /// replaces.
+        #[test]
+        fn numeric_encode_decode_decimals(
+            delta in of_any_width(0..=7, 1 << 56),
+            mantissa in of_any_width(1..=7, 1 << 53),
+            scale in 1u32..=7,
+            negative in proptest::bool::ANY,
+        ) {
+            let magnitude = mantissa as f64 / POWERS_OF_TEN[scale as usize];
+            let value = if negative { -magnitude } else { magnitude };
+
+            let mut buf = Cursor::new(Vec::new());
+            let record = RSIndexResult::build_numeric(value).doc_id(u64::MAX).build();
+            let written = Numeric::encode(&mut buf, NumericDelta::from_u64(delta).unwrap(), &record)
+                .expect("to encode numeric record");
+            let encoded = buf.into_inner();
+
+            let delta_bytes = (encoded[0] & 0b111) as usize;
+            let f32_exact = (magnitude as f32) as f64 == magnitude;
+            let float_bytes = if value.fract() == 0.0 { 8 } else if f32_exact { 4 } else { 8 };
+            assert!(written <= 1 + delta_bytes + float_bytes);
+
+            // Below this the mantissa at the finest scale stays far enough under 2^53 that
+            // rounding cannot hide the decimal form, so the encoder must find it.
+            if value.fract() != 0.0 && magnitude < 1e8 {
+                let (mut shortest, mut shortest_scale) = (mantissa, scale);
+                while shortest_scale > 1 && shortest.is_multiple_of(10) {
+                    shortest /= 10;
+                    shortest_scale -= 1;
+                }
+                let decimal_bytes =
+                    1 + (u64::BITS - shortest.leading_zeros()).div_ceil(8) as usize;
+                let shorter = decimal_bytes < float_bytes;
+
+                assert_eq!(is_decimal_header(encoded[0]), shorter, "for value: {value}");
+                if shorter {
+                    assert_eq!(written, 1 + delta_bytes + decimal_bytes, "for value: {value}");
+                }
+            }
+
+            let prev_doc_id = u64::MAX - delta;
+            let mut padded = encoded.clone();
+            padded.resize(encoded.len() + 16, 0xff);
+            for bytes in [&encoded, &padded] {
+                let mut cursor = Cursor::new(bytes.as_slice());
+                let decoded = Numeric::decode_new(&mut cursor, prev_doc_id)
+                    .expect("to decode numeric record");
+
+                assert_eq!(decoded.doc_id, u64::MAX);
+                assert_eq!(decoded.as_numeric().unwrap().to_bits(), value.to_bits());
+                assert_eq!(cursor.position(), written as u64);
+            }
+            assert_stored_value_matches_round_trip(value);
         }
 
         /// Keeps `Value::to_f64` (which backs `stored_value`) in agreement with
