@@ -244,12 +244,14 @@ static bool PipelineRequiresArrange(const AggregationPipelineParams *params) {
   return result;
 }
 
-// Whether a plan step before `stp` can write `key`, named `name`, into the rows: a LOAD of it or of
-// every field, or an APPLY that takes its name. Only the scorer may write the score a field sorter
-// publishes as the threshold.
-static bool earlierStepWritesKey(const PLN_BaseStep *stp, const RLookupKey *key, const char *name) {
-  for (const PLN_BaseStep *prev = PLN_PREV_STEP(stp); prev->type != PLN_T_ROOT;
-       prev = PLN_PREV_STEP(prev)) {
+// Whether a step of `plan` before `stp` can write `key`, named `name`, into the rows: a LOAD of it
+// or of every field, or an APPLY that takes its name. Only the scorer may write the score a field
+// sorter publishes as the threshold.
+static bool earlierStepWritesKey(const AGGPlan *plan, const PLN_BaseStep *stp,
+                                 const RLookupKey *key, const char *name) {
+  // A distributed plan has no root step, so the list's own head also ends the walk.
+  for (const PLN_BaseStep *prev = PLN_PREV_STEP(stp);
+       &prev->llnodePln != &plan->steps && prev->type != PLN_T_ROOT; prev = PLN_PREV_STEP(prev)) {
     if (prev->type == PLN_T_LOAD) {
       const PLN_LoadStep *load = (const PLN_LoadStep *)prev;
       if (prev->flags & PLN_F_LOAD_ALL) {
@@ -346,10 +348,11 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
       rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       // A descending sort on the score alone is a sort by score: the sorter can publish its
       // heap minimum as the threshold, and confirms the key is the scorer's once the chain is
-      // complete.
-      if (params->diskScoreSkippingQuery && nkeys == 1 &&
-          !SORTASCMAP_GETASC(astp->sortAscMap, 0) &&
-          !earlierStepWritesKey(stp, sortkeys[0], astp->sortKeys[0])) {
+      // complete. Not on the coordinator, whose rows come from the shards rather than from
+      // iterators, nor with WITHCOUNT, whose total must count every match.
+      if (params->diskScoreSkippingQuery && !IsCoordinator(&params->common) &&
+          !HasWithCount(&params->common) && nkeys == 1 && !SORTASCMAP_GETASC(astp->sortAscMap, 0) &&
+          !earlierStepWritesKey(&pipeline->ap, stp, sortkeys[0], astp->sortKeys[0])) {
         RPSorter_PublishScoreFieldThreshold(rp, sortkeys[0]);
       }
       up = pushRP(&pipeline->qctx, rp, up);
@@ -365,7 +368,9 @@ static ResultProcessor *getArrangeRP(Pipeline *pipeline, const AggregationPipeli
         RLookup *lk = AGPLN_GetLookup(&pipeline->ap, stp, AGPLN_GETLOOKUP_PREV);
         scoreTieBreakKey = RLookup_GetKey_Read(lk, astp->scoreTieBreakField, RLOOKUP_F_HIDDEN);
       }
-      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey, params->diskScoreSkippingQuery);
+      // WITHCOUNT's total must count every match, so it publishes no threshold.
+      rp = RPSorter_NewByScore(maxResults, scoreTieBreakKey,
+                               params->diskScoreSkippingQuery && !HasWithCount(&params->common));
       up = pushRP(&pipeline->qctx, rp, up);
     }
   }
