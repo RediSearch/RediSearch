@@ -333,8 +333,9 @@ mod via_resume {
     /// When the profiled child's revalidation is unrecoverable, `resume` must
     /// report `Aborted` and tear the reused allocation down *without* dropping
     /// the already-consumed child slot — exercising the
-    /// `dealloc_after_child_gone` teardown path. A leak, double-drop, or use of
-    /// the moved-from child in that path is what this guards against.
+    /// `drop_rest` teardown of [`resume_single_child`](rqe_iterators::boxed::resume_single_child).
+    /// A leak, double-drop, or use of the moved-from child in that path is what
+    /// this guards against.
     #[test]
     fn profile_resume_aborts_when_child_validation_fails() {
         use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};

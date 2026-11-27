@@ -45,6 +45,9 @@ extern "C" {
   // They stay valid until QueryParseCtx_Cleanup.
   char **unescapedNames;
 
+  // See `QueryAST.loadsValues`.
+  bool loadsValues;
+
   #ifdef PARSER_DEBUG
   FILE *trace_log;
   #endif
@@ -69,6 +72,11 @@ QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
+
+// The parser's QueryNode_ApplyAttributes, which also records whether `qn` loads a value through
+// `$as`.
+void QueryParseCtx_ApplyAttributes(QueryParseCtx *q, QueryNode *qn, QueryAttribute *attrs,
+                                   size_t len);
 
 #define NewUnionNode() NewQueryNode(QN_UNION)
 #define NewWildcardNode() NewQueryNode(QN_WILDCARD)

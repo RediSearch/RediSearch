@@ -1826,7 +1826,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     // parse inputs for optimizations
     QOptimizer_Parse(req);
     // check possible optimization after creation of QueryNode tree
-    QOptimizer_QueryNodes(req->ast.root, req->optimizer);
+    QOptimizer_QueryNodes(&req->ast, req->optimizer);
   }
 
   if (QueryError_HasError(status)) {

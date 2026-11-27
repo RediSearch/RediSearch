@@ -106,6 +106,50 @@ impl IteratorType {
         }
     }
 
+    /// Whether a decorator may report this type as its own.
+    ///
+    /// `true` only for types no code casts on by their tag, so code that
+    /// recovers a concrete layout from the tag never mistakes the decorator for
+    /// the child. The wildcards are `false` too: intersections drop them as
+    /// matching every document, which would drop the decorator with them.
+    pub const fn is_transparently_wrappable(self) -> bool {
+        match self {
+            Self::InvIdxNumeric
+            | Self::InvIdxTerm
+            | Self::InvIdxMissing
+            | Self::InvIdxTag
+            | Self::Empty
+            // The one cast on this tag checks the wrapper's identity first.
+            | Self::Union
+            | Self::Mock => true,
+
+            Self::Wildcard | Self::InvIdxWildcard => false,
+
+            // Cast on by tag.
+            Self::Hybrid
+            | Self::Intersect
+            | Self::MetricSortedById
+            | Self::MetricSortedByScore
+            | Self::MetricLazySortedById
+            | Self::MetricLazySortedByScore
+            | Self::Profile => false,
+
+            // Nothing casts on these today, but nothing has needed to decorate
+            // them either; admitting one is a review of its tag's users.
+            Self::Not
+            | Self::NotOptimized
+            | Self::Optional
+            | Self::OptionalOptimized
+            | Self::IdListSorted
+            | Self::IdListUnsorted
+            | Self::Optimus
+            | Self::GeoShape
+            | Self::SparseVector => false,
+
+            Self::Max => false,
+        }
+    }
+
     /// Returns the name of this iterator type as a static string.
     pub const fn as_str(self) -> &'static str {
         match self {

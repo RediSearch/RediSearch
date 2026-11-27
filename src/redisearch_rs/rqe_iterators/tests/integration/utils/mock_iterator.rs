@@ -65,6 +65,8 @@ pub struct Mock<'index, const N: usize> {
     /// single-byte LEB128 varint encoding, so the byte can be passed directly to
     /// [`RSOffsetSlice::from_slice`] without a separate encoding step.
     positions: Option<[u8; N]>,
+    /// One numeric value per document, or `None` for a virtual (non-numeric) result.
+    values: Option<[f64; N]>,
     /// Index of the next document to serve, [`past_end_cursor`] once a
     /// `read`/`skip_to` ran past the last one.
     next_index: usize,
@@ -403,6 +405,7 @@ impl<'index, const N: usize> Mock<'index, N> {
                 .build(),
             doc_ids,
             positions: None,
+            values: None,
             next_index: 0,
             data: MockData::new(),
         }
@@ -419,6 +422,14 @@ impl<'index, const N: usize> Mock<'index, N> {
         // remaining fields out of the base value, which `Drop for Mock` forbids.
         let mut mock = Self::new(doc_ids);
         mock.positions = Some(positions);
+        mock
+    }
+
+    /// Like [`Mock::new`], but each document carries a numeric value. The result produced for
+    /// each document will be a numeric record instead of a virtual one.
+    pub fn new_with_values(doc_ids: [DocId; N], values: [f64; N]) -> Self {
+        let mut mock = Self::new(doc_ids);
+        mock.values = Some(values);
         mock
     }
 
@@ -447,6 +458,8 @@ impl<'index, const N: usize> Mock<'index, N> {
                 .field_mask(RS_FIELDMASK_ALL)
                 .owned_record(None, offsets)
                 .build();
+        } else if let Some(values) = self.values {
+            self.result = numeric_result(doc_id, values[index]);
         } else {
             self.result.doc_id = doc_id;
         }
@@ -700,6 +713,7 @@ pub struct MockSuspended<const N: usize> {
     result: RSIndexResult<'static>,
     doc_ids: [DocId; N],
     positions: Option<[u8; N]>,
+    values: Option<[f64; N]>,
     next_index: usize,
     data: MockData,
 }
@@ -725,6 +739,7 @@ const _: () = {
     assert!(offset_of!(A, result) == offset_of!(S, result));
     assert!(offset_of!(A, doc_ids) == offset_of!(S, doc_ids));
     assert!(offset_of!(A, positions) == offset_of!(S, positions));
+    assert!(offset_of!(A, values) == offset_of!(S, values));
     assert!(offset_of!(A, next_index) == offset_of!(S, next_index));
     assert!(offset_of!(A, data) == offset_of!(S, data));
 
@@ -820,6 +835,8 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
                             .field_mask(RS_FIELDMASK_ALL)
                             .owned_record(None, offsets)
                             .build();
+                    } else if let Some(values) = self.values {
+                        self.result = numeric_result(doc_id, values[index]);
                     } else {
                         self.result.doc_id = doc_id;
                     }
@@ -857,6 +874,15 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
     fn num_estimated(&self) -> usize {
         self.doc_ids.len()
     }
+}
+
+/// The numeric record a [`Mock`] built by [`Mock::new_with_values`] yields.
+fn numeric_result<'index>(doc_id: DocId, value: f64) -> RSIndexResult<'index> {
+    RSIndexResult::build_numeric(value)
+        .doc_id(doc_id)
+        .weight(1.)
+        .field_mask(RS_FIELDMASK_ALL)
+        .build()
 }
 
 /// Dynamic-size variant of [`Mock`] that uses a [`Vec`] instead of a fixed array.

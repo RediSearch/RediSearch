@@ -174,11 +174,20 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
-void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
+void QOptimizer_QueryNodes(QueryAST *ast, QOptimizer *opt) {
+  QueryNode *root = ast->root;
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
   t_fieldIndex targetFieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
   bool hasOther = false;
+
+  // The numeric top-k the optimizer can put at the root, only ever for a numeric SORTBY, yields
+  // results of its own, without the values a loading clause attaches. Without SORTBY the optimizer
+  // only decides on the scorer, which a loading clause does not affect.
+  if (isSortby && ast->loadsValues) {
+    opt->type = Q_OPT_NONE;
+    return;
+  }
 
   if (root->type == QN_WILDCARD) {
     opt->scorerType = SCORER_TYPE_NONE;

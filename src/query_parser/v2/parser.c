@@ -1921,7 +1921,7 @@ static YYACTIONTYPE yy_reduce(
       case 26: /* text_expr ::= text_expr ARROW LB attribute_list RB */ yytestcase(yyruleno==26);
 {
   if (yymsp[-4].minor.yy119 && yymsp[-1].minor.yy111) {
-    QueryNode_ApplyAttributes(yymsp[-4].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111), ctx->status);
+    QueryParseCtx_ApplyAttributes(ctx, yymsp[-4].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111));
   }
   array_free_ex(yymsp[-1].minor.yy111, rm_free((char*)((QueryAttribute*)ptr )->value));
   yylhsminor.yy119 = yymsp[-4].minor.yy119;
@@ -2485,7 +2485,7 @@ static YYACTIONTYPE yy_reduce(
   RS_LOG_ASSERT(yymsp[-5].minor.yy119->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-5].minor.yy119;
   if (yymsp[-5].minor.yy119 && yymsp[-1].minor.yy111) {
-    QueryNode_ApplyAttributes(yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111), ctx->status);
+    QueryParseCtx_ApplyAttributes(ctx, yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111));
   }
   array_free_ex(yymsp[-1].minor.yy111, rm_free((char*)((QueryAttribute*)ptr)->value));
 
@@ -2500,7 +2500,7 @@ static YYACTIONTYPE yy_reduce(
   RS_LOG_ASSERT(yymsp[-5].minor.yy119->vn.vq->type == VECSIM_QT_KNN, "vector_query must be KNN");
   ctx->root = yymsp[-5].minor.yy119;
   if (yymsp[-5].minor.yy119 && yymsp[-1].minor.yy111) {
-     QueryNode_ApplyAttributes(yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111), ctx->status);
+     QueryParseCtx_ApplyAttributes(ctx, yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111));
   }
   array_free_ex(yymsp[-1].minor.yy111, rm_free((char*)((QueryAttribute*)ptr )->value));
 
@@ -2518,7 +2518,7 @@ static YYACTIONTYPE yy_reduce(
 
   ctx->root = yymsp[-5].minor.yy119;
   if (yymsp[-5].minor.yy119 && yymsp[-1].minor.yy111) {
-     QueryNode_ApplyAttributes(yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111), ctx->status);
+     QueryParseCtx_ApplyAttributes(ctx, yymsp[-5].minor.yy119, yymsp[-1].minor.yy111, array_len(yymsp[-1].minor.yy111));
   }
   array_free_ex(yymsp[-1].minor.yy111, rm_free((char*)((QueryAttribute*)ptr )->value));
 

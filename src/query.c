@@ -36,6 +36,7 @@
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
 #include "query_internal.h"
+#include "index_loading.h"
 #include "aggregate/aggregate.h"
 #include "suffix.h"
 #include "search_disk.h"
@@ -662,6 +663,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
   RS_ASSERT(!QueryError_HasError(status));
   dst->numTokens = qpCtx.numTokens;
   dst->numParams = qpCtx.numParams;
+  dst->loadsValues = qpCtx.loadsValues;
   return REDISMODULE_OK;
 }
 
@@ -682,6 +684,7 @@ void QAST_Destroy(QueryAST *q) {
   q->metricRequests = NULL;
   q->numTokens = 0;
   q->numParams = 0;
+  q->loadsValues = false;
   rm_free(q->query);
   q->nquery = 0;
   q->query = NULL;
@@ -1074,6 +1077,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       const FieldSpec *nfFs = spec->fields + f->fieldIndex;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->minInclusive ? "<=" : "<",
                        HiddenString_GetUnsafe(nfFs->fieldName, NULL), f->maxInclusive ? "<=" : "<", f->max);
+      if (IndexLoading_NodeLoads(qs)) {
+        s = sdscatprintf(s, " => {$as: %s}", qs->opts.distField);
+      }
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1383,6 +1389,10 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
     attr->value = NULL;
     res = 1;
 
+  } else if (STR_EQCASE(attr->name, attr->namelen, AS_ATTR)) {
+    // Reports its own error, more specific than an unknown attribute.
+    return IndexLoading_ApplyAlias(qn, attr, status);
+
   } else if (qn->type == QN_VECTOR) {
     res = QueryVectorNode_ApplyAttribute(qn->vn.vq, attr, status);
   }
@@ -1401,4 +1411,10 @@ int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attrs, size_t len, 
     }
   }
   return 1;
+}
+
+void QueryParseCtx_ApplyAttributes(QueryParseCtx *q, QueryNode *qn, QueryAttribute *attrs,
+                                   size_t len) {
+  QueryNode_ApplyAttributes(qn, attrs, len, q->status);
+  q->loadsValues |= IndexLoading_NodeLoads(qn);
 }
