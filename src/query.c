@@ -1102,6 +1102,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       }
       s = doPad(s, depth);
       s = sdscat(s, "}");
+      if (qs->opts.distField) {
+        s = sdscatprintf(s, " => {$as: %s}", qs->opts.distField);
+      }
       break;
     }
     case QN_GEO: {

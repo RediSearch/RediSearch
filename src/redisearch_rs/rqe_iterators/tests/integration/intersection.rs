@@ -1452,8 +1452,9 @@ fn revalidate_ok_keeps_the_aggregate_yielded_values() {
             .yielded_values
             .get(0)
             .expect("a yielded value")
-            .value,
-        0.5
+            .value
+            .as_number(),
+        Some(0.5)
     );
     assert_eq!(current.freq, freq);
     assert_eq!(current.field_mask, field_mask);

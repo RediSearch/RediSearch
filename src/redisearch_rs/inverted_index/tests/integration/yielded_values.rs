@@ -41,7 +41,7 @@ fn entry_with_key_stores_key_and_value() {
     let key = make_key();
     let entry = YieldedValue::with_key(&key, 1.5);
 
-    assert_eq!(entry.value(), 1.5);
+    assert_eq!(entry.value().as_number(), Some(1.5));
     let stored = entry.key().expect("key should be present");
     assert!(ptr::eq(stored, &key));
 }
@@ -51,7 +51,7 @@ fn entry_without_key_has_no_key() {
     let entry = YieldedValue::without_key(2.5);
 
     assert!(entry.key().is_none());
-    assert_eq!(entry.value(), 2.5);
+    assert_eq!(entry.value().as_number(), Some(2.5));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn entry_set_value_replaces_value_only() {
 
     entry.set_value(42.0);
 
-    assert_eq!(entry.value(), 42.0);
+    assert_eq!(entry.value().as_number(), Some(42.0));
     assert!(ptr::eq(entry.key().unwrap(), &key));
 }
 
@@ -168,8 +168,8 @@ fn get_mut_allows_in_place_mutation() {
     v.get_mut(0).unwrap().set_value(10.0);
     v.get_mut(1).unwrap().set_value(20.0);
 
-    assert_eq!(v.get(0).unwrap().value(), 10.0);
-    assert_eq!(v.get(1).unwrap().value(), 20.0);
+    assert_eq!(v.get(0).unwrap().value().as_number(), Some(10.0));
+    assert_eq!(v.get(1).unwrap().value().as_number(), Some(20.0));
     assert!(v.get_mut(2).is_none());
 }
 
@@ -182,7 +182,7 @@ fn iter_yields_entries_in_insertion_order() {
     v.push_without_key(2.0);
     v.push_with_key(&key_b, 3.0);
 
-    let collected: Vec<f64> = v.iter().map(|e| e.value()).collect();
+    let collected: Vec<f64> = v.iter().map(|e| e.value().as_number().unwrap()).collect();
     assert_eq!(collected, vec![1.0, 2.0, 3.0]);
 
     let key_count = v.iter().filter(|e| e.key().is_some()).count();
@@ -201,12 +201,12 @@ fn find_by_key_mut_returns_first_pointer_match() {
     v.push_with_key(&key_a, 3.0); // duplicate key — must not be returned first
 
     let entry = v.find_by_key_mut(&key_a).expect("key_a should be found");
-    assert_eq!(entry.value(), 1.0, "first match wins");
+    assert_eq!(entry.value().as_number(), Some(1.0), "first match wins");
     entry.set_value(11.0);
 
     // Mutation persisted; the duplicate is untouched.
-    assert_eq!(v.get(0).unwrap().value(), 11.0);
-    assert_eq!(v.get(2).unwrap().value(), 3.0);
+    assert_eq!(v.get(0).unwrap().value().as_number(), Some(11.0));
+    assert_eq!(v.get(2).unwrap().value().as_number(), Some(3.0));
 }
 
 #[test]
@@ -249,8 +249,8 @@ fn concat_moves_entries_and_empties_source() {
 
     assert!(src.is_empty(), "source must be drained");
     assert_eq!(dst.len(), 3);
-    assert_eq!(dst.get(0).unwrap().value(), 1.0);
-    assert_eq!(dst.get(1).unwrap().value(), 2.0);
+    assert_eq!(dst.get(0).unwrap().value().as_number(), Some(1.0));
+    assert_eq!(dst.get(1).unwrap().value().as_number(), Some(2.0));
     assert!(ptr::eq(dst.get(1).unwrap().key().unwrap(), &key_b));
     assert!(dst.get(2).unwrap().key().is_none());
 }
@@ -282,8 +282,8 @@ fn concat_into_empty_destination() {
 
     assert!(src.is_empty());
     assert_eq!(dst.len(), 2);
-    assert_eq!(dst.get(0).unwrap().value(), 1.0);
-    assert_eq!(dst.get(1).unwrap().value(), 2.0);
+    assert_eq!(dst.get(0).unwrap().value().as_number(), Some(1.0));
+    assert_eq!(dst.get(1).unwrap().value().as_number(), Some(2.0));
 }
 
 // ── YieldedValues — as_c_slice ────────────────────────────────────────
@@ -330,8 +330,8 @@ fn clone_produces_equal_independent_vec() {
 
     // Mutating the clone must not affect the original.
     cloned.get_mut(0).unwrap().set_value(99.0);
-    assert_eq!(original.get(0).unwrap().value(), 1.0);
-    assert_eq!(cloned.get(0).unwrap().value(), 99.0);
+    assert_eq!(original.get(0).unwrap().value().as_number(), Some(1.0));
+    assert_eq!(cloned.get(0).unwrap().value().as_number(), Some(99.0));
     assert_ne!(original, cloned);
 }
 

@@ -41,9 +41,9 @@ int IndexLoading_ApplyAlias(QueryNode *qn, QueryAttribute *attr, QueryError *sta
                         "Enable it with `CONFIG SET search-enable-unstable-features yes`");
     return 0;
   }
-  if (qn->type != QN_NUMERIC) {
+  if (qn->type != QN_NUMERIC && qn->type != QN_TAG) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_ATTR,
-                        "`$as` is supported only on NUMERIC clauses");
+                        "`$as` is supported only on NUMERIC and TAG clauses");
     return 0;
   }
   if (!isValidPropertyName(attr->value, attr->vallen)) {

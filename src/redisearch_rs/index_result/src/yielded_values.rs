@@ -10,7 +10,7 @@
 //! Values that iterators yield alongside a hit, for the query pipeline to load.
 //!
 //! An iterator can attach a [`YieldedValue`] to the result it produces: a
-//! numeric value (a vector distance, a score, a loaded field value) paired with
+//! [`YieldedData`] (a vector distance, a score, a loaded field value) paired with
 //! the [`RLookupKey`] the pipeline writes it under. Aggregate iterators forward
 //! their children's values, and the result processor that loads them writes each
 //! one into the row through its key. The planner asks for a key per value up
@@ -22,11 +22,150 @@
 //! `YieldedValues` is `repr(transparent)` and can be embedded directly in
 //! `repr(C)` structs like [`super::RSIndexResult`].
 use ffi::RLookupKey;
-use std::ptr;
+use std::{ptr, ptr::NonNull};
 use thin_vec::ThinVec;
 
-/// A single yielded value: a borrowed key and a numeric value.
-#[derive(Debug)]
+/// How a [`SharedString`] shares, releases and reads the value it holds,
+/// supplied by the code that builds one.
+///
+/// This crate cannot do it itself: depending on the value library would put
+/// its C references into every Rust test binary that holds a result, including
+/// those that do not link the C library.
+#[cheadergen::config(opaque)]
+pub struct SharedStringVTable {
+    /// Take one more reference to `value`.
+    pub retain: unsafe fn(value: NonNull<ffi::RSValue>),
+    /// Release one reference to `value`.
+    pub release: unsafe fn(value: NonNull<ffi::RSValue>),
+    /// The bytes of the string `value`, valid while a reference to it is held.
+    pub bytes: unsafe fn(value: NonNull<ffi::RSValue>) -> NonNull<[u8]>,
+}
+
+/// A string `RSValue` held by reference count, which C reads as
+/// [`value`](Self::as_ptr).
+///
+/// # Invariants
+///
+/// `value` is a string value, this handle owns one reference to it, and
+/// `vtable` holds the operations of the library that built it.
+#[repr(C)]
+pub struct SharedString {
+    value: NonNull<ffi::RSValue>,
+    vtable: &'static SharedStringVTable,
+}
+
+impl SharedString {
+    /// Take over one reference to the string `value`, shared through `vtable`.
+    ///
+    /// # Safety
+    ///
+    /// 1. `value` is a string value whose reference the caller hands over.
+    /// 2. `vtable`'s operations are sound for `value`, from any thread.
+    pub const unsafe fn from_raw(
+        value: NonNull<ffi::RSValue>,
+        vtable: &'static SharedStringVTable,
+    ) -> Self {
+        Self { value, vtable }
+    }
+
+    /// The value, borrowed for as long as `self` lives.
+    pub const fn as_ptr(&self) -> NonNull<ffi::RSValue> {
+        self.value
+    }
+
+    /// The operations `self` was built with.
+    pub const fn vtable(&self) -> &'static SharedStringVTable {
+        self.vtable
+    }
+
+    /// The string's bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        // SAFETY: by the type invariant `vtable` reads this value.
+        let bytes = unsafe { (self.vtable.bytes)(self.value) };
+        // SAFETY: the bytes stay valid while a reference is held, and `self`
+        // holds one for as long as the borrow lasts.
+        unsafe { bytes.as_ref() }
+    }
+}
+
+impl Clone for SharedString {
+    fn clone(&self) -> Self {
+        // SAFETY: by the type invariant `vtable` shares this value.
+        unsafe { (self.vtable.retain)(self.value) };
+        // SAFETY: the reference just taken is handed over, with the same
+        // operations as `self`'s.
+        unsafe { Self::from_raw(self.value, self.vtable) }
+    }
+}
+
+impl Drop for SharedString {
+    fn drop(&mut self) {
+        // SAFETY: by the type invariant this handle owns one reference, which
+        // `vtable` releases.
+        unsafe { (self.vtable.release)(self.value) };
+    }
+}
+
+impl std::fmt::Debug for SharedString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SharedString")
+            .field(&String::from_utf8_lossy(self.as_bytes()))
+            .finish()
+    }
+}
+
+// SAFETY: `from_raw` requires the operations to be sound from any thread, and
+// the value is only read through them.
+unsafe impl Send for SharedString {}
+// SAFETY: as above.
+unsafe impl Sync for SharedString {}
+
+/// The data of a [`YieldedValue`].
+#[derive(Debug, Clone)]
+#[repr(C, u8)]
+#[cheadergen::config(export, prefix_with_name)]
+pub enum YieldedData {
+    /// A number: a vector distance, a score, or a value a NUMERIC clause
+    /// loaded.
+    Number(f64),
+    /// The tag a TAG clause loaded, as a string `RSValue`.
+    ///
+    /// Shared rather than copied: the iterator reading one tag value builds it
+    /// once, and each hit carries a clone, an atomic reference-count increment
+    /// rather than a copy of the string.
+    String(SharedString),
+}
+
+impl YieldedData {
+    /// The number, or `None` for a string.
+    pub const fn as_number(&self) -> Option<f64> {
+        match self {
+            Self::Number(number) => Some(*number),
+            Self::String(_) => None,
+        }
+    }
+}
+
+impl From<f64> for YieldedData {
+    fn from(number: f64) -> Self {
+        Self::Number(number)
+    }
+}
+
+// Strings compare by content: equal values read by different iterators are
+// different allocations.
+impl PartialEq for YieldedData {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number(lhs), Self::Number(rhs)) => lhs == rhs,
+            (Self::String(lhs), Self::String(rhs)) => lhs.as_bytes() == rhs.as_bytes(),
+            _ => false,
+        }
+    }
+}
+
+/// A single yielded value: a borrowed key and its [`YieldedData`].
+#[derive(Debug, Clone)]
 #[repr(C)]
 #[cheadergen::config(export)]
 pub struct YieldedValue<'query> {
@@ -45,30 +184,25 @@ pub struct YieldedValue<'query> {
     /// `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
     pub key: Option<&'query RLookupKey>,
 
-    /// The value (e.g. vector distance, score).
-    pub value: f64,
-}
-
-impl Copy for YieldedValue<'_> {}
-
-impl Clone for YieldedValue<'_> {
-    fn clone(&self) -> Self {
-        *self
-    }
+    /// The value (e.g. vector distance, score, loaded tag).
+    pub value: YieldedData,
 }
 
 impl<'a> YieldedValue<'a> {
     /// Creates a yielded value with an associated key.
-    pub const fn with_key(key: &'a RLookupKey, value: f64) -> Self {
+    pub fn with_key(key: &'a RLookupKey, value: impl Into<YieldedData>) -> Self {
         Self {
             key: Some(key),
-            value,
+            value: value.into(),
         }
     }
 
     /// Creates a yielded value without an associated key.
-    pub const fn without_key(value: f64) -> Self {
-        Self { key: None, value }
+    pub fn without_key(value: impl Into<YieldedData>) -> Self {
+        Self {
+            key: None,
+            value: value.into(),
+        }
     }
 
     /// Returns the key reference, or `None` if the value has no key.
@@ -79,13 +213,13 @@ impl<'a> YieldedValue<'a> {
 
 impl YieldedValue<'_> {
     /// Returns the value.
-    pub const fn value(&self) -> f64 {
-        self.value
+    pub const fn value(&self) -> &YieldedData {
+        &self.value
     }
 
     /// Replaces the value.
-    pub const fn set_value(&mut self, new_value: f64) {
-        self.value = new_value;
+    pub fn set_value(&mut self, new_value: impl Into<YieldedData>) {
+        self.value = new_value.into();
     }
 }
 
@@ -221,12 +355,12 @@ impl<'query> YieldedValues<'query> {
 
 impl<'a> YieldedValues<'a> {
     /// Appends a yielded value with an associated key.
-    pub fn push_with_key(&mut self, key: &'a RLookupKey, value: f64) {
+    pub fn push_with_key(&mut self, key: &'a RLookupKey, value: impl Into<YieldedData>) {
         self.inner.push(YieldedValue::with_key(key, value));
     }
 
     /// Appends a yielded value without an associated key.
-    pub fn push_without_key(&mut self, value: f64) {
+    pub fn push_without_key(&mut self, value: impl Into<YieldedData>) {
         self.inner.push(YieldedValue::without_key(value));
     }
 }

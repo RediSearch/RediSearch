@@ -159,7 +159,7 @@ fn metric_produces_ids_and_metrics_on_first_read() {
         assert_eq!(res.doc_id, expected_id);
         assert_eq!(res.as_numeric(), Some(expected_metric));
         let entry = res.yielded_values().get(0).expect("one yielded value");
-        assert_eq!(entry.value(), expected_metric);
+        assert_eq!(entry.value().as_number(), Some(expected_metric));
     }
     assert!(matches!(it.read(), Ok(None)));
     assert_eq!(calls.get(), 1);

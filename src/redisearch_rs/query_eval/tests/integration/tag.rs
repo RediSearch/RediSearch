@@ -22,18 +22,22 @@
 //! cannot execute.
 #![cfg(not(miri))]
 
-use std::{ffi::CString, ptr};
+use std::{
+    ffi::{CStr, CString},
+    ptr,
+};
 
 use field::FieldMaskOrIndex;
-use index_result::{RSIndexResult, RawAggregateResult};
+use index_result::{RSIndexResult, RawAggregateResult, YieldedData};
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_flags::{QEFlag, QEFlags};
-use query_types::QueryNodeType;
+use query_types::{QueryNodeFlags, QueryNodeType};
 use rqe_core::DocId;
-use rqe_iterators::{IteratorsConfig, RQEIterator, RQEValidateStatus};
+use rqe_iterators::{IteratorType, IteratorsConfig, RQEIterator, RQEValidateStatus};
 use rqe_iterators_test_utils::{
-    ContractChecker, GlobalGuard, TestContext, assert_current_contract, with_c_globals_locked,
+    ContractChecker, FakeKey, GlobalGuard, TestContext, assert_current_contract,
+    with_c_globals_locked,
 };
 
 /// A tag value and the documents indexed under it. Owned rather than
@@ -256,6 +260,8 @@ struct TagOptions {
     /// node's real one, fails the same way whatever that real index turns
     /// out to be.
     field_expiration_docs: &'static [DocId],
+    /// The `$as` alias the node loads its matched tag under, if any.
+    alias: Option<&'static CStr>,
 }
 
 // Hand-written, *not* derived: a derived `Default` would give `weight: 0.0` --
@@ -276,6 +282,7 @@ impl Default for TagOptions {
             min_term_prefix: None,
             timeout: Timeout::NoTimeout,
             field_expiration_docs: &[],
+            alias: None,
         }
     }
 }
@@ -681,6 +688,11 @@ impl TagFixture {
         let field_index = unsafe { field_spec.as_ref() }.index;
         node.set_tag_field_index(field_index);
         node.set_children(&child_ptrs);
+        if let Some(alias) = opts.alias {
+            // The evaluator only reads the alias; it is `'static`.
+            node.opts_mut().dist_field = alias.as_ptr().cast_mut();
+            node.opts_mut().flags |= QueryNodeFlags::LoadsValue;
+        }
 
         Self {
             _guard,
@@ -2662,4 +2674,222 @@ fn eval_tag_reader_filters_an_expired_field() {
         .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
     let mut it = fixture.eval().expect("apple is indexed");
     assert_eq!(drain_doc_ids(&mut it), vec![2]);
+}
+
+// ---------------------------------------------------------------------------
+// Index loading (`$as`)
+// ---------------------------------------------------------------------------
+
+const ALIAS: &CStr = c"v";
+
+/// The key handles of the yield requests of the query `qctx` belongs to,
+/// read through the C context, which an iterator borrowing the fixture
+/// leaves free.
+fn request_handles(
+    qctx: ptr::NonNull<ffi::QueryEvalCtx>,
+) -> Vec<*mut rlookup::RLookupKeyHandle<'static>> {
+    // SAFETY: `qctx` is the fixture's live, fully initialised context. The
+    // wrapper only reads the request array, which nothing appends to while it
+    // is read.
+    let view = unsafe { QueryEvalContext::new(qctx) };
+    view.yield_requests()
+        .iter()
+        .map(|request| request.key_handle.cast())
+        .collect()
+}
+
+/// Write `key` into the slot the one reserved request is bound to, as
+/// pipeline construction does.
+fn bind_alias_key(qctx: ptr::NonNull<ffi::QueryEvalCtx>, key: &mut FakeKey) {
+    let handles = request_handles(qctx);
+    assert_eq!(handles.len(), 1, "the clause reserves one request");
+    let handle = handles[0];
+    assert!(
+        !handle.is_null(),
+        "the decorator must be bound to the request"
+    );
+    // SAFETY: the handle is the request's, bound to the live decorator's slot.
+    unsafe { *(*handle).key_ptr = key.as_ptr() };
+}
+
+/// Every document `it` yields, with the tags it loaded under `key`: one per
+/// matching tag reader, all of which the yielded values loader writes to the one
+/// field, the last one winning.
+fn drain_tags(
+    it: &mut ContractChecker<EvalResult<'_>>,
+    key: &FakeKey,
+) -> Vec<(DocId, Vec<Vec<u8>>)> {
+    let key = key.as_yielded_key();
+    let mut loaded = Vec::new();
+    while let Some(result) = it.read().expect("read must not fail while draining") {
+        let tags = result
+            .yielded_values()
+            .iter()
+            .map(|entry| {
+                assert!(ptr::eq(entry.key().expect("a keyed value"), key));
+                let YieldedData::String(tag) = entry.value() else {
+                    panic!("doc {} loaded {:?}", result.doc_id, entry.value());
+                };
+                tag.as_bytes().to_vec()
+            })
+            .collect::<Vec<_>>();
+        assert!(!tags.is_empty(), "doc {} loads its tag", result.doc_id);
+        loaded.push((result.doc_id, tags));
+    }
+    loaded
+}
+
+#[test]
+fn eval_tag_with_alias_loads_each_documents_tag() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::Token(TAG_APPLE), Child::Token(TAG_BANANA)],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    let qctx = fixture._context.qctx();
+    let mut key = FakeKey::new();
+    let mut it = fixture.eval().expect("apple and banana have documents");
+    assert_eq!(it.type_(), IteratorType::Union);
+    bind_alias_key(qctx, &mut key);
+    assert_eq!(
+        drain_tags(&mut it, &key),
+        vec![
+            (1, vec![TAG_APPLE.to_vec()]),
+            (2, vec![TAG_APPLE.to_vec()]),
+            (3, vec![TAG_BANANA.to_vec()]),
+            (4, vec![TAG_BANANA.to_vec()]),
+        ]
+    );
+    drop(it);
+    let handle = request_handles(qctx)[0];
+    // SAFETY: non-null, checked when bound; the handle is owned by the
+    // request array.
+    assert!(
+        !unsafe { (*handle).is_valid },
+        "freeing the decorators must invalidate their handle"
+    );
+}
+
+/// A pattern loads the full indexed value that matched. A document under two
+/// matching values carries one or both, as the expansion's union yields them,
+/// all under the one key.
+#[test]
+fn eval_tag_with_alias_on_a_prefix_loads_the_value_that_matched() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::Prefix {
+            pattern: b"ap",
+            prefix: true,
+            suffix: false,
+        }],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    let qctx = fixture._context.qctx();
+    let mut key = FakeKey::new();
+    let mut it = fixture.eval().expect("apple and apricot match");
+    bind_alias_key(qctx, &mut key);
+    let loaded = drain_tags(&mut it, &key);
+    assert_eq!(loaded.len(), 3, "{loaded:?}");
+    assert_eq!(loaded[0], (1, vec![TAG_APPLE.to_vec()]));
+    assert_eq!(loaded[1].0, 2);
+    assert!(
+        loaded[1]
+            .1
+            .iter()
+            .all(|tag| [TAG_APPLE, TAG_APRICOT].contains(&tag.as_slice())),
+        "{loaded:?}"
+    );
+    assert_eq!(loaded[2], (3, vec![TAG_APRICOT.to_vec()]));
+}
+
+/// The value loaded is the tag as the index holds it: case-folded on a
+/// field without `CASESENSITIVE`. A single-child clause is its decorated
+/// reader.
+#[test]
+fn eval_tag_with_alias_loads_the_case_folded_value() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::Token(b"APPLE")],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    let qctx = fixture._context.qctx();
+    let mut key = FakeKey::new();
+    let mut it = fixture.eval().expect("apple has documents");
+    assert_eq!(it.type_(), IteratorType::InvIdxTag);
+    bind_alias_key(qctx, &mut key);
+    assert_eq!(
+        drain_tags(&mut it, &key),
+        vec![(1, vec![TAG_APPLE.to_vec()]), (2, vec![TAG_APPLE.to_vec()])]
+    );
+}
+
+/// The empty wildcard pattern reads the empty value, and loads it.
+#[test]
+fn eval_tag_with_alias_on_an_empty_wildcard_loads_the_empty_value() {
+    let mut values = fruit();
+    values.push((TAG_EMPTY.to_vec(), vec![11]));
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        children: vec![Child::WildcardQuery(b"")],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    let qctx = fixture._context.qctx();
+    let mut key = FakeKey::new();
+    let mut it = fixture.eval().expect("the empty value is indexed");
+    bind_alias_key(qctx, &mut key);
+    assert_eq!(drain_tags(&mut it, &key), vec![(11, vec![Vec::new()])]);
+}
+
+/// Until pipeline construction binds the key, no value reaches a hit: the
+/// yielded values loader writes every value through its key.
+#[test]
+fn eval_tag_with_alias_attaches_nothing_before_the_key_is_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::Token(TAG_APPLE), Child::Token(TAG_APRICOT)],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apple and apricot have documents");
+    while let Some(result) = it.read().expect("read must not fail while draining") {
+        assert!(
+            result.yielded_values().is_empty(),
+            "doc {} carries a yielded value",
+            result.doc_id
+        );
+    }
+}
+
+#[test]
+fn eval_tag_with_alias_under_not_is_rejected() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::Token(TAG_APPLE)],
+        alias: Some(ALIAS),
+        in_not_sub_tree: true,
+        ..TagOptions::default()
+    });
+    fixture.eval_yielding_nothing();
+    assert_eq!(
+        fixture.ctx.status().code(),
+        query_error::QueryErrorCode::BadAttr
+    );
+    assert!(fixture.ctx.yield_requests().is_empty());
+}
+
+/// The alias is reserved even when the field has no index to read, so the
+/// pipeline knows it.
+#[test]
+fn eval_tag_with_alias_on_an_unindexed_field_reserves_the_alias() {
+    let mut fixture = TagFixture::new(TagOptions {
+        field: TagField::NoIndex,
+        children: vec![Child::Token(TAG_APPLE)],
+        alias: Some(ALIAS),
+        ..TagOptions::default()
+    });
+    fixture.eval_yielding_nothing();
+    let requests = fixture.ctx.yield_requests();
+    assert_eq!(requests.len(), 1);
+    // SAFETY: the request names the fixture's `'static` alias.
+    assert_eq!(unsafe { CStr::from_ptr(requests[0].key_name) }, ALIAS);
+    assert!(requests[0].key_handle.is_null());
 }

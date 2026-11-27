@@ -1564,7 +1564,10 @@ fn batches_trim_deep_results_preserves_child_yielded_values() {
 
     let mut emitted = Vec::new();
     while let Some(r) = it.read().unwrap() {
-        let metric = r.yielded_values().get(0).map(|m| m.value());
+        let metric = r
+            .yielded_values()
+            .get(0)
+            .and_then(|m| m.value().as_number());
         emitted.push((r.doc_id, r.freq, r.field_mask, metric));
     }
 
