@@ -16,6 +16,8 @@ use ffi::IndexFlags;
 use index_result::RSIndexResult;
 use rqe_core::{DocId, FieldMask};
 
+use crate::score_bound::{BlockBound, MinCompetitiveScore};
+
 pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
 pub use geo::FilterGeoReader;
@@ -80,6 +82,55 @@ pub trait IndexReader<'index> {
     /// is reading. The reader must then be reset and re-seeked before it reads again — re-pointing
     /// the cached buffer is not a substitute, see [`ResumableReader::refresh_pointers`] for why.
     fn needs_revalidation(&self) -> bool;
+
+    /**************** score bounds ****************/
+
+    /// Whether [`current_record_max_score`](Self::current_record_max_score) can ever be finite.
+    ///
+    /// Fixed when the reader is built. An iterator over this reader reports score bounds exactly
+    /// when this holds. A reader that reports them has no
+    /// [duplicates](Self::has_duplicates): dropping a document's first record would let it be
+    /// yielded through a later one, scored differently.
+    fn reports_score_bounds(&self) -> bool {
+        false
+    }
+
+    /// Upper bound on the final score, under the query's scorer, of the record last read into
+    /// the caller's result, or [`f64::INFINITY`] when unknown or when no record has been read.
+    ///
+    /// Must not cost I/O, and must never be less than the score the scorer would compute.
+    fn current_record_max_score(&self) -> f64 {
+        f64::INFINITY
+    }
+
+    /// Bound on the scores of the record last read and of every record after it up to the end of
+    /// the storage block holding it, or `None` when the reader has no block to report or is not
+    /// positioned on a record.
+    ///
+    /// Must not cost I/O.
+    fn current_block_bound(&self) -> Option<BlockBound> {
+        None
+    }
+
+    /// [`next_record`](Self::next_record), except that records whose
+    /// [`current_record_max_score`](Self::current_record_max_score) is below
+    /// `min_competitive_score` ([`can_drop`](crate::score_bound::can_drop)) are passed over without being returned.
+    ///
+    /// Never passes over a record that could reach `min_competitive_score`, and never returns one
+    /// that cannot. A reader that [reports score bounds](Self::reports_score_bounds) must override
+    /// it; the default is a plain read, which is only right for a reader whose records are all
+    /// unbounded.
+    fn next_record_with_threshold(
+        &mut self,
+        result: &mut RSIndexResult<'index>,
+        _min_competitive_score: MinCompetitiveScore,
+    ) -> std::io::Result<bool> {
+        debug_assert!(
+            !self.reports_score_bounds(),
+            "a reader that reports score bounds must implement next_record_with_threshold"
+        );
+        self.next_record(result)
+    }
 }
 
 /// Type-level mapping from an Active reader to its Suspended counterpart.

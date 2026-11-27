@@ -13,6 +13,7 @@ pub mod debug;
 pub(crate) mod gc;
 mod index;
 pub mod reader;
+pub mod score_bound;
 #[doc(hidden)]
 pub mod test_utils;
 
