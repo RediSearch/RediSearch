@@ -138,9 +138,18 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec);
 /**
  * @brief Close an index, **Important** must be called once and only once for every index
  *
+ * Safe to call from any thread, including after the disk context was closed at shutdown: the last
+ * reference of a dropped index can be released by a worker that outlives it. In that case the index
+ * is not closed and, if it was marked for deletion, its files are not destroyed. The leftover is
+ * reclaimed by the startup cleanup of the storage (or, after a hot restart, as an unclaimed
+ * database), not by this call.
+ *
  * @param index Pointer to the index to close
+ * @return true if the index was closed; false if the disk context was already closed, in which
+ *         case the index handle is leaked and everything it may reference, such as the owning
+ *         IndexSpec, must stay allocated
  */
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
+bool SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Save the disk-related data of the index to the rdb file
@@ -636,6 +645,16 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool);
  * @return true if the disk backend supports async I/O operations, false otherwise
  */
 bool SearchDisk_IsAsyncIOSupported();
+
+/**
+ * @brief Reads the backend's async I/O support into the copy SearchDisk_IsAsyncIOSupported returns.
+ *
+ * Done once when the disk context opens (SearchDisk_Initialize), since the backend fixes the
+ * answer then, and workers must not pass the context to the backend while shutdown may free it.
+ * Tests that install their own context and backend call it after doing so, and again after
+ * removing them.
+ */
+void SearchDisk_CacheAsyncIOSupport();
 
 /**
  * @brief Enable or disable async I/O globally

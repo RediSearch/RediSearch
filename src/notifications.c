@@ -746,6 +746,9 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
 #endif
 }
 
+// Workers are not waited for: one that still holds a dropped index (for example after FLUSHALL)
+// finds the disk context closed when it releases it, and SearchDisk_CloseIndex then leaks the
+// index instead of closing it. Its files are reclaimed by the startup cleanup of the storage.
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
   SlotCleanup_StopDiskJobs();
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
@@ -763,6 +766,12 @@ void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subev
     DiskGC_UnlockRuns();
   }
   SearchDisk_Close(ctx);
+#ifdef ENABLE_ASSERT
+  // Lets a worker that holds a dropped index release it now that the context is closed, and keeps
+  // the process alive long enough for it to do so.
+  SyncPoint_Signal(SYNC_POINT_BEFORE_AREQ_SPEC_RELEASE);
+  SyncPoint_Wait(SYNC_POINT_AFTER_DISK_CONTEXT_CLOSE);
+#endif
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch DiskAPI resources");
 }
 

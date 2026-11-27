@@ -591,6 +591,7 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
     RSGlobalConfig.diskAsyncReadPoolSize = 8;
     RSGlobalConfig.diskAsyncReadQueueFactor = 1;
     api.basic.isAsyncIOSupported = [](RedisSearchDisk *) { return true; };
+    SearchDisk_CacheAsyncIOSupport();
     api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
       for (const auto deleted : bufferedAsyncPool->deletedIds) {
         if (deleted == id) return true;
@@ -666,6 +667,8 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
     RSGlobalConfig.diskAsyncReadQueueFactor = savedQueueFactor;
     bufferedAsyncPool = nullptr;
     DiskSlotVisibilityTest::TearDown();
+    // The fixture's backend is gone, so the cached answer must not outlive it.
+    SearchDisk_CacheAsyncIOSupport();
   }
 
   RedisSearchDiskQueryView *view() {

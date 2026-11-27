@@ -2261,8 +2261,17 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   //  Closing here — before any of the trie/dict/lock
   // teardown below — keeps every field those callbacks might touch valid.
   if (spec->diskSpec) {
-    SearchDisk_CloseIndex(spec->diskSpec);
+    const bool closed = SearchDisk_CloseIndex(spec->diskSpec);
     spec->diskSpec = NULL;
+    if (!closed) {
+      // The disk context is gone (shutdown), so the index was leaked instead of closed and its
+      // background jobs may still call back into this spec. Leak the spec too; the process is
+      // exiting. Assert builds free it anyway so that leak checkers (valgrind, ASan) stay quiet;
+      // compactions of a dropped index were already disabled when it was marked for deletion.
+#ifndef ENABLE_ASSERT
+      return;
+#endif
+    }
   }
   if (spec->pendingDiskRdbState) {
     SearchDisk_FreeRdbState(spec->pendingDiskRdbState);

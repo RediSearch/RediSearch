@@ -10,6 +10,7 @@
 #include "search_disk.h"
 #include "slot_cleanup.h"
 
+#include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -34,6 +35,31 @@ RedisSearchDiskAPI *disk = NULL;
 RedisSearchDisk *disk_db = NULL;
 
 static size_t diskMemoryLimitBytes = 0;
+
+// Orders SearchDisk_CloseIndex against SearchDisk_Close. A close that can run on any thread (the
+// last reference of a dropped index may be released by a worker) takes it shared, so closes stay
+// parallel; closing the shared context takes it exclusive, so no index is mid-close when the
+// context goes away and none starts after.
+static pthread_rwlock_t diskLifetimeLock_g = PTHREAD_RWLOCK_INITIALIZER;
+
+// Index handles that SearchDisk_CloseIndex could not close because the disk context was already
+// closed. Kept in a global only so that they stay reachable and leak checkers (LeakSanitizer,
+// valgrind) do not report an intentional leak at exit.
+static pthread_mutex_t leakedDiskIndexesLock_g = PTHREAD_MUTEX_INITIALIZER;
+static RedisSearchDiskIndexSpec **leakedDiskIndexes_g = NULL;
+static size_t leakedDiskIndexesLen_g = 0;
+
+static void SearchDisk_KeepLeakedIndexReachable(RedisSearchDiskIndexSpec *index) {
+  pthread_mutex_lock(&leakedDiskIndexesLock_g);
+  RedisSearchDiskIndexSpec **grown =
+      rm_realloc(leakedDiskIndexes_g, (leakedDiskIndexesLen_g + 1) * sizeof(*grown));
+  leakedDiskIndexes_g = grown;
+  leakedDiskIndexes_g[leakedDiskIndexesLen_g++] = index;
+  pthread_mutex_unlock(&leakedDiskIndexesLock_g);
+}
+
+// Whether the backend supports async I/O, copied from the backend by SearchDisk_CacheAsyncIOSupport.
+static _Atomic bool asyncIOSupported_g = false;
 
 static bool SearchDisk_ApplyResourceState(size_t registeredIndexCount) {
   RS_ASSERT(disk && disk_db && disk->basic.updateMemoryLimit);
@@ -210,6 +236,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
   }
+  SearchDisk_CacheAsyncIOSupport();
 
   // Register BigModule callbacks for disk usage reporting
   if (!SearchDisk_RegisterBigModuleCallbacks(ctx)) {
@@ -246,9 +273,12 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
       SlotCleanup_StopDiskJobs();
     }
     SearchDisk_StopMetrics();
+    pthread_rwlock_wrlock(&diskLifetimeLock_g);
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
+    atomic_store(&asyncIOSupported_g, false);
     diskMemoryLimitBytes = 0;
+    pthread_rwlock_unlock(&diskLifetimeLock_g);
   }
 }
 
@@ -417,9 +447,19 @@ void SearchDisk_CloseIndexOnMainThread(RedisModuleCtx *ctx, IndexSpec *spec) {
   }
 }
 
-void SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
-    RS_ASSERT(disk_db && index);
-    disk->basic.closeIndexSpec(disk_db, index);
+bool SearchDisk_CloseIndex(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(index);
+  pthread_rwlock_rdlock(&diskLifetimeLock_g);
+  if (!disk_db) {
+    pthread_rwlock_unlock(&diskLifetimeLock_g);
+    SearchDisk_KeepLeakedIndexReachable(index);
+    RedisModule_Log(RSDummyContext, "notice",
+                    "Skipped closing a disk index released after the disk context was closed");
+    return false;
+  }
+  disk->basic.closeIndexSpec(disk_db, index);
+  pthread_rwlock_unlock(&diskLifetimeLock_g);
+  return true;
 }
 
 void SearchDisk_IndexSpecRdbSave(RedisModuleIO *rdb, RedisSearchDiskIndexSpec *index) {
@@ -656,12 +696,13 @@ void SearchDisk_FreeAsyncReadPool(RedisSearchDiskAsyncReadPool pool) {
     }
 }
 
+void SearchDisk_CacheAsyncIOSupport() {
+    atomic_store(&asyncIOSupported_g, disk && disk_db && disk->basic.isAsyncIOSupported(disk_db));
+}
+
 bool SearchDisk_IsAsyncIOSupported() {
-    if (!disk || !disk_db) {
-        return false;
-    }
-    // Check if the underlying disk backend supports async I/O
-    return disk->basic.isAsyncIOSupported(disk_db);
+    // Workers call this while shutdown may close the disk context, so it must not touch disk_db.
+    return atomic_load(&asyncIOSupported_g);
 }
 
 void SearchDisk_SetAsyncIOEnabled(bool enabled) {
