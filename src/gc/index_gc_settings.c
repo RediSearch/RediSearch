@@ -39,6 +39,8 @@ static const SettingDesc settingDescs[] = {
      offsetof(IndexGCSettings, runIntervalSec)},
     {INDEX_GC_SETTING_CLEAN_THRESHOLD, "CLEAN_THRESHOLD", 0, LLONG_MAX,
      offsetof(IndexGCSettings, cleanThreshold)},
+    {INDEX_GC_SETTING_CLEAN_RATIO_PPM, "CLEAN_RATIO_PPM", 0, MAX_GC_CLEAN_RATIO_PPM,
+     offsetof(IndexGCSettings, cleanRatioPpm)},
 };
 #define NUM_SETTINGS (sizeof(settingDescs) / sizeof(settingDescs[0]))
 
@@ -88,12 +90,21 @@ size_t IndexGCSettings_GlobalCleanThreshold(void) {
   return threadPolicy() ? global->threadGcCleanThreshold : global->forkGcCleanThreshold;
 }
 
+size_t IndexGCSettings_GlobalCleanRatioPpm(void) {
+  const GCSettings *global = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicy() ? global->gcCleanRatioPpm : global->forkGcCleanRatioPpm;
+}
+
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings) {
   return effective(&settings->runIntervalSec, IndexGCSettings_GlobalRunIntervalSec());
 }
 
 size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings) {
   return effective(&settings->cleanThreshold, IndexGCSettings_GlobalCleanThreshold());
+}
+
+size_t IndexGCSettings_CleanRatioPpm(const IndexGCSettings *settings) {
+  return effective(&settings->cleanRatioPpm, IndexGCSettings_GlobalCleanRatioPpm());
 }
 
 // A non-negative decimal integer, digits only: no sign, fraction or exponent, so "-1" and "1.5"

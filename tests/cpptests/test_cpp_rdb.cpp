@@ -2171,6 +2171,7 @@ GCSpecPtr loadGCSpec(RedisModuleIO *io, int encver = INDEX_CURRENT_VERSION) {
 void expectUnset(const IndexGCSettings &s) {
   EXPECT_FALSE(s.runIntervalSec.isSet);
   EXPECT_FALSE(s.cleanThreshold.isSet);
+  EXPECT_FALSE(s.cleanRatioPpm.isSet);
 }
 
 void expectSame(const IndexGCOverride &expected, const IndexGCOverride &actual) {
@@ -2184,20 +2185,26 @@ TEST_F(RdbMockTest, testGCSettingsRoundTrip) {
   const IndexGCOverride unset = {false, 0};
   const struct {
     const char *what;
-    IndexGCOverride interval, threshold;
+    IndexGCOverride interval, threshold, ratio;
   } cases[] = {
-      {"none", unset, unset},
-      {"interval", {true, 100}, unset},
-      {"threshold", unset, {true, 500}},
-      {"both", {true, 100}, {true, 500}},
-      {"threshold 0", unset, {true, 0}},
-      {"largest values", {true, (size_t)GC_MAX_INTERVAL_SEC}, {true, (size_t)LLONG_MAX}},
+      {"none", unset, unset, unset},
+      {"interval", {true, 100}, unset, unset},
+      {"threshold", unset, {true, 500}, unset},
+      {"ratio", unset, unset, {true, 200}},
+      {"all", {true, 100}, {true, 500}, {true, 200}},
+      {"threshold 0", unset, {true, 0}, unset},
+      {"ratio 0", unset, unset, {true, 0}},
+      {"largest values",
+       {true, (size_t)GC_MAX_INTERVAL_SEC},
+       {true, (size_t)LLONG_MAX},
+       {true, (size_t)GC_CLEAN_RATIO_PPM_SCALE}},
   };
   for (const auto &c : cases) {
     SCOPED_TRACE(c.what);
     GCSpecPtr sp = parseGCSpec("gc_settings_round_trip");
     sp->gcSettings.runIntervalSec = c.interval;
     sp->gcSettings.cleanThreshold = c.threshold;
+    sp->gcSettings.cleanRatioPpm = c.ratio;
     GCIOPtr io = saveGCSpec(sp.get());
 
     GCSpecPtr loaded = loadGCSpec(io.get());
@@ -2205,6 +2212,7 @@ TEST_F(RdbMockTest, testGCSettingsRoundTrip) {
     EXPECT_EQ(io->read_pos, io->buffer.size());
     expectSame(c.interval, loaded->gcSettings.runIntervalSec);
     expectSame(c.threshold, loaded->gcSettings.cleanThreshold);
+    expectSame(c.ratio, loaded->gcSettings.cleanRatioPpm);
   }
 }
 
@@ -2322,6 +2330,14 @@ TEST_F(RdbMockTest, testGCSettingsBlockValidation) {
       {"threshold above 2^63-1",
        {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(tooLarge)}},
        false},
+      {"ratio 1000000", {{INDEX_GC_SETTING_CLEAN_RATIO_PPM, numericGCValue(1000000)}}, true},
+      {"ratio above 1000000",
+       {{INDEX_GC_SETTING_CLEAN_RATIO_PPM, numericGCValue(1000001)}},
+       false},
+      {"ratio given twice",
+       {{INDEX_GC_SETTING_CLEAN_RATIO_PPM, numericGCValue(5)},
+        {INDEX_GC_SETTING_CLEAN_RATIO_PPM, numericGCValue(5)}},
+       false},
       {"a setting given twice",
        {{INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(5)},
         {INDEX_GC_SETTING_CLEAN_THRESHOLD, numericGCValue(6)}},
@@ -2380,6 +2396,7 @@ TEST_F(RdbMockTest, testGCSettingsSurviveSerialization) {
     if (withOverrides) {
       sp->gcSettings.runIntervalSec = {true, 30};
       sp->gcSettings.cleanThreshold = {true, 0};
+      sp->gcSettings.cleanRatioPpm = {true, 200};
     }
     RedisModuleString *serialized = IndexSpec_Serialize(sp.get());
     ASSERT_NE(serialized, nullptr);
@@ -2395,6 +2412,7 @@ TEST_F(RdbMockTest, testGCSettingsSurviveSerialization) {
     if (withOverrides) {
       expectSame({true, 30}, loaded->gcSettings.runIntervalSec);
       expectSame({true, 0}, loaded->gcSettings.cleanThreshold);
+      expectSame({true, 200}, loaded->gcSettings.cleanRatioPpm);
     } else {
       expectUnset(loaded->gcSettings);
     }

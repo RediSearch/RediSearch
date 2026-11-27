@@ -467,6 +467,24 @@
                     "token": "DEFAULT"
                   }
                 ]
+              },
+              {
+                "name": "clean_ratio_ppm",
+                "type": "oneof",
+                "token": "CLEAN_RATIO_PPM",
+                "optional": true,
+                "summary": "Deleted or updated documents per million live documents the index also needs before a garbage collection run cleans it; 0 leaves only the clean threshold. `DEFAULT` inherits the active GC policy's global clean ratio.",
+                "arguments": [
+                  {
+                    "name": "ppm",
+                    "type": "integer"
+                  },
+                  {
+                    "name": "default",
+                    "type": "pure-token",
+                    "token": "DEFAULT"
+                  }
+                ]
               }
             ]
           }

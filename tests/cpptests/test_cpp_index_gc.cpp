@@ -1729,23 +1729,30 @@ TEST(IndexGCSettingsHelpers, testEffectiveValues) {
   global.forkGcCleanThreshold = 100;
   global.threadGcRunIntervalSec = 7;
   global.threadGcCleanThreshold = 50;
+  global.forkGcCleanRatioPpm = 300;
+  global.gcCleanRatioPpm = 2000;
 
   IndexGCSettings s;
   IndexGCSettings_Init(&s);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 30);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 100);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 300);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 7);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 50);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 2000);
 
   s.runIntervalSec = {true, 1};
   s.cleanThreshold = {true, 0};
+  s.cleanRatioPpm = {true, 0};
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 0);
   RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
   EXPECT_EQ(IndexGCSettings_RunIntervalSec(&s), 1);
   EXPECT_EQ(IndexGCSettings_CleanThreshold(&s), 0);
+  EXPECT_EQ(IndexGCSettings_CleanRatioPpm(&s), 0);
 
   RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
   RSGlobalConfig.gcConfigParams.gcSettings = saved;
@@ -1759,6 +1766,9 @@ TEST(IndexGCSettingsHelpers, testValueRanges) {
   EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, 0));
   EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, LLONG_MAX));
   EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_THRESHOLD, (size_t)LLONG_MAX + 1));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 0));
+  EXPECT_TRUE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 1000000));
+  EXPECT_FALSE(IndexGCSettings_IsValid(INDEX_GC_SETTING_CLEAN_RATIO_PPM, 1000001));
   EXPECT_FALSE(IndexGCSettings_IsValid((IndexGCSettingId)99, 1));
 }
 
@@ -1802,12 +1812,26 @@ TEST(IndexGCSettingsParse, testSetsAndClears) {
   EXPECT_TRUE(s.cleanThreshold.isSet);
   EXPECT_EQ(s.cleanThreshold.value, 0);
 
+  EXPECT_EQ(parseGCSet(s, {"clean_ratio_ppm", "200"}, &setsRunInterval), "");
+  EXPECT_FALSE(setsRunInterval);
+  EXPECT_TRUE(s.cleanRatioPpm.isSet);
+  EXPECT_EQ(s.cleanRatioPpm.value, 200);
+  EXPECT_EQ(s.cleanThreshold.value, 0);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "0"}), "");
+  EXPECT_TRUE(s.cleanRatioPpm.isSet);
+  EXPECT_EQ(s.cleanRatioPpm.value, 0);
+
   EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "default"}, &setsRunInterval), "");
   EXPECT_TRUE(setsRunInterval);
   EXPECT_FALSE(s.runIntervalSec.isSet);
   EXPECT_TRUE(s.cleanThreshold.isSet);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "DEFAULT"}), "");
+  EXPECT_FALSE(s.cleanRatioPpm.isSet);
+  EXPECT_TRUE(s.cleanThreshold.isSet);
   // DEFAULT on an unset override leaves it unset.
-  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "DEFAULT", "CLEAN_THRESHOLD", "DEFAULT"}), "");
+  EXPECT_EQ(parseGCSet(s, {"RUN_INTERVAL", "DEFAULT", "CLEAN_THRESHOLD", "DEFAULT",
+                           "CLEAN_RATIO_PPM", "DEFAULT"}),
+            "");
   IndexGCSettings unset;
   IndexGCSettings_Init(&unset);
   EXPECT_EQ(memcmp(&s, &unset, sizeof(s)), 0);
@@ -1825,6 +1849,8 @@ TEST(IndexGCSettingsParse, testBounds) {
   EXPECT_EQ(s.runIntervalSec.value, GC_MAX_INTERVAL_SEC);
   EXPECT_EQ(parseGCSet(s, {"CLEAN_THRESHOLD", maxThreshold.c_str()}), "");
   EXPECT_EQ(s.cleanThreshold.value, (size_t)LLONG_MAX);
+  EXPECT_EQ(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000000"}), "");
+  EXPECT_EQ(s.cleanRatioPpm.value, 1000000);
 
   const IndexGCSettings before = s;
   for (const char *bad : {"0", overInterval.c_str(), "-1", "1.5", "1e3", "+5", " 5", "", "abc",
@@ -1833,6 +1859,9 @@ TEST(IndexGCSettingsParse, testBounds) {
   }
   for (const char *bad : {overThreshold.c_str(), "-1", "0.0", "x"}) {
     EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", bad}), "") << bad;
+  }
+  for (const char *bad : {"1000001", "-1", "0.5", "1e3", "100%"}) {
+    EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", bad}), "") << bad;
   }
   EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
 }
@@ -1852,6 +1881,11 @@ TEST(IndexGCSettingsParse, testErrorsChangeNothing) {
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_THRESHOLD"}), "");
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL"}), "");
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "100", "CLEAN_RATIO", "5"}), "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "5", "CLEAN_RATIO_PPM", "DEFAULT"}), "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "5", "CLEAN_THRESHOLD", "1", "CLEAN_RATIO_PPM",
+                           "6"}),
+            "");
+  EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "CLEAN_RATIO_PPM", "1000001"}), "");
   EXPECT_NE(parseGCSet(s, {"DEFAULT", "RUN_INTERVAL", "100"}), "");
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "RUN_INTERVAL", "0"}, &setsRunInterval), "");
   EXPECT_EQ(memcmp(&s, &before, sizeof(s)), 0);
@@ -1863,7 +1897,13 @@ TEST(IndexGCSettingsParse, testErrorText) {
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find("RUN_INTERVAL"), std::string::npos);
   EXPECT_NE(parseGCSet(s, {"RUN_INTERVAL", "0"}).find(std::to_string(GC_MAX_INTERVAL_SEC)),
             std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000001"}).find("CLEAN_RATIO_PPM"),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1000001"}).find("from 0 to 1000000"),
+            std::string::npos);
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD", "1", "CLEAN_THRESHOLD", "1"}).find("more than once"),
+            std::string::npos);
+  EXPECT_NE(parseGCSet(s, {"CLEAN_RATIO_PPM", "1", "CLEAN_RATIO_PPM", "1"}).find("more than once"),
             std::string::npos);
   EXPECT_NE(parseGCSet(s, {"FOO", "1"}).find("Unknown GC setting"), std::string::npos);
   EXPECT_NE(parseGCSet(s, {"CLEAN_THRESHOLD"}).find("Missing value"), std::string::npos);

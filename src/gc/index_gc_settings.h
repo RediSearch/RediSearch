@@ -31,11 +31,12 @@ typedef struct {
 } IndexGCOverride;
 
 // The GC settings an index may override. Written only on the main thread under the GIL. The
-// interval is read only there; the threshold reaches the GC thread only through the copy the
-// GC takes when it queues a run, so neither needs a lock.
+// interval is read only there; the threshold and the ratio reach the GC thread only through the
+// copy the GC takes when it queues a run, so none needs a lock.
 typedef struct {
   IndexGCOverride runIntervalSec;  // overrides the active policy's run interval
   IndexGCOverride cleanThreshold;  // overrides the active policy's absolute clean threshold
+  IndexGCOverride cleanRatioPpm;   // overrides the active policy's clean ratio
 } IndexGCSettings;
 
 // Ids of the settings in the RDB override block. Fixed: never renumber or reuse one, since an
@@ -43,14 +44,15 @@ typedef struct {
 typedef enum {
   INDEX_GC_SETTING_RUN_INTERVAL = 1,
   INDEX_GC_SETTING_CLEAN_THRESHOLD = 2,
+  INDEX_GC_SETTING_CLEAN_RATIO_PPM = 3,
 } IndexGCSettingId;
 
 // Leaves every setting unset.
 void IndexGCSettings_Init(IndexGCSettings *settings);
 
 // Whether `value` is in range for `id`. A run interval goes up to GC_MAX_INTERVAL_SEC, the longest
-// a timer arms, so no accepted value is silently capped; a clean threshold takes the range of the
-// global threshold configs. False for an id this binary does not know.
+// a timer arms, so no accepted value is silently capped; a clean threshold and a clean ratio take
+// the range of their global configs. False for an id this binary does not know.
 bool IndexGCSettings_IsValid(IndexGCSettingId id, size_t value);
 
 // The value word that clears an override, so the setting inherits the global value again.
@@ -65,14 +67,16 @@ int IndexGCSettings_ParseSet(ArgsCursor *ac, IndexGCSettings *settings, bool *se
                              struct QueryError *status);
 
 // The global value an unset override inherits: the search-thread-gc-* config under the THREAD
-// policy, the search-fork-gc-* one otherwise. Under THREAD, search-gc-clean-ratio-ppm applies on
-// top of the clean threshold, whether that is the index's or the global one.
+// policy, the search-fork-gc-* one otherwise. The THREAD policy's clean ratio is
+// search-gc-clean-ratio-ppm, which predates the per-policy names.
 size_t IndexGCSettings_GlobalRunIntervalSec(void);
 size_t IndexGCSettings_GlobalCleanThreshold(void);
+size_t IndexGCSettings_GlobalCleanRatioPpm(void);
 
 // The value the index uses: its override if set, otherwise the global value above.
 size_t IndexGCSettings_RunIntervalSec(const IndexGCSettings *settings);
 size_t IndexGCSettings_CleanThreshold(const IndexGCSettings *settings);
+size_t IndexGCSettings_CleanRatioPpm(const IndexGCSettings *settings);
 
 // The override block: a count, then one (setting id, value) pair per set override, the value
 // saved as a string buffer of any length. Load skips ids it does not know, whatever their
