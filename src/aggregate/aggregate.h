@@ -23,6 +23,7 @@
 #include "hybrid/vector_query_utils.h"
 #include "slot_ranges.h"
 #include "profile/profile.h"
+#include "profile/preparation.h"
 #include "rs_wall_clock.h"
 
 #include "rmutil/rm_assert.h"
@@ -324,6 +325,9 @@ typedef struct AREQ {
   size_t prefixesOffset;
 
   ProfilePrinterCtx profileCtx;
+
+  // Allocated only for standalone PROFILE FAIL requests running on a worker.
+  ProfilePreparation *profilePreparation;
 
   // Synchronization context for timeout/reply callbacks
   RequestSyncCtx syncCtx;
