@@ -52,6 +52,8 @@
 #include "ext/debug_scorers.h"
 #include "query_error_ffi.h"
 #include "doc_id_meta.h"
+#include "disk_asm_import_window.h"
+#include "asm_state_machine.h"
 #include "coord/rmr/rmr.h"
 #include "vecsim/info_iterator.h"
 #include "vecsim/vec_sim.h"
@@ -2987,6 +2989,72 @@ DEBUG_COMMAND(GCTimerArms) {
   return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
 
+/**
+ * FT.DEBUG ASM_IMPORT_WINDOW OPEN|CLOSE <start-slot> <end-slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW CONTAINS <slot>
+ * FT.DEBUG ASM_IMPORT_WINDOW RESET
+ *
+ * Drives the slot window of an SST import (disk_asm_import_window.h) through the ASM state machine
+ * steps the import's events take, without a migration.
+ */
+DEBUG_COMMAND(ASMImportWindow) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  size_t len;
+  const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+
+  if (STR_EQCASE(subCmd, len, "RESET")) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    DiskASM_ImportWindow_Reset();
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+
+  if (STR_EQCASE(subCmd, len, "CONTAINS")) {
+    long long slot;
+    if (argc != 4) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (RedisModule_StringToLongLong(argv[3], &slot) != REDISMODULE_OK || slot < 0 || slot > 16383) {
+      return RedisModule_ReplyWithError(ctx, "Invalid slot");
+    }
+    return RedisModule_ReplyWithLongLong(ctx, DiskASM_IsSlotBeingImported((unsigned int)slot));
+  }
+
+  void (*apply)(const RedisModuleSlotRangeArray *) = NULL;
+  if (STR_EQCASE(subCmd, len, "OPEN")) {
+    if (!SearchDisk_IsEnabled()) {
+      return RedisModule_ReplyWithError(ctx, "The ASM import window is only used with search on disk");
+    }
+    apply = ASM_StateMachine_StartImportOverlay;
+  } else if (STR_EQCASE(subCmd, len, "CLOSE")) {
+    apply = ASM_StateMachine_FailImport;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+  }
+  if (argc != 5) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long start, end;
+  if (RedisModule_StringToLongLong(argv[3], &start) != REDISMODULE_OK ||
+      RedisModule_StringToLongLong(argv[4], &end) != REDISMODULE_OK ||
+      start < 0 || end > 16383 || start > end) {
+    return RedisModule_ReplyWithError(ctx, "Invalid slot range");
+  }
+  RedisModuleSlotRangeArray *slots =
+      rm_malloc(sizeof(RedisModuleSlotRangeArray) + sizeof(RedisModuleSlotRange));
+  slots->num_ranges = 1;
+  slots->ranges[0] = (RedisModuleSlotRange){.start = (uint16_t)start, .end = (uint16_t)end};
+  apply(slots);
+  rm_free(slots);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
 // Get the current sleep time before yielding (in microseconds)
 unsigned int GetIndexerSleepBeforeYieldMicros(void) {
   return g_yieldCallHandler.indexerSleepBeforeYieldMicros;
@@ -4222,6 +4290,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"FORCE_PLAIN_HASH_NOTIFICATIONS", forcePlainHashNotifications},
                                {"YIELDS_COUNTER", YieldCounter},
                                {"GC_TIMER_ARMS", GCTimerArms},
+                               {"ASM_IMPORT_WINDOW", ASMImportWindow},
                                {"INDEXER_SLEEP_BEFORE_YIELD_MICROS", IndexerSleepBeforeYieldMicros},
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},

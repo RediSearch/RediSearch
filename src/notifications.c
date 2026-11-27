@@ -28,6 +28,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "asm_state_machine.h"
+#include "disk_asm_import_window.h"
 #include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
@@ -210,6 +211,9 @@ static bool ShouldDeferKeyspaceNotification(enum RedisCmd redisCommand) {
 int KeySpaceNotificationCallback(RedisModuleCtx *ctx, int type, const char *event,
                                  RedisModuleString *key) {
   REDISMODULE_NOT_USED(type);
+  if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
+    return REDISMODULE_OK;
+  }
   enum RedisCmd redisCommand = GetRedisCmd(event);
   // Post-notification jobs run after the mutating command/module callback returns and any open
   // RedisModuleKey handles it held during notification emission are closed. Defer all handled
@@ -244,6 +248,9 @@ void KeySpaceNotificationWithSubkeysCallback(RedisModuleCtx *ctx, int type, cons
                                              RedisModuleString *key, RedisModuleString **subkeys,
                                              int count) {
   REDISMODULE_NOT_USED(type);
+  if (SearchDisk_IsEnabled() && DiskASM_IsKeyBeingImported(key)) {
+    return;
+  }
   enum RedisCmd redisCommand = GetRedisCmd(event);
   if (redisCommand == _null_cmd) {
     return;
@@ -559,10 +566,27 @@ void ClusterSlotMigrationEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED:
       ASM_StateMachine_CompleteImport(slots);
     case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED:
+      ASM_StateMachine_FailImport(slots);
       RedisModule_Log(RSDummyContext, "notice", "Got ASM import %s event.", subevent == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED ? "failed" : "completed");
       // Since importing is done in a part-time job while redis is running other commands, we notify
       // the thread pool to no longer receive new jobs, and terminate the threads ONCE ALL PENDING JOBS ARE DONE.
       workersThreadPool_OnEventEnd(false);
+      break;
+
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_START:
+      // Flex sends the import stage events only to modules that set
+      // REDISMODULE_OPTIONS_HANDLE_ASM_KEYSPACE_SST, which search does only on disk.
+      RS_ASSERT(SearchDisk_IsEnabled());
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay start event, task %s.",
+                      info->task_id);
+      ASM_StateMachine_StartImportOverlay(slots);
+      break;
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_RAM_OVERLAY_RESTORE_END:
+      RS_ASSERT(SearchDisk_IsEnabled());
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM import RAM overlay end event, task %s.",
+                      info->task_id);
+      // The slots stay in the import window: their keys keep the source's docIds until they
+      // are rebuilt.
       break;
 
     // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED:

@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <stddef.h>
 
+#include "disk_asm_import_window.h"
 #include "spec.h"
 #include "indexes.h"
 #include "rdb.h"
@@ -138,6 +139,14 @@ static void docIdMetaUnlink(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 
   dict *specIdToEntry = (dict *)*meta;
   if (dictSize(specIdToEntry) == 0) return;
+
+  // The key may hold the docIds of a slot migration's source, which can name unrelated documents
+  // here, so it deletes none. Its metadata is freed with it, so nothing is left to invalidate.
+  // See disk_asm_import_window.h.
+  if (SearchDisk_IsEnabled() && ctx &&
+      DiskASM_IsKeyBeingImported(RedisModule_GetKeyNameFromOptCtx(ctx))) {
+    return;
+  }
 
   // Resolved lazily: only an index that still references the key needs it.
   const RedisModuleString *keyName = NULL;
