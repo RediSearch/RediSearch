@@ -72,6 +72,12 @@ typedef const void* RedisSearchDiskQueryView;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
+typedef enum {
+  SEARCH_DISK_COMMIT_OK,
+  SEARCH_DISK_COMMIT_WRITE_STALL,
+  SEARCH_DISK_COMMIT_ERROR,
+} SearchDiskCommitResult;
+
 // Inclusive Redis Cluster slot interval.
 typedef struct SearchDiskSlotRange {
   uint16_t start;
@@ -480,9 +486,9 @@ typedef struct IndexDiskAPI {
    * caller still owns the handle and must release it via `freeWriteBatch`.
    *
    * @param batch Pointer to the batch returned by `createWriteBatch`
-   * @return true if the commit succeeded, false otherwise
+   * @param noSlowdown Return SEARCH_DISK_COMMIT_WRITE_STALL if SpeedB would throttle the write.
    */
-  bool (*commitWriteBatch)(SearchDiskWriteBatchHandle *batch);
+  SearchDiskCommitResult (*commitWriteBatch)(SearchDiskWriteBatchHandle *batch, bool noSlowdown);
 
   /**
    * @brief Discards all writes staged on `batch` without touching the database.

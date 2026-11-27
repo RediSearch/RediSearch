@@ -338,6 +338,9 @@ SearchDiskWriteBatchHandle *SearchDisk_CreateWriteBatch(RedisSearchDiskIndexSpec
  */
 bool SearchDisk_CommitWriteBatch(SearchDiskWriteBatchHandle *batch);
 
+/** Commit a document batch with write stalls reported immediately. Consumes its staged writes. */
+SearchDiskCommitResult SearchDisk_TryCommitDocumentBatch(SearchDiskWriteBatchHandle *batch);
+
 /**
  * @brief Discard all writes staged on `batch` without touching the database.
  *

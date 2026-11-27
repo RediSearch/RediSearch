@@ -181,11 +181,15 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     return false;
   }
 
-  if (!SearchDisk_CommitWriteBatch(aCtx->disk.batch)) {
+  SearchDiskCommitResult result = SearchDisk_TryCommitDocumentBatch(aCtx->disk.batch);
+  if (result != SEARCH_DISK_COMMIT_OK) {
     if (!QueryError_HasError(&aCtx->status)) {
-      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC,
-                          "Failed to commit disk write batch");
+      const char *reason = result == SEARCH_DISK_COMMIT_WRITE_STALL
+          ? "Disk indexing write rejected due to write-buffer or compaction pressure"
+          : "Failed to commit disk write batch";
+      QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, reason);
     }
+    IndexError_AddQueryError(&aCtx->spec->stats.indexError, &aCtx->status, aCtx->doc->docKey);
     aCtx->stateFlags |= ACTX_F_ERRORED;
     return false;
   }

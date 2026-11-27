@@ -236,7 +236,8 @@ class DiskSlotTrimTest : public ::testing::Test {
       return reinterpret_cast<SearchDiskWriteBatchHandle *>(
           new WriteBatchState{reinterpret_cast<IndexSpec *>(index)});
     };
-    api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *handle) {
+    api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *handle, bool noSlowdown) {
+      EXPECT_FALSE(noSlowdown);
       auto *batch = reinterpret_cast<WriteBatchState *>(handle);
       auto *spec = batch->spec;
       int lockResult = -1;
@@ -246,14 +247,14 @@ class DiskSlotTrimTest : public ::testing::Test {
       });
       probe.join();
       EXPECT_NE(lockResult, 0) << "batch apply requires the spec write lock";
-      if (!batch->open) return false;
+      if (!batch->open) return SEARCH_DISK_COMMIT_ERROR;
       batch->open = false;
       EXPECT_TRUE(batch->staged);
       ++state.batchApplyCalls;
-      if (state.batchesApplied == state.failBatch) return false;
+      if (state.batchesApplied == state.failBatch) return SEARCH_DISK_COMMIT_ERROR;
       ++state.batchesApplied;
       if (state.batchesApplied == state.batchCount) state.logicalPending = false;
-      return true;
+      return SEARCH_DISK_COMMIT_OK;
     };
     api.index.abortWriteBatch = [](SearchDiskWriteBatchHandle *handle) {
       auto *batch = reinterpret_cast<WriteBatchState *>(handle);
@@ -1825,7 +1826,10 @@ TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingA
     *oldLen = 0;
     return t_docId{43};
   };
-  api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *) { return true; };
+  api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *, bool noSlowdown) {
+    EXPECT_TRUE(noSlowdown);
+    return SEARCH_DISK_COMMIT_OK;
+  };
   const auto deleted = collector()->deletesFromLastRun.load();
   const auto updates = collector()->updatesFromLastRun.load();
   const auto writes = collector()->writesFromLastRun.load();
