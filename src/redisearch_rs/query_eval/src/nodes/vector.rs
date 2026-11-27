@@ -20,7 +20,7 @@ use std::{
 };
 
 use hidden_string::HiddenString;
-use query::MetricRequestId;
+use query::YieldRequestId;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
 use rqe_iterators::{IteratorType, c2rust::CRQEIterator, metric};
@@ -31,7 +31,7 @@ use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_node};
 /// by a child subquery (a *hybrid* query).
 ///
 /// The similarity search itself stays in C: this resolves the field the
-/// distance is yielded under, reserves the metric request that binds it to a
+/// distance is yielded under, reserves the yield request that binds it to a
 /// lookup key, evaluates the optional child, and asks
 /// [`NewVectorIterator`](ffi::NewVectorIterator) for the iterator.
 pub(crate) fn eval<'index>(
@@ -50,7 +50,7 @@ pub(crate) fn eval<'index>(
 
     // Reserved before the child is evaluated, so that a nested vector node
     // lands *after* this one in the array. Paths out of here that never build
-    // an iterator simply leave it unbound — see `add_metric_request`.
+    // an iterator simply leave it unbound — see `add_yield_request`.
     let request_id = (!vq.scoreField.is_null()).then(|| {
         let is_internal = node
             .opts()
@@ -60,8 +60,8 @@ pub(crate) fn eval<'index>(
         // NUL-terminated string the parser or the distance-field move left on
         // the query. The request borrows it rather than owning it, and its
         // owner is the vector query — hence the AST, which outlives the
-        // metric-request array.
-        unsafe { ctx.add_metric_request(vq.scoreField, is_internal) }
+        // yield-request array.
+        unsafe { ctx.add_yield_request(vq.scoreField, is_internal) }
     });
 
     debug_assert!(
@@ -100,7 +100,7 @@ pub(crate) fn eval<'index>(
     };
 
     if let Some(id) = request_id {
-        bind_metric_request(ctx, id, it);
+        bind_yield_request(ctx, id, it);
     }
     Some(Evaluated::C(it))
 }
@@ -223,23 +223,23 @@ fn default_score_field(field: &ffi::FieldSpec) -> CString {
     CString::new(default).expect("no interior NUL: the name is read up to its first one")
 }
 
-/// Point the metric request `id` reserved at the freshly built iterator's
+/// Point the yield request `id` reserved at the freshly built iterator's
 /// own-key slot, and give the iterator the back-reference it uses to invalidate
 /// the handle when it is freed.
 ///
-/// A no-op for iterator types that yield no metric — the range branch can
+/// A no-op for iterator types that yield no value — the range branch can
 /// return a plain empty iterator, for instance — which drops `id` and leaves
 /// the request unbound.
-fn bind_metric_request(
+fn bind_yield_request(
     ctx: &mut QueryEvalContext,
-    id: MetricRequestId,
+    id: YieldRequestId,
     it: NonNull<ffi::QueryIterator>,
 ) {
     // SAFETY: `it` is a valid iterator freshly returned by `NewVectorIterator`.
     let iterator_type = unsafe { it.as_ref() }.type_;
 
     // Neither accessor can infer the key's borrow — both reach it through a
-    // type-erased header — and `bind_metric_request_key` leaves it free too, so
+    // type-erased header — and `bind_yield_request_key` leaves it free too, so
     // nothing constrains the lifetime inferred here. It is discharged by
     // discarding it: the key leaves this function only as a raw pointer, handed
     // straight back to the iterator that owns the slot, so no `RLookupKey`
@@ -250,10 +250,10 @@ fn bind_metric_request(
             // SAFETY: the discriminant says this is a vector top-k iterator, and
             // we hold it exclusively.
             let own_key = unsafe { vector_score_source::interop::own_key_ref(it) };
-            // SAFETY: `id` was reserved by `add_metric_request` on this same
+            // SAFETY: `id` was reserved by `add_yield_request` on this same
             // context; `own_key` points into the iterator, which outlives the
             // handle (it clears the handle's validity flag when freed).
-            let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
+            let handle = unsafe { ctx.bind_yield_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
             // long as the AST.
             unsafe { vector_score_source::interop::set_key_handle(it, Some(handle)) };
@@ -268,11 +268,11 @@ fn bind_metric_request(
             // than relied upon, as above.
             let own_key = unsafe { metric::own_key_ref(it) };
             // SAFETY: as above.
-            let handle = unsafe { ctx.bind_metric_request_key(id, own_key.as_ptr()) };
+            let handle = unsafe { ctx.bind_yield_request_key(id, own_key.as_ptr()) };
             // SAFETY: as above.
             unsafe { metric::set_key_handle(it, Some(handle)) };
         }
-        // Every other type yields no metric to bind.
+        // Every other type yields no value to bind.
         _ => {}
     }
 }

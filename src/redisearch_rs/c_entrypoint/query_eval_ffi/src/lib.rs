@@ -63,7 +63,7 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 ///
 /// 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
 ///    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
-///    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+///    `yieldRequests`/`config` fields) must stay valid and exclusively borrowed
 ///    for the duration of the call. The root's subtree must also satisfy
 ///    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
 ///    rewrites tokens in place and reads deferred INKEYS arguments.
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn QAST_Iterate(
         sctx,
         opts,
         status,
-        metricRequestsP: &raw mut qast.metricRequests,
+        yieldRequestsP: &raw mut qast.yieldRequests,
         tokenId: 0,
         // SAFETY: `spec` is a valid, non-null `IndexSpec` (precondition 3).
         docTable: unsafe { &raw mut (*spec).docs },

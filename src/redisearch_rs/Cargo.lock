@@ -1479,15 +1479,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
-name = "metrics_ffi"
-version = "0.0.1"
-dependencies = [
- "ffi",
- "index_result",
- "workspace_hack",
-]
-
-[[package]]
 name = "migration_stats"
 version = "0.0.1"
 dependencies = [
@@ -2281,7 +2272,6 @@ dependencies = [
  "inverted_index_ffi",
  "iterators_ffi",
  "language_ffi",
- "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "over_aligned_alloc",
@@ -2312,6 +2302,7 @@ dependencies = [
  "varint_ffi",
  "walkdir",
  "workspace_hack",
+ "yielded_values_ffi",
 ]
 
 [[package]]
@@ -2668,7 +2659,6 @@ dependencies = [
  "iterators_ffi",
  "language_ffi",
  "memchr",
- "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "proptest",
@@ -2692,6 +2682,7 @@ dependencies = [
  "varint_ffi",
  "wildcard",
  "workspace_hack",
+ "yielded_values_ffi",
 ]
 
 [[package]]
@@ -4298,6 +4289,15 @@ name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+
+[[package]]
+name = "yielded_values_ffi"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+ "index_result",
+ "workspace_hack",
+]
 
 [[package]]
 name = "yoke"

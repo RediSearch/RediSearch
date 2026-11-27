@@ -54,7 +54,7 @@ impl<'a> PartialEq for TermRecordCompare<'a> {
             && self.0.field_mask == other.0.field_mask
             && self.0.freq == other.0.freq
             && self.0.kind() == other.0.kind()
-            && self.0.metrics == other.0.metrics)
+            && self.0.yielded_values == other.0.yielded_values)
         {
             return false;
         }

@@ -428,7 +428,7 @@ fn index_size_reflects_added_vectors() {
     assert_eq!(source.index_size(), n);
 }
 
-/// A zero-filled lookup key. The metrics channel only compares the key's
+/// A zero-filled lookup key. The yielded values code only compares the key's
 /// address, so the fields are never read.
 const fn make_key() -> RLookupKey {
     RLookupKey {
@@ -446,8 +446,8 @@ const fn make_key() -> RLookupKey {
 /// attached under other keys.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn attach_score_metric_appends_when_absent() {
-    // Arrange: a keyed source and a result holding only the child's own metric.
+fn attach_yielded_score_appends_when_absent() {
+    // Arrange: a keyed source and a result holding only the child's own yielded value.
     let index = build_hnsw_index(3);
     let mut source = make_source(&index, 3, 3, 3);
     let mut own = make_key();
@@ -455,16 +455,23 @@ fn attach_score_metric_appends_when_absent() {
 
     let foreign = make_key();
     let mut result = RSIndexResult::build_virt().doc_id(1).build();
-    result.metrics.push_with_key(&foreign, 7.0);
+    result.yielded_values.push_with_key(&foreign, 7.0);
 
     // Act.
-    source.attach_score_metric(&mut result, 42.0);
+    source.attach_yielded_score(&mut result, 42.0);
 
-    // Assert: appended alongside the untouched foreign metric.
-    assert_eq!(result.metrics.len(), 2);
-    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 42.0);
+    // Assert: appended alongside the untouched foreign yielded value.
+    assert_eq!(result.yielded_values.len(), 2);
     assert_eq!(
-        result.metrics.find_by_key_mut(&foreign).unwrap().value(),
+        result.yielded_values.find_by_key_mut(&own).unwrap().value(),
+        42.0
+    );
+    assert_eq!(
+        result
+            .yielded_values
+            .find_by_key_mut(&foreign)
+            .unwrap()
+            .value(),
         7.0
     );
 }
@@ -474,7 +481,7 @@ fn attach_score_metric_appends_when_absent() {
 /// from an earlier document would leak onto a later one.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn attach_score_metric_overwrites_in_place() {
+fn attach_yielded_score_overwrites_in_place() {
     // Arrange: a result already carrying a stale score under our key, as if left
     // by a previous yield on the same storage.
     let index = build_hnsw_index(3);
@@ -483,35 +490,42 @@ fn attach_score_metric_overwrites_in_place() {
     *source.own_key = (&mut own as *mut RLookupKey).cast();
 
     let mut result = RSIndexResult::build_virt().doc_id(1).build();
-    result.metrics.push_with_key(&own, 1.0);
+    result.yielded_values.push_with_key(&own, 1.0);
 
     // Act.
-    source.attach_score_metric(&mut result, 99.0);
+    source.attach_yielded_score(&mut result, 99.0);
 
     // Assert: updated in place, not duplicated.
-    assert_eq!(result.metrics.len(), 1);
-    assert_eq!(result.metrics.find_by_key_mut(&own).unwrap().value(), 99.0);
+    assert_eq!(result.yielded_values.len(), 1);
+    assert_eq!(
+        result.yielded_values.find_by_key_mut(&own).unwrap().value(),
+        99.0
+    );
 }
 
-/// With no output key wired up (the metrics loader never ran), attaching a
+/// With no output key wired up (the yielded values loader never ran), attaching a
 /// score must be a no-op rather than pushing a keyless entry.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn attach_score_metric_without_key_is_noop() {
+fn attach_yielded_score_without_key_is_noop() {
     let index = build_hnsw_index(3);
     let source = make_source(&index, 3, 3, 3);
     assert!(source.own_key.is_null(), "no key wired by default");
 
     let mut result = RSIndexResult::build_virt().doc_id(1).build();
-    source.attach_score_metric(&mut result, 42.0);
-    assert_eq!(result.metrics.len(), 0, "no key means no metric attached");
+    source.attach_yielded_score(&mut result, 42.0);
+    assert_eq!(
+        result.yielded_values.len(),
+        0,
+        "no key means no metric attached"
+    );
 }
 
 /// Value the child writes under the shared key, distinct from every distance
 /// this suite's index can produce.
 const STALE_CHILD_SCORE: f64 = 777.0;
 
-/// Drives a trimmed filtered query in `mode` whose child yields a metric under
+/// Drives a trimmed filtered query in `mode` whose child yields a value under
 /// the source's own output key, and returns `(doc id, value under that key,
 /// numeric payload)` per result, asserting along the way that no second entry
 /// appeared for the key.
@@ -526,7 +540,7 @@ fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)>
 
     let mut child_result = RSIndexResult::build_metric(0.0).doc_id(0).build();
     child_result
-        .metrics
+        .yielded_values
         .push_with_key(&lookup_key, STALE_CHILD_SCORE);
     // Ids below `n` only: doc `n` sits on the query vector, so its distance is 0
     // and would be indistinguishable from the payload the carrier zeroes.
@@ -544,24 +558,28 @@ fn trimmed_shared_key_yields(mode: TopKMode) -> Vec<(t_docId, f64, Option<f64>)>
     let mut emitted = Vec::new();
     while let Some(result) = it.read().unwrap() {
         assert_eq!(
-            result.metrics.len(),
+            result.yielded_values.len(),
             1,
             "the score must land on the child's entry, not beside it"
         );
         let payload = result.as_numeric();
-        let value = result.metrics.find_by_key_mut(&lookup_key).unwrap().value();
+        let value = result
+            .yielded_values
+            .find_by_key_mut(&lookup_key)
+            .unwrap()
+            .value();
         emitted.push((result.doc_id, value, payload));
     }
 
     emitted
 }
 
-/// A nested KNN reusing the outer `AS` alias makes the child yield a metric
+/// A nested KNN reusing the outer `AS` alias makes the child yield a value
 /// under this source's own key: the distance must overwrite that entry and the
 /// numeric payload, leaving nothing of the child's value.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn batches_trimmed_shared_metric_key_carries_vector_score() {
+fn batches_trimmed_shared_yield_key_carries_vector_score() {
     // Squared-L2 distance DIM*(n-id)^2 per child id, best-first.
     assert_eq!(
         trimmed_shared_key_yields(TopKMode::Batches),
@@ -574,11 +592,11 @@ fn batches_trimmed_shared_metric_key_carries_vector_score() {
 }
 
 /// Adhoc-BF counterpart of
-/// [`batches_trimmed_shared_metric_key_carries_vector_score`]: the child-driven
-/// scan captures the child's metrics on its own path, so it needs its own check.
+/// [`batches_trimmed_shared_yield_key_carries_vector_score`]: the child-driven
+/// scan captures the child's yielded values on its own path, so it needs its own check.
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
-fn adhoc_trimmed_shared_metric_key_carries_vector_score() {
+fn adhoc_trimmed_shared_yield_key_carries_vector_score() {
     assert_eq!(
         trimmed_shared_key_yields(TopKMode::AdhocBF),
         vec![

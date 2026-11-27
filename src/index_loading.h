@@ -21,8 +21,8 @@
  * `search-enable-unstable-features`.
  *
  * A loading node carries `QueryNodeFlags_LoadsValue` and stores the alias on its
- * `opts.distField`; query evaluation reserves a metric under it and wraps the
- * clause's iterator so each hit carries the value. */
+ * `opts.distField`; query evaluation reserves a yield request under it and wraps
+ * the clause's iterator so each hit carries the value. */
 
 #define AS_ATTR "as"
 

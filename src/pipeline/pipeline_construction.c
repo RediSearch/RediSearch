@@ -203,16 +203,17 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 
-static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const QueryAST* ast, RLookup *rl, QueryError *status) {
-  MetricRequest *requests = ast->metricRequests;
+static ResultProcessor *getYieldedValuesLoaderRP(RedisSearchCtx *sctx, const QueryAST *ast,
+                                                 RLookup *rl, QueryError *status) {
+  YieldRequest *requests = ast->yieldRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
-    const char *name = requests[i].metric_name;
+    const char *name = requests[i].key_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetFieldWithLength(sctx->spec, name, name_len)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INDEX_EXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
-    // Set HIDDEN flag for internal metrics
+    // Set HIDDEN flag for internal yielded values
     uint32_t flags = requests[i].isInternal ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
 
     RLookupKey *key = RLookup_GetKey_WriteEx(rl, name, name_len, flags);
@@ -229,7 +230,7 @@ static ResultProcessor *getAdditionalMetricsRP(RedisSearchCtx* sctx, const Query
       *requests[i].key_handle->key_ptr = key;
     }
   }
-  return RPMetricsLoader_New();
+  return RPYieldedValuesLoader_New();
 }
 
 // Returns true if the pipeline requires an arrange step.
@@ -529,10 +530,10 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   PUSH_RP();
   RPQueryIterator_ConfigureAsyncIO(rpUpstream);
 
-  // Load results metrics according to their RLookup key.
-  // We need this RP only if metricRequests is not empty.
-  if (params->ast->metricRequests) {
-    rp = getAdditionalMetricsRP(params->common.sctx, params->ast, first, status);
+  // Load the values the iterators yielded into each row, under their RLookup keys.
+  // We need this RP only if yieldRequests is not empty.
+  if (params->ast->yieldRequests) {
+    rp = getYieldedValuesLoaderRP(params->common.sctx, params->ast, first, status);
     if (!rp) {
       return;
     }

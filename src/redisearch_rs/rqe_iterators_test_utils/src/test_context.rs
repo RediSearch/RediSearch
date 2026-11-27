@@ -234,7 +234,7 @@ impl TestContext {
     /// The `QueryEvalCtx` is lazily allocated on the first call and freed when
     /// the [`TestContext`] is dropped. Besides the real `sctx` and `docTable`,
     /// every pointer field that the `QueryEvalContext::new` safety contract
-    /// requires to be non-null (`opts`, `status`, `metricRequestsP`, `config`)
+    /// requires to be non-null (`opts`, `status`, `yieldRequestsP`, `config`)
     /// is backed by a valid, owned allocation, so the returned context is sound
     /// to wrap even for evaluation paths that read those fields.
     pub fn qctx(&self) -> ptr::NonNull<ffi::QueryEvalCtx> {
@@ -254,11 +254,11 @@ impl TestContext {
                 assert!(!opts.is_null(), "allocation failed");
 
                 let status = Box::into_raw(Box::new(QueryError::default()));
-                // A valid pointer to an empty (null) `MetricRequest` list head.
-                // Evaluating a node that yields a metric grows the list in
+                // A valid pointer to an empty (null) `YieldRequest` list head.
+                // Evaluating a node that yields a value grows the list in
                 // place; `QctxAlloc`'s teardown reclaims whatever it left.
-                let metric_requests_p =
-                    Box::into_raw(Box::new(ptr::null_mut::<rlookup::MetricRequest<'static>>()));
+                let yield_requests_p =
+                    Box::into_raw(Box::new(ptr::null_mut::<rlookup::YieldRequest<'static>>()));
                 let config = Box::into_raw(Box::new(IteratorsConfig::default()));
 
                 // `sctx` and `spec.docs` are real and outlive the
@@ -270,14 +270,14 @@ impl TestContext {
                 (*qctx).status = status
                     .cast::<query_error::opaque::OpaqueQueryError>()
                     .cast::<ffi::QueryError>();
-                (*qctx).metricRequestsP = metric_requests_p.cast();
+                (*qctx).yieldRequestsP = yield_requests_p.cast();
                 (*qctx).config = config.cast();
 
                 QctxAlloc {
                     qctx,
                     opts,
                     status,
-                    metric_requests_p,
+                    yield_requests_p,
                     config,
                 }
             }
@@ -1392,13 +1392,13 @@ impl TestContext {
 /// The `QueryEvalContext::new` safety contract requires every pointer field of
 /// the `QueryEvalCtx` to be valid and non-null, so the fields that the
 /// [`TestContext`]'s real `sctx`/`spec` don't already provide (`opts`,
-/// `status`, `metricRequestsP`, `config`) get their own backing allocations
+/// `status`, `yieldRequestsP`, `config`) get their own backing allocations
 /// here. All of them are released when the bundle is dropped.
 struct QctxAlloc {
     qctx: *mut ffi::QueryEvalCtx,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
+    yield_requests_p: *mut *mut rlookup::YieldRequest<'static>,
     config: *mut IteratorsConfig,
 }
 
@@ -1411,11 +1411,11 @@ impl Drop for QctxAlloc {
         unsafe {
             drop(Box::from_raw(self.config));
             // The list itself belongs to whatever was evaluated through this
-            // context, not to the allocation above: a node that yields a metric
+            // context, not to the allocation above: a node that yields a value
             // appends an entry, and an iterator that was actually built leaves
             // an owned key handle on it. Both are reclaimed here, as the query
             // AST's teardown does in production.
-            let head = *self.metric_requests_p;
+            let head = *self.yield_requests_p;
             if !head.is_null() {
                 for i in 0..ffi::array_len_func(head.cast()) as usize {
                     let handle = (*head.add(i)).key_handle;
@@ -1425,7 +1425,7 @@ impl Drop for QctxAlloc {
                 }
                 ffi::array_free(head.cast());
             }
-            drop(Box::from_raw(self.metric_requests_p));
+            drop(Box::from_raw(self.yield_requests_p));
             drop(Box::from_raw(self.status));
             dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
             dealloc(self.qctx.cast(), Layout::new::<ffi::QueryEvalCtx>());

@@ -13,10 +13,10 @@ use std::ptr::{self, NonNull};
 
 use super::aggregate::RawAggregateResult;
 use super::kind::RSResultKind;
-use super::metrics::MetricsVec;
 use super::offsets::{RSOffsetVector, RawOffsetSlice};
 use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
+use super::yielded_values::YieldedValues;
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
 
@@ -178,7 +178,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data,
-            metrics: MetricsVec::new(),
+            yielded_values: YieldedValues::new(),
             weight: self.weight,
             has_field_expiration: self.has_field_expiration,
         }
@@ -268,7 +268,7 @@ impl<R: Ref> RawTermResultBuilder<R> {
             field_mask: self.field_mask,
             freq: self.freq,
             data,
-            metrics: MetricsVec::new(),
+            yielded_values: YieldedValues::new(),
             weight: self.weight,
             has_field_expiration: self.has_field_expiration,
         }
@@ -301,11 +301,11 @@ pub struct RawIndexResult<'query, R: Ref> {
     /// The actual data of the result
     pub(super) data: RawResultData<'query, R>,
 
-    /// Holds an array of metrics yielded by the different iterators in the AST.
+    /// The values the iterators in the AST yielded for this hit.
     ///
     /// Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
     /// allocation when empty.
-    pub metrics: MetricsVec<'query>,
+    pub yielded_values: YieldedValues<'query>,
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
@@ -350,13 +350,13 @@ const _: () = {
     assert!(offset_of!(A, field_mask) == offset_of!(S, field_mask));
     assert!(offset_of!(A, freq) == offset_of!(S, freq));
     assert!(offset_of!(A, data) == offset_of!(S, data));
-    assert!(offset_of!(A, metrics) == offset_of!(S, metrics));
+    assert!(offset_of!(A, yielded_values) == offset_of!(S, yielded_values));
     assert!(offset_of!(A, weight) == offset_of!(S, weight));
 
     // The only `R`-dependent field is `data`; check its two instantiations
-    // have identical size. The `metrics` field no longer depends on `R` (its
+    // have identical size. The `yielded_values` field does not depend on `R` (its
     // `RLookupKey` lives under `'query`, never weakened), so it is the same
-    // `MetricsVec<'static>` type on both sides — nothing to assert there.
+    // `YieldedValues<'static>` type on both sides — nothing to assert there.
     assert!(
         size_of::<RawResultData<'static, Active<'static>>>()
             == size_of::<RawResultData<'static, Suspended>>()
@@ -375,7 +375,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             field_mask,
             freq,
             data,
-            metrics,
+            yielded_values,
             weight,
             has_field_expiration,
         } = self;
@@ -385,7 +385,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             field_mask: o_field_mask,
             freq: o_freq,
             data: o_data,
-            metrics: o_metrics,
+            yielded_values: o_yielded_values,
             weight: o_weight,
             has_field_expiration: o_has_field_expiration,
         } = other;
@@ -394,7 +394,7 @@ impl<'a> PartialEq for RSIndexResult<'a> {
             && field_mask == o_field_mask
             && freq == o_freq
             && data == o_data
-            && metrics == o_metrics
+            && yielded_values == o_yielded_values
             && weight == o_weight
             && has_field_expiration == o_has_field_expiration
     }
@@ -499,7 +499,7 @@ impl<'query> RawIndexResult<'query, Suspended> {
     /// then read invalid memory — undefined behaviour reached through entirely
     /// safe code.
     ///
-    /// The **query-pipeline** pointers — the `RLookupKey` in [`Self::metrics`]
+    /// The **query-pipeline** pointers — the `RLookupKey` in [`Self::yielded_values`]
     /// and a term record's borrowed query term — are *not* part of this
     /// obligation. They live under `'query`, were never weakened by
     /// suspension, and the `'query: 'a` bound guarantees they remain valid for
@@ -606,7 +606,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Reset an aggregate result for reuse, clearing children, frequency,
-    /// field mask, and metrics.
+    /// field mask, and yielded values.
     pub fn reset_aggregate(&mut self) {
         self.doc_id = 0;
         self.freq = 0;
@@ -621,7 +621,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             | RawResultData::Metric(_)
             | RawResultData::SparseScore(_) => {}
         }
-        self.metrics.reset();
+        self.yielded_values.reset();
     }
 
     /// Get the numeric value of this record without checking its kind. The caller must ensure
@@ -886,14 +886,14 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
         matches!(self.data, RawResultData::Term(_))
     }
 
-    /// Returns a mutable reference to the metrics collection.
-    pub const fn metrics_mut(&mut self) -> &mut MetricsVec<'query> {
-        &mut self.metrics
+    /// Returns a mutable reference to the yielded values.
+    pub const fn yielded_values_mut(&mut self) -> &mut YieldedValues<'query> {
+        &mut self.yielded_values
     }
 
-    /// Returns a reference to the metrics collection.
-    pub const fn metrics_ref(&self) -> &MetricsVec<'query> {
-        &self.metrics
+    /// Returns a reference to the yielded values.
+    pub const fn yielded_values(&self) -> &YieldedValues<'query> {
+        &self.yielded_values
     }
 
     /// Is this result some copy type
@@ -950,13 +950,14 @@ impl<'a> RSIndexResult<'a> {
     /// - `doc_id` is set to the child's doc_id (inherits, not accumulated)
     /// - `freq` is accumulated (`+=`) from the child's frequency
     /// - `field_mask` is OR'd with the child's field mask
-    /// - `child_metrics` are concatenated (moved) into this result's metrics
+    /// - `child_yielded_values` are concatenated (moved) into this result's yielded values
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
     ///
-    /// The caller must drain the child's metrics via `std::mem::take(&mut child.metrics)`
-    /// before calling this method, and pass them as `child_metrics`.
+    /// The caller must drain the child's yielded values via
+    /// `std::mem::take(&mut child.yielded_values)` before calling this method, and pass them as
+    /// `child_yielded_values`.
     ///
     /// # Panics
     ///
@@ -971,11 +972,11 @@ impl<'a> RSIndexResult<'a> {
     pub fn push_borrowed(
         &mut self,
         child: &'a RSIndexResult<'a>,
-        mut child_metrics: MetricsVec<'a>,
+        mut child_yielded_values: YieldedValues<'a>,
     ) {
         debug_assert!(
-            child.metrics.is_empty(),
-            "child metrics must be drained by caller via std::mem::take()"
+            child.yielded_values.is_empty(),
+            "child yielded values must be drained by caller via std::mem::take()"
         );
         if !self.is_aggregate() {
             return;
@@ -985,8 +986,8 @@ impl<'a> RSIndexResult<'a> {
         self.freq += child.freq;
         self.field_mask |= child.field_mask;
 
-        if !child_metrics.is_empty() {
-            self.metrics.concat(&mut child_metrics);
+        if !child_yielded_values.is_empty() {
+            self.yielded_values.concat(&mut child_yielded_values);
         }
 
         if let Some(agg) = self.as_aggregate_mut() {
@@ -1016,7 +1017,7 @@ impl<'a> RSIndexResult<'a> {
     ///
     /// The copy borrows no term or offsets from `self`: it stays valid after `self` is
     /// dropped, and after the iterators holding the terms `self` points at are dropped. It
-    /// still shares the [`metrics`](Self::metrics) keys, which belong to the query and are
+    /// still shares the [`yielded_values`](Self::yielded_values) keys, which belong to the query and are
     /// what the returned `'a` stands for, and the [`dmd`](Self::dmd) pointer, which it neither
     /// owns nor releases.
     pub fn to_owned(&self) -> RSIndexResult<'a> {
@@ -1026,7 +1027,7 @@ impl<'a> RSIndexResult<'a> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data.to_owned(),
-            metrics: self.metrics.clone(),
+            yielded_values: self.yielded_values.clone(),
             weight: self.weight,
             has_field_expiration: self.has_field_expiration,
         }
@@ -1037,7 +1038,7 @@ impl<'a> RSIndexResult<'a> {
     /// - The document ID will inherit the new child added
     /// - The child's frequency will contribute to this result
     /// - The child's field mask will contribute to this result's field mask
-    /// - If the child has metrics, then they will be concatenated to this result's metrics
+    /// - If the child has yielded values, then they will be concatenated to this result's own
     ///
     /// If this is not an aggregate result, then nothing happens. Use [`Self::is_aggregate()`] first
     /// to make sure this is an aggregate result.
@@ -1056,9 +1057,9 @@ impl<'a> RSIndexResult<'a> {
         self.freq += child.freq;
         self.field_mask |= child.field_mask;
 
-        let mut child_metrics = std::mem::take(&mut child.metrics);
-        if !child_metrics.is_empty() {
-            self.metrics.concat(&mut child_metrics);
+        let mut child_yielded_values = std::mem::take(&mut child.yielded_values);
+        if !child_yielded_values.is_empty() {
+            self.yielded_values.concat(&mut child_yielded_values);
         }
 
         if let Some(agg) = self.as_aggregate_mut() {

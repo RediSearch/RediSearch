@@ -788,18 +788,18 @@ mod via_resume {
         );
     }
 
-    /// Metrics survive the rebuild, because they cannot be rebuilt.
+    /// Yielded values survive the rebuild, because they cannot be rebuilt.
     ///
     /// Unlike `freq` and `field_mask`, which are copied from each child,
-    /// `RSIndexResult::push_borrowed` **moves** a child's metrics into the
+    /// `RSIndexResult::push_borrowed` **moves** a child's yielded values into the
     /// aggregate — so by the time a resume runs, the children hold none and
     /// there is nothing to re-accumulate. The rebuild therefore clears the
-    /// records alone and carries `metrics` across; reaching for
+    /// records alone and carries `yielded_values` across; reaching for
     /// `reset_aggregate` instead would read as tidier and would discard them for
     /// good, taking `__vector_score` out of a hybrid query's reply on every
     /// suspend/resume cycle.
     #[test]
-    fn resume_keeps_the_metrics_the_aggregate_gathered() {
+    fn resume_keeps_the_yielded_values_the_aggregate_gathered() {
         use rqe_iterators::metric::MetricSortedById;
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
@@ -817,7 +817,7 @@ mod via_resume {
         let first = union.read().expect("read failed").expect("doc 100");
         assert_eq!(first.doc_id, 100);
         assert_eq!(
-            first.metrics.len(),
+            first.yielded_values.len(),
             1,
             "the aggregate gathered the scored child's metric",
         );
@@ -830,14 +830,14 @@ mod via_resume {
         let current = union.current().expect("still on doc 100");
         assert_eq!(current.doc_id, 100);
         assert_eq!(
-            current.metrics.len(),
+            current.yielded_values.len(),
             1,
-            "the metric must survive a rebuild of the document it was gathered for",
+            "the yielded value must survive a rebuild of the document it was gathered for",
         );
     }
 
     /// Children whose union stays on doc 100 when the last one aborts: a
-    /// scored child carrying a metric, a sibling on the same document, and a
+    /// scored child carrying a yielded value, a sibling on the same document, and a
     /// doomed child ahead of the union.
     fn children_settling_back_onto_100<'index>() -> Vec<TypeErasedRQEIterator<'index>> {
         let scored = rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
@@ -856,18 +856,18 @@ mod via_resume {
         ]
     }
 
-    /// The same metric, but with a sibling that aborts, so the union goes
+    /// The same yielded value, but with a sibling that aborts, so the union goes
     /// through the settle rather than keeping its aggregate. The union stays on
-    /// its document, and the metric it gathered there must stay with it.
+    /// its document, and the yielded value it gathered there must stay with it.
     #[track_caller]
-    fn assert_settling_back_keeps_the_metrics<'index, U>(mut union: Box<U>)
+    fn assert_settling_back_keeps_the_yielded_values<'index, U>(mut union: Box<U>)
     where
         U: RQEIteratorBoxed<'index>,
     {
         let first = union.read().expect("read failed").expect("doc 100");
         assert_eq!(first.doc_id, 100);
         assert_eq!(
-            first.metrics.len(),
+            first.yielded_values.len(),
             1,
             "the aggregate gathered the scored child's metric",
         );
@@ -881,22 +881,22 @@ mod via_resume {
         let current = resumed.current().expect("still on doc 100");
         assert_eq!(current.doc_id, 100);
         assert_eq!(
-            current.metrics.len(),
+            current.yielded_values.len(),
             1,
-            "the metric must survive the settle",
+            "the yielded value must survive the settle",
         );
     }
 
     #[test]
-    fn settling_back_onto_the_same_document_keeps_the_metrics() {
-        assert_settling_back_keeps_the_metrics(Box::new(UnionFullHeap::new(
+    fn settling_back_onto_the_same_document_keeps_the_yielded_values() {
+        assert_settling_back_keeps_the_yielded_values(Box::new(UnionFullHeap::new(
             children_settling_back_onto_100(),
         )));
     }
 
     #[test]
-    fn quick_settling_back_onto_the_same_document_keeps_the_metrics() {
-        assert_settling_back_keeps_the_metrics(Box::new(UnionQuickHeap::new(
+    fn quick_settling_back_onto_the_same_document_keeps_the_yielded_values() {
+        assert_settling_back_keeps_the_yielded_values(Box::new(UnionQuickHeap::new(
             children_settling_back_onto_100(),
         )));
     }
@@ -942,9 +942,9 @@ mod via_resume {
     /// document.
     ///
     /// When `first` runs out, the heap's `pop` promotes its last entry, so the
-    /// scored child — the last slot — backs doc 20 and its metric is moved into
+    /// scored child — the last slot — backs doc 20 and its yielded value is moved into
     /// the union. A rebuild that picked by slot would republish `plain` instead,
-    /// beside a metric that `plain` never contributed.
+    /// beside a yielded value that `plain` never contributed.
     #[test]
     fn quick_resume_keeps_the_backer_it_reported() {
         use index_result::RSResultKind;
@@ -964,7 +964,7 @@ mod via_resume {
         fn backer_kind<'index>(union: &mut impl RQEIterator<'index>) -> RSResultKind {
             let current = union.current().expect("positioned on doc 20");
             assert_eq!(current.doc_id, 20);
-            assert_eq!(current.metrics.len(), 1, "the scored child's metric");
+            assert_eq!(current.yielded_values.len(), 1, "the scored child's metric");
             let aggregate = current.as_aggregate().expect("a union result");
             assert_eq!(aggregate.len(), 1, "quick mode reports one child");
             aggregate.get(0).expect("one entry").kind()
@@ -984,7 +984,7 @@ mod via_resume {
         assert_eq!(
             backer_kind(&mut union),
             RSResultKind::Metric,
-            "the entry must stay with the child whose metric the union carries",
+            "the entry must stay with the child whose yielded value the union carries",
         );
     }
 
@@ -1654,7 +1654,7 @@ mod via_resume {
         freq: u32,
         field_mask: rqe_core::FieldMask,
         entries: usize,
-        metrics: usize,
+        yielded_values: usize,
     }
 
     fn published<'index>(it: &mut impl RQEIterator<'index>) -> Option<Published> {
@@ -1663,7 +1663,7 @@ mod via_resume {
             freq: r.freq,
             field_mask: r.field_mask,
             entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
-            metrics: r.metrics.len(),
+            yielded_values: r.yielded_values.len(),
         })
     }
 

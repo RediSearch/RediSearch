@@ -12,7 +12,7 @@
 //!
 //! A vector top-k iterator yields the distance under a lookup key that is only
 //! resolved during pipeline construction, long after the iterator is built. The
-//! query evaluator therefore hands the metric request a pointer to the
+//! query evaluator therefore hands the yield request a pointer to the
 //! iterator's own slot, and hands the iterator back the handle it invalidates
 //! when freed. Both sides hold nothing but the erased [`QueryIterator`] header
 //! by then, hence these two accessors.

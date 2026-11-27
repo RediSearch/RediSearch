@@ -28,7 +28,7 @@ pub struct MockQueryEvalCtx {
     spec: *mut ffi::IndexSpec,
     opts: *mut ffi::RSSearchOptions,
     status: *mut QueryError,
-    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
+    yield_requests_p: *mut *mut rlookup::YieldRequest<'static>,
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
     qctx: *mut ffi::QueryEvalCtx,
@@ -51,12 +51,12 @@ impl Drop for MockQueryEvalCtx {
             // `rqe_iterators_test_utils::TestContext` instead, whose teardown
             // does free the list.
             debug_assert!(
-                (*self.metric_requests_p).is_null(),
-                "this mock cannot free an appended metric-request list"
+                (*self.yield_requests_p).is_null(),
+                "this mock cannot free an appended yield-request list"
             );
             dealloc(
-                self.metric_requests_p.cast(),
-                Layout::new::<*mut rlookup::MetricRequest<'static>>(),
+                self.yield_requests_p.cast(),
+                Layout::new::<*mut rlookup::YieldRequest<'static>>(),
             );
             dealloc(self.doc_table.cast(), Layout::new::<ffi::DocTable>());
             drop(Box::from_raw(self.config));
@@ -100,17 +100,17 @@ impl MockQueryEvalCtx {
 
             let status = Box::into_raw(Box::new(QueryError::default()));
 
-            // The head of the metric-request list, left null: the list is a
+            // The head of the yield-request list, left null: the list is a
             // tracked array, whose empty state is a null head and whose
             // non-empty one is an interior pointer just past a length header.
             // Seeding it with a plain allocation would look non-empty while
             // having no header, so the first append would read and reallocate
             // from outside it. Appending through this mock is refused outright
             // in `drop`, for want of a C symbol to free the result with.
-            let metric_requests_p =
-                alloc_zeroed(Layout::new::<*mut rlookup::MetricRequest<'static>>())
-                    .cast::<*mut rlookup::MetricRequest<'static>>();
-            assert!(!metric_requests_p.is_null());
+            let yield_requests_p =
+                alloc_zeroed(Layout::new::<*mut rlookup::YieldRequest<'static>>())
+                    .cast::<*mut rlookup::YieldRequest<'static>>();
+            assert!(!yield_requests_p.is_null());
 
             let doc_table = alloc_zeroed(Layout::new::<ffi::DocTable>()).cast::<ffi::DocTable>();
             assert!(!doc_table.is_null());
@@ -130,7 +130,7 @@ impl MockQueryEvalCtx {
             (*qctx).status = status
                 .cast::<query_error::opaque::OpaqueQueryError>()
                 .cast::<ffi::QueryError>();
-            (*qctx).metricRequestsP = metric_requests_p.cast();
+            (*qctx).yieldRequestsP = yield_requests_p.cast();
             (*qctx).docTable = doc_table;
             (*qctx).reqFlags = flags.bits();
             (*qctx).config = (config as *mut IteratorsConfig).cast();
@@ -143,7 +143,7 @@ impl MockQueryEvalCtx {
                 spec,
                 opts,
                 status,
-                metric_requests_p,
+                yield_requests_p,
                 doc_table,
                 config,
                 qctx,
@@ -160,8 +160,8 @@ impl MockQueryEvalCtx {
         self.sctx
     }
 
-    pub fn metric_requests_p(&self) -> *mut *mut rlookup::MetricRequest<'static> {
-        self.metric_requests_p
+    pub fn yield_requests_p(&self) -> *mut *mut rlookup::YieldRequest<'static> {
+        self.yield_requests_p
     }
 
     pub fn doc_table_ptr(&self) -> *mut ffi::DocTable {

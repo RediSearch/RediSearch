@@ -10,8 +10,8 @@
 mod bindings;
 mod load_document;
 mod lookup;
-mod metric_request;
 mod row;
+mod yield_request;
 
 // Link both Rust-provided and C-provided symbols
 #[cfg(all(test, feature = "unittest"))]
@@ -31,6 +31,6 @@ pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
     RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
 };
-pub use metric_request::{KeyHandleSlot, MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;
 pub use row::opaque::OpaqueRLookupRow;
+pub use yield_request::{KeyHandleSlot, RLookupKeyHandle, YieldRequest};

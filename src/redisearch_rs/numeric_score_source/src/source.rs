@@ -480,14 +480,14 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.timeout.check_timeout()
     }
 
-    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    fn attach_yielded_score<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
     where
         Self: 'r,
     {
         // Unused: the numeric field value is the ordering key and is carried by
         // the source-built result ([`yields_child_record`] is `false`), so the
         // iterator never takes the child-record yield path that would call this.
-        // TODO: Production metric-key wiring is tracked by MOD-14946.
+        // TODO: Production yield-key wiring is tracked by MOD-14946.
     }
 
     fn yields_child_record(&self) -> bool {

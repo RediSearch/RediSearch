@@ -144,51 +144,6 @@ typedef uint8_t BitFlags_RSResultKind__u8;
 #endif /* BITFLAGS_RSRESULTKIND__U8_DEFINED */
 
 /**
- * A single metric: a borrowed key and a numeric value.
- */
-typedef struct MetricEntry {
-  /**
-   * Borrowed reference to the lookup key that identifies this metric,
-   * or `None` when the metric has no associated key.
-   *
-   * The key always lives under the `'query` lifetime: it belongs to the
-   * query pipeline (the `RLookupKey`), not to the inverted index, so it is
-   * never weakened by the `Active`/`Suspended` ref-mode transitions —
-   * unlike the index-backed pointers of a result, it stays a genuine
-   * `&'query` borrow across the whole suspend/resume cycle. That is why it
-   * is modelled as a plain reference rather than a ref-mode-parametrised
-   * `SharedPtr`.
-   *
-   * Stored as `Option<&'query RLookupKey>` so "no key" is `None`; the
-   * `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
-   */
-  const RLookupKey *key;
-  /**
-   * The metric value (e.g. vector distance, score).
-   */
-  double value;
-} MetricEntry;
-
-/**
- * A read-only, C-visible slice view over the entries of a [`MetricsVec`].
- *
- * Returned by [`MetricsVec::as_metrics_slice`] for zero-copy iteration
- * from C. The pointed-to data is valid as long as the originating
- * [`MetricsVec`] is not mutated or dropped.
- */
-typedef struct MetricsSlice {
-  /**
-   * Pointer to the first [`MetricEntry`].  May be dangling (but not null)
-   * when `len == 0`.
-   */
-  const struct MetricEntry *data;
-  /**
-   * Number of entries.
-   */
-  size_t len;
-} MetricsSlice;
-
-/**
  * The [`Active`] instantiation of [`RawOffsetSlice`]: a borrowed view whose data
  * pointer is a live `&'a [u8]`.
  */
@@ -376,27 +331,6 @@ typedef struct RawOwnedAggregateResult_Active {
 } RawOwnedAggregateResult_Active;
 #endif /* RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED */
 
-#ifndef THINVEC_METRICENTRY__U64_DEFINED
-#define THINVEC_METRICENTRY__U64_DEFINED
-/**
- * See the crate's top level documentation for a description of this type.
- */
-typedef struct ThinVec_MetricEntry__u64 {
-  struct Header_u64 *ptr;
-} ThinVec_MetricEntry__u64;
-#endif /* THINVEC_METRICENTRY__U64_DEFINED */
-
-/**
- * A dynamically-sized collection of [`MetricEntry`] values.
- *
- * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
- * the allocation header. `MetricsVec::new()` does not allocate.
- *
- * `repr(transparent)` over `ThinVec` means this type is pointer-sized
- * and can be embedded directly in `repr(C)` structs.
- */
-typedef struct ThinVec_MetricEntry__u64 MetricsVec;
-
 #ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
 #define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
@@ -569,6 +503,53 @@ typedef union RawResultData_Active {
  */
 typedef union RawResultData_Active RSResultData;
 
+#ifndef THINVEC_YIELDEDVALUE__U64_DEFINED
+#define THINVEC_YIELDEDVALUE__U64_DEFINED
+/**
+ * See the crate's top level documentation for a description of this type.
+ */
+typedef struct ThinVec_YieldedValue__u64 {
+  struct Header_u64 *ptr;
+} ThinVec_YieldedValue__u64;
+#endif /* THINVEC_YIELDEDVALUE__U64_DEFINED */
+
+/**
+ * A single yielded value: a borrowed key and a numeric value.
+ */
+typedef struct YieldedValue {
+  /**
+   * Borrowed reference to the lookup key the value is written under, or
+   * `None` when the value has no associated key.
+   *
+   * The key always lives under the `'query` lifetime: it belongs to the
+   * query pipeline (the `RLookupKey`), not to the inverted index, so it is
+   * never weakened by the `Active`/`Suspended` ref-mode transitions —
+   * unlike the index-backed pointers of a result, it stays a genuine
+   * `&'query` borrow across the whole suspend/resume cycle. That is why it
+   * is modelled as a plain reference rather than a ref-mode-parametrised
+   * `SharedPtr`.
+   *
+   * Stored as `Option<&'query RLookupKey>` so "no key" is `None`; the
+   * `NonNull` niche of `&T` keeps the C ABI as a nullable `RLookupKey *`.
+   */
+  const RLookupKey *key;
+  /**
+   * The value (e.g. vector distance, score).
+   */
+  double value;
+} YieldedValue;
+
+/**
+ * A dynamically-sized collection of [`YieldedValue`]s.
+ *
+ * Backed by a [`ThinVec`] — a single-pointer vec that stores len/cap in
+ * the allocation header. `YieldedValues::new()` does not allocate.
+ *
+ * `repr(transparent)` over `ThinVec` means this type is pointer-sized
+ * and can be embedded directly in `repr(C)` structs.
+ */
+typedef struct ThinVec_YieldedValue__u64 YieldedValues;
+
 #ifndef RAWINDEXRESULT_ACTIVE_DEFINED
 #define RAWINDEXRESULT_ACTIVE_DEFINED
 /**
@@ -602,12 +583,12 @@ typedef struct RawIndexResult_Active {
    */
   union RawResultData_Active data;
   /**
-   * Holds an array of metrics yielded by the different iterators in the AST.
+   * The values the iterators in the AST yielded for this hit.
    *
    * Backed by [`ThinVec`](thin_vec::ThinVec) — pointer-sized, no
    * allocation when empty.
    */
-  MetricsVec metrics;
+  YieldedValues yieldedValues;
   /**
    * Relative weight for scoring calculations. This is derived from the result's iterator weight
    */
@@ -627,6 +608,25 @@ typedef struct RawIndexResult_Active {
  * counterpart is forthcoming.
  */
 typedef struct RawIndexResult_Active RSIndexResult;
+
+/**
+ * A read-only, C-visible slice view over the entries of a [`YieldedValues`].
+ *
+ * Returned by [`YieldedValues::as_c_slice`] for zero-copy iteration
+ * from C. The pointed-to data is valid as long as the originating
+ * [`YieldedValues`] is not mutated or dropped.
+ */
+typedef struct YieldedValuesSlice {
+  /**
+   * Pointer to the first [`YieldedValue`].  May be dangling (but not null)
+   * when `len == 0`.
+   */
+  const struct YieldedValue *data;
+  /**
+   * Number of entries.
+   */
+  size_t len;
+} YieldedValuesSlice;
 /* Backward-compatible aliases for the variant tag enumerators. cheadergen
  * mangles them with the underlying generic+instantiation name; the C codebase
  * uses the unsuffixed forms. */

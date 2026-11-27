@@ -657,7 +657,7 @@ impl TagFixture {
         }
 
         // SAFETY: `context.qctx()` returns a valid, exclusively-owned
-        // `QueryEvalCtx` (with real `status`, `config` and metric-request
+        // `QueryEvalCtx` (with real `status`, `config` and yield-request
         // head), upholding the `QueryEvalContext::new` invariants.
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
         if opts.in_not_sub_tree {

@@ -8,8 +8,8 @@
 */
 
 use index_result::{
-    MetricsVec, RSBorrowedAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector,
-    RSOwnedAggregateResult, RSResultKind, RSResultKindMask,
+    RSBorrowedAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector,
+    RSOwnedAggregateResult, RSResultKind, RSResultKindMask, YieldedValues,
 };
 use query_term::RSQueryTerm;
 use rqe_core::RS_FIELDMASK_ALL;
@@ -95,7 +95,7 @@ fn pushing_to_index_result() {
     assert_eq!(ir.freq, 0);
     assert_eq!(ir.field_mask, 0);
 
-    ir.push_borrowed(&result_virt, MetricsVec::new());
+    ir.push_borrowed(&result_virt, YieldedValues::new());
     assert_eq!(ir.doc_id, 2, "should inherit doc id of the child");
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -112,7 +112,7 @@ fn pushing_to_index_result() {
         )
     );
 
-    ir.push_borrowed(&result_with_frequency, MetricsVec::new());
+    ir.push_borrowed(&result_with_frequency, YieldedValues::new());
     assert_eq!(ir.doc_id, 2);
     assert_eq!(ir.kind(), RSResultKind::Union);
     assert_eq!(ir.weight, 1.0);
@@ -128,7 +128,7 @@ fn to_owned_an_aggregate_index_result() {
         .weight(3.0)
         .build();
 
-    ir.push_borrowed(&num_rec, MetricsVec::new());
+    ir.push_borrowed(&num_rec, YieldedValues::new());
 
     let mut ir_copy = ir.to_owned();
 
@@ -145,7 +145,7 @@ fn to_owned_an_aggregate_index_result() {
         1,
         "should use as minimal capacity as needed"
     );
-    assert_eq!(ir.metrics, ir_copy.metrics);
+    assert_eq!(ir.yielded_values, ir_copy.yielded_values);
     assert_eq!(ir.weight, ir_copy.weight);
     assert!(ir_copy.is_copy());
 
@@ -159,7 +159,7 @@ fn to_owned_an_aggregate_index_result() {
         assert_eq!(ir_first.field_mask, ir_clone_first.field_mask);
         assert_eq!(ir_first.freq, ir_clone_first.freq);
         ir_first.assert_data(ir_clone_first);
-        assert_eq!(ir_first.metrics, ir_clone_first.metrics);
+        assert_eq!(ir_first.yielded_values, ir_clone_first.yielded_values);
         assert_eq!(ir_first.weight, ir_clone_first.weight);
     }
 
@@ -231,7 +231,7 @@ fn pushing_a_borrowed_child_to_an_owned_aggregate_panics() {
     let child = RSIndexResult::build_metric(1.0).doc_id(7).build();
     let mut owned = RSIndexResult::build_hybrid_metric().build();
 
-    owned.push_borrowed(&child, MetricsVec::new());
+    owned.push_borrowed(&child, YieldedValues::new());
 }
 
 /// The mirror image: a borrowed aggregate never frees its children, so taking
@@ -252,7 +252,7 @@ fn pushing_an_owned_child_to_a_borrowed_aggregate_panics() {
 fn mutably_reaching_a_borrowed_child_panics() {
     let child = RSIndexResult::build_numeric(1.0).doc_id(7).build();
     let mut borrowed = RSIndexResult::build_union(1).build();
-    borrowed.push_borrowed(&child, MetricsVec::new());
+    borrowed.push_borrowed(&child, YieldedValues::new());
 
     let _ = borrowed.get_mut(0);
 }
@@ -350,7 +350,7 @@ fn get_unchecked_agrees_with_get_on_both_payloads() {
     assert_eq!(unsafe { owned.get_unchecked(0) }, owned.get(0).unwrap());
 
     let mut union = RSIndexResult::build_union(1).build();
-    union.push_borrowed(&child, MetricsVec::new());
+    union.push_borrowed(&child, YieldedValues::new());
     let agg = union.as_aggregate().unwrap();
     // SAFETY: index 0 is in bounds, one child was just pushed.
     assert_eq!(unsafe { agg.get_unchecked(0) }, agg.get(0).unwrap());
@@ -435,7 +435,7 @@ fn borrowed_aggregates_compare_by_the_children_they_point_at() {
 fn a_borrowed_and_an_owned_aggregate_are_never_equal() {
     let child = RSIndexResult::build_metric(10.0).doc_id(2).build();
     let mut union = RSIndexResult::build_union(1).build();
-    union.push_borrowed(&child, MetricsVec::new());
+    union.push_borrowed(&child, YieldedValues::new());
 
     let mut hybrid = RSIndexResult::build_hybrid_metric().build();
     hybrid.push_boxed(Box::new(
@@ -458,7 +458,7 @@ fn a_borrowed_backed_enum_forwards_to_its_payload() {
 
     assert!(union.as_aggregate().unwrap().is_empty());
 
-    union.push_borrowed(&child, MetricsVec::new());
+    union.push_borrowed(&child, YieldedValues::new());
 
     let agg = union.as_aggregate().unwrap();
     assert!(!agg.is_empty());
@@ -466,7 +466,7 @@ fn a_borrowed_backed_enum_forwards_to_its_payload() {
     assert_eq!(agg.iter().collect::<Vec<_>>(), vec![&child]);
 
     let mut twin = RSIndexResult::build_union(3).build();
-    twin.push_borrowed(&child, MetricsVec::new());
+    twin.push_borrowed(&child, YieldedValues::new());
     assert_eq!(agg, twin.as_aggregate().unwrap());
 
     let copy = agg.to_owned();
@@ -501,7 +501,7 @@ fn an_owned_backed_enum_forwards_to_its_payload() {
 fn resetting_through_the_enum_reaches_both_payloads() {
     let child = RSIndexResult::build_numeric(10.0).doc_id(2).build();
     let mut union = RSIndexResult::build_union(1).build();
-    union.push_borrowed(&child, MetricsVec::new());
+    union.push_borrowed(&child, YieldedValues::new());
 
     let agg = union.as_aggregate_mut().unwrap();
     agg.reset();
@@ -529,7 +529,7 @@ fn to_owned_a_numeric_index_result() {
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
     ir.assert_data(&ir_copy);
-    assert_eq!(ir.metrics, ir_copy.metrics);
+    assert_eq!(ir.yielded_values, ir_copy.yielded_values);
     assert_eq!(ir.weight, ir_copy.weight);
 
     // Make sure the values are not linked
@@ -556,7 +556,7 @@ fn to_owned_a_virtual_index_result() {
     assert_eq!(ir.field_mask, ir_copy.field_mask);
     assert_eq!(ir.freq, ir_copy.freq);
     ir.assert_data(&ir_copy);
-    assert_eq!(ir.metrics, ir_copy.metrics);
+    assert_eq!(ir.yielded_values, ir_copy.yielded_values);
     assert_eq!(ir.weight, ir_copy.weight);
 }
 
@@ -589,7 +589,7 @@ fn to_owned_a_term_index_result() {
         ir.as_term().unwrap().query_term(),
         ir_copy.as_term().unwrap().query_term()
     );
-    assert_eq!(ir.metrics, ir_copy.metrics);
+    assert_eq!(ir.yielded_values, ir_copy.yielded_values);
     assert_eq!(ir.weight, ir_copy.weight);
 
     // Make sure the values are not linked
@@ -624,7 +624,7 @@ fn single_child_aggregate_always_true() {
     // An intersection with a single numeric child — no proximity check needed.
     let child = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(1).build();
-    ir.push_borrowed(&child, MetricsVec::new());
+    ir.push_borrowed(&child, YieldedValues::new());
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -645,8 +645,8 @@ fn in_order_no_slop_succeeds_when_order_exists() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1, YieldedValues::new());
+    ir.push_borrowed(&t2, YieldedValues::new());
     assert!(ir.is_within_range(None, true));
 }
 
@@ -666,8 +666,8 @@ fn in_order_no_slop_fails_when_order_impossible() {
         .doc_id(1)
         .build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1, YieldedValues::new());
+    ir.push_borrowed(&t2, YieldedValues::new());
     assert!(!ir.is_within_range(None, true));
 }
 
@@ -677,8 +677,8 @@ fn purely_numeric_children_always_true() {
     let child1 = RSIndexResult::build_numeric(1.0).doc_id(1).build();
     let child2 = RSIndexResult::build_numeric(2.0).doc_id(1).build();
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&child1, MetricsVec::new());
-    ir.push_borrowed(&child2, MetricsVec::new());
+    ir.push_borrowed(&child1, YieldedValues::new());
+    ir.push_borrowed(&child2, YieldedValues::new());
     assert!(ir.is_within_range(Some(0), false));
     assert!(ir.is_within_range(Some(0), true));
 }
@@ -704,8 +704,8 @@ fn full_test_mirrors_cpp_testdistance() {
         .build();
 
     let mut ir = RSIndexResult::build_intersect(2).build();
-    ir.push_borrowed(&t1, MetricsVec::new());
-    ir.push_borrowed(&t2, MetricsVec::new());
+    ir.push_borrowed(&t1, YieldedValues::new());
+    ir.push_borrowed(&t2, YieldedValues::new());
 
     // Unordered: slop=1 is true because (vw1=9, vw2=7) has span=1.
     assert!(!ir.is_within_range(Some(0), false));

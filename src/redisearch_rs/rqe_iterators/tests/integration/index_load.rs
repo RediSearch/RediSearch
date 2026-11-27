@@ -56,11 +56,13 @@ fn bind<'index, I: RQEIterator<'index>>(it: &mut IndexLoad<'index, I>, key: &mut
 }
 
 /// The single `(key, value)` metric `result` carries.
-fn sole_metric(result: &RSIndexResult<'_>) -> (*const ffi::RLookupKey, f64) {
-    let metrics = result.metrics_ref();
-    assert_eq!(metrics.len(), 1, "expected exactly one metric");
-    let entry = metrics.get(0).unwrap();
-    let key = entry.key().expect("the metric must carry the bound key");
+fn sole_yielded_value(result: &RSIndexResult<'_>) -> (*const ffi::RLookupKey, f64) {
+    let values = result.yielded_values();
+    assert_eq!(values.len(), 1, "expected exactly one yielded value");
+    let entry = values.get(0).unwrap();
+    let key = entry
+        .key()
+        .expect("the yielded value must carry the bound key");
     (key as *const _, entry.value())
 }
 
@@ -90,7 +92,7 @@ fn read_attaches_each_hits_value() {
     for (doc_id, value) in [(2, 20.0), (5, 50.0), (9, 90.0)] {
         let result = it.read().unwrap().unwrap();
         assert_eq!(result.doc_id, doc_id);
-        assert_eq!(sole_metric(result), (fake_key_ptr(&key), value));
+        assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), value));
     }
     assert!(it.read().unwrap().is_none());
     assert!(it.at_eof());
@@ -106,14 +108,14 @@ fn skip_to_attaches_found_and_not_found_hits() {
     let Some(SkipToOutcome::Found(result)) = it.skip_to(5).unwrap() else {
         panic!("doc 5 is in the child");
     };
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 50.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 50.0));
 
     // A parent keeps a `NotFound` hit as its next candidate.
     let Some(SkipToOutcome::NotFound(result)) = it.skip_to(7).unwrap() else {
         panic!("doc 9 follows doc 7");
     };
     assert_eq!(result.doc_id, 9);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 90.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 90.0));
 
     assert!(it.skip_to(10).unwrap().is_none());
 }
@@ -124,11 +126,11 @@ fn unbound_key_pushes_nothing() {
         ContractChecker::new(IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap());
 
     let result = it.read().unwrap().unwrap();
-    assert!(result.metrics_ref().is_empty());
+    assert!(result.yielded_values().is_empty());
     let Some(SkipToOutcome::Found(result)) = it.skip_to(2).unwrap() else {
         panic!("doc 2 is in the child");
     };
-    assert!(result.metrics_ref().is_empty());
+    assert!(result.yielded_values().is_empty());
 }
 
 #[test]
@@ -138,21 +140,21 @@ fn non_numeric_hit_pushes_nothing() {
     bind(&mut it, &mut key);
 
     let result = it.read().unwrap().unwrap();
-    assert!(result.metrics_ref().is_empty());
+    assert!(result.yielded_values().is_empty());
 }
 
 #[test]
-fn metrics_are_replaced_not_accumulated() {
+fn yielded_values_are_replaced_not_accumulated() {
     let mut key = FakeKey::new();
     let mut it = IndexLoad::new(Mock::new_with_values([1, 2], [1.0, 2.0])).unwrap();
     bind(&mut it, &mut key);
 
-    // A metric left on the shared result by an earlier hit must not leak into
+    // A yielded value left on the shared result by an earlier hit must not leak into
     // the next one.
     let result = it.read().unwrap().unwrap();
-    result.metrics_mut().push_without_key(-1.0);
+    result.yielded_values_mut().push_without_key(-1.0);
     let result = it.read().unwrap().unwrap();
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
 }
 
 #[test]
@@ -172,7 +174,7 @@ fn value_comes_from_the_aggregate_child_that_matched() {
     for (doc_id, value) in [(1, 10.0), (2, 20.0), (3, 30.0)] {
         let result = it.read().unwrap().unwrap();
         assert_eq!(result.doc_id, doc_id);
-        assert_eq!(sole_metric(result), (fake_key_ptr(&key), value));
+        assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), value));
     }
 }
 
@@ -208,7 +210,7 @@ fn revalidate_moved_reattaches() {
         panic!("the child moved onto doc 2");
     };
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
 }
 
 #[test]
@@ -221,9 +223,9 @@ fn resume_moved_reattaches() {
     let mut it = Box::new(IndexLoad::new(child).unwrap());
     bind(&mut it, &mut key);
 
-    // A parent takes the metrics of the hit it consumed.
+    // A parent takes the yielded values of the hit it consumed.
     let result = it.read().unwrap().unwrap();
-    drop(std::mem::take(result.metrics_mut()));
+    drop(std::mem::take(result.yielded_values_mut()));
 
     data.set_revalidate_result(MockRevalidateResult::Move);
     let ResumeOutcome::Moved(mut it) = it.suspend().resume(&guard).unwrap() else {
@@ -231,7 +233,7 @@ fn resume_moved_reattaches() {
     };
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 2.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 2.0));
 }
 
 #[test]
@@ -405,7 +407,7 @@ fn key_slot_survives_profiling() {
     unsafe { *handle.key_ptr = key.as_ptr() };
 
     let result = profiled.read().unwrap().unwrap();
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 40.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 40.0));
 
     drop(profiled);
     assert!(!handle.is_valid);
@@ -419,7 +421,7 @@ fn read_with_threshold_attaches() {
 
     let threshold = MinCompetitiveScore::new(1.0).expect("a finite threshold applies");
     let result = it.read_with_threshold(threshold).unwrap().unwrap();
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 5.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 5.0));
 }
 
 /// A full union over a loading child and a sibling that aborts or moves on
@@ -457,7 +459,7 @@ fn union_keeps_the_value_when_a_sibling_changes_on_revalidate(
 
     let result = it.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
 
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert!(
@@ -466,11 +468,11 @@ fn union_keeps_the_value_when_a_sibling_changes_on_revalidate(
     );
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
 
     let result = it.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 2);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 20.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 20.0));
 }
 
 #[rstest]
@@ -484,12 +486,12 @@ fn union_keeps_the_value_when_a_sibling_changes_on_resume(
     let mut it = union_over_loading_child(&mut key, sibling_outcome);
 
     let result = it.read().unwrap().unwrap();
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
 
     let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
         .unwrap()
         .expect_ok();
     let result = it.current().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(sole_metric(result), (fake_key_ptr(&key), 10.0));
+    assert_eq!(sole_yielded_value(result), (fake_key_ptr(&key), 10.0));
 }

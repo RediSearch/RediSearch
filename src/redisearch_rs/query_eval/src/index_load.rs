@@ -13,13 +13,13 @@
 //! stores the alias on its
 //! [`dist_field`](query_types::QueryNodeOptions::dist_field), and admits it
 //! only on numeric nodes while unstable features are enabled. Evaluation
-//! reserves a metric request under the alias and wraps the clause's iterator
+//! reserves a yield request under the alias and wraps the clause's iterator
 //! in an [`IndexLoad`] decorator bound
 //! to it.
 
 use std::{ffi::c_char, ptr::NonNull};
 
-use query::MetricRequestId;
+use query::YieldRequestId;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
 use rqe_iterators::{
@@ -29,7 +29,7 @@ use rqe_iterators::{
 
 use crate::{Evaluated, QueryEvalContext, QueryNodeRef};
 
-/// Reserve the metric request of `node`'s alias, if it has one.
+/// Reserve the yield request of `node`'s alias, if it has one.
 ///
 /// Reserved before anything can find the clause empty, so the pipeline learns
 /// the alias even when nothing matches and the request stays unbound.
@@ -41,7 +41,7 @@ use crate::{Evaluated, QueryEvalContext, QueryNodeRef};
 pub(crate) fn reserve(
     ctx: &mut QueryEvalContext,
     node: &QueryNodeRef,
-) -> Option<Option<MetricRequestId>> {
+) -> Option<Option<YieldRequestId>> {
     if !loads(node) {
         return Some(None);
     }
@@ -56,9 +56,9 @@ pub(crate) fn reserve(
     ctx.count_loading_clause();
     // SAFETY: (1) `alias` is the NUL-terminated name the parser stored on the
     // node's options. (2) The request borrows it; the node owns it, and the AST
-    // outlives the metric-request array.
+    // outlives the yield-request array.
     Some(Some(unsafe {
-        ctx.add_metric_request(alias.as_ptr(), false)
+        ctx.add_yield_request(alias.as_ptr(), false)
     }))
 }
 
@@ -70,7 +70,7 @@ pub(crate) fn reserve(
 /// type the decorator may not report.
 pub(crate) fn decorate<'index>(
     ctx: &mut QueryEvalContext,
-    request: Option<MetricRequestId>,
+    request: Option<YieldRequestId>,
     evaluated: Evaluated<'index>,
 ) -> Option<Evaluated<'index>> {
     let Some(request) = request else {
@@ -92,9 +92,9 @@ pub(crate) fn decorate<'index>(
     // SAFETY: (1) `request` was reserved on `ctx` by `reserve`. (2) The slot is
     // a heap cell the decorator owns, so it stays valid across moves of the
     // decorator until it is freed. (3) The handle is installed on the decorator
-    // just below. (4) The AST, which owns the metric-request array, outlives
+    // just below. (4) The AST, which owns the yield-request array, outlives
     // the iterator tree.
-    let handle = unsafe { ctx.bind_metric_request_key(request, decorator.key_slot().as_ptr()) };
+    let handle = unsafe { ctx.bind_yield_request_key(request, decorator.key_slot().as_ptr()) };
     // SAFETY: (1) `handle` lives as long as the AST, and only this decorator,
     // which clears its validity flag when freed, writes it.
     unsafe { decorator.set_handle(Some(handle)) };

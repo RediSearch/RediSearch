@@ -45,18 +45,18 @@ fn status_mutations_are_visible() {
     assert_eq!(ctx.status().code(), query_error::QueryErrorCode::Syntax);
 }
 
-/// Run `f` against a context, releasing the metric-request array the appends
+/// Run `f` against a context, releasing the yield-request array the appends
 /// grow.
 ///
 /// The mock owns the head *slot* but not the array behind it — it hands out an
 /// empty (null) head and never grows one — so whatever the appends allocate is
 /// this function's to free rather than its teardown's.
-fn with_metric_requests(f: impl FnOnce(&mut QueryEvalContext)) {
+fn with_yield_requests(f: impl FnOnce(&mut QueryEvalContext)) {
     /// Releases the array on the way out, whether `f` returns or panics: an
     /// assertion failure that skipped the release would leave a non-empty head
     /// for the mock's teardown to assert on mid-unwind, aborting the process
     /// instead of reporting which assertion failed.
-    struct FreeOnDrop(*mut *mut rlookup::MetricRequest<'static>);
+    struct FreeOnDrop(*mut *mut rlookup::YieldRequest<'static>);
 
     impl Drop for FreeOnDrop {
         fn drop(&mut self) {
@@ -72,7 +72,7 @@ fn with_metric_requests(f: impl FnOnce(&mut QueryEvalContext)) {
                     std::slice::from_raw_parts(head, ffi::array_len_func(head.cast()) as _)
                 {
                     if !request.key_handle.is_null() {
-                        // Through the same allocator `bind_metric_request_key`
+                        // Through the same allocator `bind_yield_request_key`
                         // took the handle from, rather than the shim that
                         // happens to back it in this build.
                         let free = redis_module::RedisModule_Free.expect("RedisModule_Free unset");
@@ -89,7 +89,7 @@ fn with_metric_requests(f: impl FnOnce(&mut QueryEvalContext)) {
 
     let mut mock = MockQueryEvalCtx::new();
     // Declared after `mock` so it runs first, while the head slot is still live.
-    let _free = FreeOnDrop(mock.metric_requests_p());
+    let _free = FreeOnDrop(mock.yield_requests_p());
 
     // SAFETY: the mock is a valid, exclusively-owned `QueryEvalCtx`.
     let mut ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
@@ -98,28 +98,28 @@ fn with_metric_requests(f: impl FnOnce(&mut QueryEvalContext)) {
 
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
-fn add_metric_request_appends_and_returns_its_index() {
+fn add_yield_request_appends_and_returns_its_index() {
     let first = c"__v_score";
     let second = c"__w_score";
 
-    with_metric_requests(|ctx| {
+    with_yield_requests(|ctx| {
         // SAFETY: both are static C string literals — non-null,
         // NUL-terminated, and outliving the array.
         let (a, b) = unsafe {
             (
-                ctx.add_metric_request(first.as_ptr(), false),
-                ctx.add_metric_request(second.as_ptr(), true),
+                ctx.add_yield_request(first.as_ptr(), false),
+                ctx.add_yield_request(second.as_ptr(), true),
             )
         };
         // Indices are handed out in append order and stay valid as the array
         // grows — a later request never displaces an earlier one.
         assert_eq!((a.index(), b.index()), (0, 1));
 
-        let requests = ctx.metric_requests();
+        let requests = ctx.yield_requests();
         assert_eq!(requests.len(), 2);
-        assert!(std::ptr::eq(requests[0].metric_name, first.as_ptr()));
+        assert!(std::ptr::eq(requests[0].key_name, first.as_ptr()));
         assert!(!requests[0].is_internal);
-        assert!(std::ptr::eq(requests[1].metric_name, second.as_ptr()));
+        assert!(std::ptr::eq(requests[1].key_name, second.as_ptr()));
         assert!(requests[1].is_internal);
         assert!(
             requests.iter().all(|r| r.key_handle.is_null()),
@@ -130,11 +130,11 @@ fn add_metric_request_appends_and_returns_its_index() {
 
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
-fn bind_metric_request_key_fills_in_a_valid_handle() {
-    with_metric_requests(|ctx| {
+fn bind_yield_request_key_fills_in_a_valid_handle() {
+    with_yield_requests(|ctx| {
         // SAFETY: a static C string literal — non-null, NUL-terminated,
         // and outliving the array.
-        let id = unsafe { ctx.add_metric_request(c"__v_score".as_ptr(), false) };
+        let id = unsafe { ctx.add_yield_request(c"__v_score".as_ptr(), false) };
         // Kept because binding spends the id, and the entry is read back below.
         let idx = id.index();
 
@@ -143,7 +143,7 @@ fn bind_metric_request_key_fills_in_a_valid_handle() {
         let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
         // SAFETY: `id` was just reserved on this context and `key` outlives
         // the handle.
-        let handle = unsafe { ctx.bind_metric_request_key(id, &mut key) }.as_ptr();
+        let handle = unsafe { ctx.bind_yield_request_key(id, &mut key) }.as_ptr();
 
         // SAFETY: `handle` is the freshly allocated, fully initialised handle.
         let handle_ref = unsafe { &*handle };
@@ -155,7 +155,7 @@ fn bind_metric_request_key_fills_in_a_valid_handle() {
         );
         // The two pointers carry unrelated key lifetimes, so compare them by
         // address rather than making the types line up.
-        assert_eq!(ctx.metric_requests()[idx].key_handle.addr(), handle.addr());
+        assert_eq!(ctx.yield_requests()[idx].key_handle.addr(), handle.addr());
     });
 }
 
@@ -172,7 +172,7 @@ fn bind_metric_request_key_fills_in_a_valid_handle() {
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
 fn binds_survive_the_array_moving_under_them() {
-    with_metric_requests(|ctx| {
+    with_yield_requests(|ctx| {
         let mut outer_key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
         let mut inner_key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
 
@@ -180,8 +180,8 @@ fn binds_survive_the_array_moving_under_them() {
         // outliving the array.
         let (outer_id, inner_id) = unsafe {
             (
-                ctx.add_metric_request(c"__v_score".as_ptr(), false),
-                ctx.add_metric_request(c"__w_score".as_ptr(), false),
+                ctx.add_yield_request(c"__v_score".as_ptr(), false),
+                ctx.add_yield_request(c"__w_score".as_ptr(), false),
             )
         };
         // Kept because binding spends the ids, and both entries are read back
@@ -191,21 +191,19 @@ fn binds_survive_the_array_moving_under_them() {
         // The inner request binds first, as the child subtree finishes first.
         // SAFETY: `inner_id` was just reserved on this context, and `inner_key`
         // outlives the handle.
-        let inner_handle =
-            unsafe { ctx.bind_metric_request_key(inner_id, &mut inner_key) }.as_ptr();
+        let inner_handle = unsafe { ctx.bind_yield_request_key(inner_id, &mut inner_key) }.as_ptr();
 
         // A third reservation moves the array out from under the handle just
         // stored, which is what the bind below has to tolerate.
         // SAFETY: as for the reservations above.
-        let third = unsafe { ctx.add_metric_request(c"__x_score".as_ptr(), false) }.index();
+        let third = unsafe { ctx.add_yield_request(c"__x_score".as_ptr(), false) }.index();
         assert_eq!((outer, inner, third), (0, 1, 2));
 
         // SAFETY: `outer_id` was reserved on this context, and `outer_key`
         // outlives the handle.
-        let outer_handle =
-            unsafe { ctx.bind_metric_request_key(outer_id, &mut outer_key) }.as_ptr();
+        let outer_handle = unsafe { ctx.bind_yield_request_key(outer_id, &mut outer_key) }.as_ptr();
 
-        let requests = ctx.metric_requests();
+        let requests = ctx.yield_requests();
         assert_eq!(requests.len(), 3);
         // The move did not disturb the earlier binding, and the later one
         // landed on its own entry rather than overwriting a neighbour.
@@ -227,7 +225,7 @@ fn binds_survive_the_array_moving_under_them() {
     });
 }
 
-/// A [`MetricRequestId`](query::MetricRequestId) records no context, so binding one against a context
+/// A [`YieldRequestId`](query::YieldRequestId) records no context, so binding one against a context
 /// that never reserved it is the half of precondition (1) the type cannot
 /// discharge — and the reason the bounds check outlived the pair of assertions
 /// that taking the id by value replaced.
@@ -237,19 +235,19 @@ fn binds_survive_the_array_moving_under_them() {
 #[test]
 #[cfg(debug_assertions)] // the assertion only exists in debug builds
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
-#[should_panic(expected = "must come from `add_metric_request`")]
+#[should_panic(expected = "must come from `add_yield_request`")]
 fn binding_an_id_against_a_context_that_reserved_nothing_panics() {
-    with_metric_requests(|reserved| {
+    with_yield_requests(|reserved| {
         // SAFETY: a static C string literal — non-null, NUL-terminated,
         // and outliving the array.
-        let id = unsafe { reserved.add_metric_request(c"__v_score".as_ptr(), false) };
+        let id = unsafe { reserved.add_yield_request(c"__v_score".as_ptr(), false) };
 
-        with_metric_requests(|empty| {
+        with_yield_requests(|empty| {
             let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
             // SAFETY: none — `id` was reserved on the other context, which
             // violates precondition (1) on purpose. The assertion fires before
             // the offset onto this context's null head is ever formed.
-            unsafe { empty.bind_metric_request_key(id, &mut key) };
+            unsafe { empty.bind_yield_request_key(id, &mut key) };
         });
     });
 }
@@ -261,38 +259,38 @@ fn binding_an_id_against_a_context_that_reserved_nothing_panics() {
 #[test]
 #[cfg(debug_assertions)] // the assertion only exists in debug builds
 #[cfg_attr(miri, ignore = "requires C FFI (array_ensure_append_n_func)")]
-#[should_panic(expected = "must come from `add_metric_request`")]
+#[should_panic(expected = "must come from `add_yield_request`")]
 fn binding_an_id_past_the_end_of_another_context_panics() {
-    with_metric_requests(|longer| {
+    with_yield_requests(|longer| {
         // SAFETY: static C string literals — non-null, NUL-terminated, and
         // outliving the array.
         let id = unsafe {
-            let _ = longer.add_metric_request(c"__v_score".as_ptr(), false);
-            longer.add_metric_request(c"__w_score".as_ptr(), false)
+            let _ = longer.add_yield_request(c"__v_score".as_ptr(), false);
+            longer.add_yield_request(c"__w_score".as_ptr(), false)
         };
 
-        with_metric_requests(|shorter| {
+        with_yield_requests(|shorter| {
             // One reservation against the other context's two, so the id's
             // index is one past this array's only element.
             // SAFETY: as above.
-            let _ = unsafe { shorter.add_metric_request(c"__x_score".as_ptr(), false) };
-            assert_eq!(id.index(), shorter.metric_requests().len());
+            let _ = unsafe { shorter.add_yield_request(c"__x_score".as_ptr(), false) };
+            assert_eq!(id.index(), shorter.yield_requests().len());
 
             let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
             // SAFETY: none — as above, except that here the head is real and
             // it is the length that rules the index out.
-            unsafe { shorter.bind_metric_request_key(id, &mut key) };
+            unsafe { shorter.bind_yield_request_key(id, &mut key) };
         });
     });
 }
 
 #[test]
-fn metric_requests_is_empty_before_any_are_reserved() {
+fn yield_requests_is_empty_before_any_are_reserved() {
     // A tracked array reads as a null head until its first append, which is not
     // a length of zero to read but the absence of a length header altogether.
     let mut mock = MockQueryEvalCtx::new();
     let ctx = unsafe { QueryEvalContext::new(mock.as_non_null()) };
-    assert!(ctx.metric_requests().is_empty());
+    assert!(ctx.yield_requests().is_empty());
 }
 
 #[test]

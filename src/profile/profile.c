@@ -39,7 +39,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
     switch (rp->type) {
       case RP_INDEX:
-      case RP_METRICS:
+      case RP_YIELDED_VALUES_LOADER:
       case RP_LOADER:
       case RP_KEY_NAME_LOADER:
       case RP_SCORER:

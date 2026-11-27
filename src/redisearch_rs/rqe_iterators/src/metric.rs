@@ -96,24 +96,24 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
 }
 
 #[inline(always)]
-fn set_result_metrics(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey<'_>) {
+fn set_yielded_value(result: &mut RSIndexResult, val: f64, key: *mut RLookupKey<'_>) {
     if let Some(num) = result.as_numeric_mut() {
         *num = val;
     } else {
         panic!("Result is not numeric");
     }
 
-    let metrics = result.metrics_mut();
-    metrics.reset();
+    let values = result.yielded_values_mut();
+    values.reset();
     if key.is_null() {
-        metrics.push_without_key(val);
+        values.push_without_key(val);
     } else {
-        // The metrics vector types the key the way C sees it: the header
+        // `YieldedValues` types the key the way C sees it: the header
         // `RLookupKey` is exported under, which is this key's first field.
         //
         // SAFETY: `key` is non-null per the check above, and a valid `RLookupKey`
         // pointer that outlives this result (upheld by callers in `read` and `skip_to`).
-        metrics.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, val);
+        values.push_with_key(unsafe { &*key.cast::<ffi::RLookupKey>() }, val);
     };
 }
 
@@ -209,7 +209,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
         };
         let val = self.metric_data[offset - 1];
 
-        set_result_metrics(result, val, self.own_key);
+        set_yielded_value(result, val, self.own_key);
         Ok(Some(result))
     }
 
@@ -225,7 +225,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
             .base
             .current()
             .expect("The underlying ID list skipped successfully, so it shouldn't be at EOF");
-        set_result_metrics(current, val, self.own_key);
+        set_yielded_value(current, val, self.own_key);
         let outcome = if found {
             SkipToOutcome::Found(current)
         } else {

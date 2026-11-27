@@ -252,10 +252,10 @@ class ScoreThresholdChainTest : public EmptyIndexTest {
 
 // Once the heap of K holds docs 1..K, every further pull carries the heap minimum: docs K+1..N
 // and the final EOF pull, the last one with heap minimum N-K+1.
-TEST_F(ScoreThresholdChainTest, reachesTheRootThroughScorerProfileAndMetrics) {
+TEST_F(ScoreThresholdChainTest, reachesTheRootThroughScorerProfileAndYieldedValuesLoader) {
   const size_t n = 20, k = 5;
   pushIndex(n);
-  push(RPMetricsLoader_New());
+  push(RPYieldedValuesLoader_New());
   pushProfile();
   push(newScorer());
   pushProfile();
@@ -321,7 +321,7 @@ TEST_P(ScoreThresholdProcessorTypeTest, betweenScorerAndSorter) {
 INSTANTIATE_TEST_SUITE_P(
     Types, ScoreThresholdProcessorTypeTest,
     ::testing::Values(
-        ProcessorTypeCase{"Metrics", RP_METRICS, true},
+        ProcessorTypeCase{"YieldedValuesLoader", RP_YIELDED_VALUES_LOADER, true},
         ProcessorTypeCase{"Projector", RP_PROJECTOR, true},
         ProcessorTypeCase{"Filter", RP_FILTER, true}, ProcessorTypeCase{"Loader", RP_LOADER, true},
         ProcessorTypeCase{"SafeLoader", RP_SAFE_LOADER, true},

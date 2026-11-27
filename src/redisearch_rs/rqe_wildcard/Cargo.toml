@@ -48,7 +48,7 @@ doc_key_map_ffi = { path = "../c_entrypoint/doc_key_map_ffi" }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 language_ffi = { path = "../c_entrypoint/language_ffi" }
-metrics_ffi = { path = "../c_entrypoint/metrics_ffi" }
+yielded_values_ffi = { path = "../c_entrypoint/yielded_values_ffi" }
 module_init_ffi = { path = "../c_entrypoint/module_init_ffi" }
 numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 query_error_ffi = { path = "../c_entrypoint/query_error_ffi" }

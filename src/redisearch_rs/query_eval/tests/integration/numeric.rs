@@ -193,11 +193,11 @@ fn eval_numeric_with_alias_under_not_is_rejected() {
         fixture.ctx.status().code(),
         query_error::QueryErrorCode::BadAttr
     );
-    assert!(fixture.ctx.metric_requests().is_empty());
+    assert!(fixture.ctx.yield_requests().is_empty());
 }
 
 /// `$as` wraps the clause in the index-loading decorator, which reports the
-/// clause's own type, and binds the reserved metric request to it.
+/// clause's own type, and binds the reserved yield request to it.
 #[test]
 fn eval_numeric_with_alias_decorates_and_binds() {
     let undecorated = NumericFixture::new(2.0, 3.0)
@@ -212,15 +212,15 @@ fn eval_numeric_with_alias_decorates_and_binds() {
             let r = it.read().unwrap().expect("should have a result");
             assert_eq!(r.doc_id, expected);
             // No pipeline bound a key, so nothing is pushed.
-            assert!(r.metrics_ref().is_empty());
+            assert!(r.yielded_values().is_empty());
         }
         assert!(matches!(it.read(), Ok(None)));
     }
 
-    let requests = fixture.ctx.metric_requests();
+    let requests = fixture.ctx.yield_requests();
     assert_eq!(requests.len(), 1);
     // SAFETY: the request names the fixture's live alias.
-    assert_eq!(unsafe { CStr::from_ptr(requests[0].metric_name) }, c"v");
+    assert_eq!(unsafe { CStr::from_ptr(requests[0].key_name) }, c"v");
     let handle = requests[0].key_handle;
     assert!(
         !handle.is_null(),

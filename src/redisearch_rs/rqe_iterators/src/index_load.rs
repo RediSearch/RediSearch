@@ -8,14 +8,14 @@
 */
 
 //! Index loading: a decorator that hands the numeric value a hit was matched
-//! on to the result pipeline, as a metric, so the pipeline reads it as a field
+//! on to the result pipeline, as a yielded value, so the pipeline reads it as a field
 //! instead of loading it from the document.
 //!
 //! This is the iterator half of the `$as` query attribute, an unstable
 //! feature. The value reaches the row the same way a vector range query's
 //! distance does: the decorator pushes it into the hit's
-//! [`metrics`](RSIndexResult::metrics_mut) under the [`RLookupKey`] the
-//! pipeline resolved for the alias, and the metrics loader writes it into the
+//! [`yielded_values`](RSIndexResult::yielded_values_mut) under the [`RLookupKey`] the
+//! pipeline resolved for the alias, and the yielded values loader writes it into the
 //! row.
 
 use std::ptr::NonNull;
@@ -76,7 +76,7 @@ impl Drop for KeySlot<'_> {
 }
 
 /// A decorator that attaches the numeric value of each hit of its child to
-/// the hit, as a metric under the alias's [`RLookupKey`].
+/// the hit, as a yielded value under the alias's [`RLookupKey`].
 ///
 /// Parameterised over a [`Ref`] mode — see [`IndexLoad`] for the [`Active`]
 /// instantiation that implements [`RQEIterator`].
@@ -89,15 +89,15 @@ impl Drop for KeySlot<'_> {
 /// otherwise a numeric record among its children: a numeric range over several
 /// range-tree leaves is a union, which keeps the value in the child that
 /// produced the document. When several values of one document match, one of
-/// them is loaded; which one is unspecified. Parents move a child's metrics
-/// into their own result, so the metric is pushed afresh on every positioning,
+/// them is loaded; which one is unspecified. Parents move a child's yielded values
+/// into their own result, so the yielded value is pushed afresh on every positioning,
 /// replacing whatever the hit carried.
 ///
 /// The value is the one the index stores: a range tree built with
 /// `search-_numeric-compress` may store a float slightly off the document's.
 ///
 /// Until pipeline construction binds a key, the decorator pushes nothing: the
-/// metrics loader writes every metric through its key, and a null one cannot
+/// yielded values loader writes every value through its key, and a null one cannot
 /// be written.
 ///
 /// # Invariants
@@ -184,7 +184,7 @@ fn hit_value(result: &RSIndexResult<'_>) -> Option<f64> {
 /// Replace `result`'s metrics with `(key, value of the hit)`, or leave them
 /// untouched when `key` is null or the hit holds no number.
 fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'index>) {
-    // The metrics vector types the key the way C sees it: the header
+    // `YieldedValues` types the key the way C sees it: the header
     // `RLookupKey` is exported under, which is this key's first field.
     //
     // SAFETY: a non-null `key` is the key pipeline construction bound, owned by
@@ -196,9 +196,9 @@ fn attach<'index>(result: &mut RSIndexResult<'index>, key: *mut RLookupKey<'inde
     let Some(value) = hit_value(result) else {
         return;
     };
-    let metrics = result.metrics_mut();
-    metrics.reset();
-    metrics.push_with_key(key, value);
+    let values = result.yielded_values_mut();
+    values.reset();
+    values.push_with_key(key, value);
 }
 
 impl<'index, I: RQEIterator<'index>> IndexLoad<'index, I> {

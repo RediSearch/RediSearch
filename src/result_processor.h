@@ -67,7 +67,7 @@ typedef enum {
   RP_FILTER,
   RP_PROFILE,
   RP_NETWORK,
-  RP_METRICS,
+  RP_YIELDED_VALUES_LOADER,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
   RP_VECTOR_NORMALIZER,
@@ -213,7 +213,7 @@ ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);
 
-ResultProcessor *RPMetricsLoader_New();
+ResultProcessor *RPYieldedValuesLoader_New();
 
 /** Functions abstracting the sortmap. Hides the bitwise logic */
 #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
