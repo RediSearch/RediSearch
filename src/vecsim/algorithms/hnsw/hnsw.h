@@ -21,6 +21,7 @@
 #include "vecsim/vec_sim_common.h"
 #include "vecsim/vec_sim_index.h"
 #include "vecsim/spaces/computer/preprocessors.h"
+#include "vecsim/spaces/L2_space.h"
 #include "vecsim/quantization/sq8_mean.h"
 #include <span>
 #include "vecsim/tombstone_interface.h"
@@ -179,6 +180,12 @@ protected:
                           tag_t *elements_tags, tag_t visited_tag,
                           vecsim_stl::abstract_priority_queue<DistType, Identifier> &top_candidates,
                           candidatesMaxHeap<DistType> &candidates_set, DistType &lowerBound) const;
+    void processCandidateGrouped(idType curNodeId, const void *query_data, size_t ef,
+                                 tag_t *elements_tags, tag_t visited_tag,
+                                 candidatesLabelsMaxHeap<DistType> &top_candidates,
+                                 candidatesMaxHeap<DistType> &candidate_set, DistType &lowerBound,
+                                 spaces::dist_func4_t distance4) const;
+
     void processCandidate_RangeSearch(
         idType curNodeId, const void *data_point, size_t layer, double epsilon,
         tag_t *elements_tags, tag_t visited_tag,
@@ -791,6 +798,76 @@ void HNSWIndex<DataType, DistType>::processCandidate(
                     lowerBound = top_candidates.top().first;
             }
         }
+    }
+    unlockNodeLinks(curNodeId);
+}
+
+template <typename DataType, typename DistType>
+void HNSWIndex<DataType, DistType>::processCandidateGrouped(
+    idType curNodeId, const void *query_data, size_t ef, tag_t *elements_tags, tag_t visited_tag,
+    candidatesLabelsMaxHeap<DistType> &top_candidates, candidatesMaxHeap<DistType> &candidate_set,
+    DistType &lowerBound, spaces::dist_func4_t distance4) const {
+    ElementGraphData *cur_element = getGraphDataByInternalId(curNodeId);
+    lockNodeLinks(curNodeId);
+    ElementLevelData &node_level = getElementLevelData(cur_element, 0);
+    const linkListSize num_links = node_level.getNumLinks();
+    idType ids[4];
+    const char *data[4];
+    size_t count = 0;
+
+    // Heap updates retain adjacency order, including deleted checks at replay time.
+    auto replay = [&](idType candidate_id, DistType cur_dist) {
+        if (lowerBound > cur_dist || top_candidates.size() < ef) {
+            candidate_set.emplace(-cur_dist, candidate_id);
+            if (!isMarkedDeleted(candidate_id))
+                emplaceToHeap(top_candidates, cur_dist, candidate_id);
+            if (top_candidates.size() > ef)
+                top_candidates.pop();
+            if (!top_candidates.empty())
+                lowerBound = top_candidates.top().first;
+        }
+    };
+
+    // Residual neighbors retain the ordinary query distance dispatch.
+    auto flush = [&]() {
+        DistType distances[4];
+        if (count == 4) {
+            distance4(
+                reinterpret_cast<const float *>(data[0]), reinterpret_cast<const float *>(data[1]),
+                reinterpret_cast<const float *>(data[2]), reinterpret_cast<const float *>(data[3]),
+                static_cast<const float *>(query_data), this->dim, distances);
+
+        } else {
+            for (size_t i = 0; i < count; ++i)
+                distances[i] = this->calcDistanceForQuery(data[i], query_data);
+        }
+        for (size_t i = 0; i < count; ++i)
+            replay(ids[i], distances[i]);
+        count = 0;
+    };
+
+    if (num_links > 0) {
+        __builtin_prefetch(elements_tags + node_level.getLinkAtPos(0));
+        const char *next_data = getDataByInternalId(node_level.getLinkAtPos(0));
+        __builtin_prefetch(next_data);
+        for (linkListSize j = 0; j < num_links; ++j) {
+            const idType candidate_id = node_level.getLinkAtPos(j);
+            const char *cur_data = next_data;
+            if (j + 1 < num_links) {
+                __builtin_prefetch(elements_tags + node_level.getLinkAtPos(j + 1));
+                next_data = getDataByInternalId(node_level.getLinkAtPos(j + 1));
+                __builtin_prefetch(next_data);
+            }
+            if (elements_tags[candidate_id] == visited_tag || isInProcess(candidate_id))
+                continue;
+            elements_tags[candidate_id] = visited_tag;
+            ids[count] = candidate_id;
+            data[count++] = cur_data;
+            if (count == 4)
+                flush();
+        }
+        if (count)
+            flush();
     }
     unlockNodeLinks(curNodeId);
 }
@@ -2256,6 +2333,18 @@ HNSWIndex<DataType, DistType>::searchBottomLayer_WithTimeout(idType ep_id, const
                                                              size_t ef, size_t k, void *stopCtx,
                                                              VecSimQueryReply_Code *rc) const {
 
+    // Select on the querying thread: SVE dispatch depends on its vector length.
+    [[maybe_unused]] spaces::dist_func4_t distance4 = nullptr;
+    if constexpr (std::is_same_v<DataType, float> && std::is_same_v<DistType, float>) {
+        const auto &dispatch = this->getQueryDistanceDispatch();
+        if (this->vecType == VecSimType_FLOAT32 && this->metric == VecSimMetric_L2 &&
+            !this->isQuantized && this->getStoredDataSize() == this->dim * sizeof(float) &&
+            this->getInputBlobSize() == this->dim * sizeof(float) && !dispatch.stateful_func &&
+            !dispatch.context) {
+            distance4 = spaces::L2_FP32_GetDistFunc4(this->dim, dispatch.stateless_func);
+        }
+    }
+
     auto *visited_nodes_handler = getVisitedList();
     tag_t visited_tag = visited_nodes_handler->getFreshTag();
 
@@ -2292,6 +2381,14 @@ HNSWIndex<DataType, DistType>::searchBottomLayer_WithTimeout(idType ep_id, const
         }
         candidate_set.pop();
 
+        if constexpr (std::is_same_v<DataType, float> && std::is_same_v<DistType, float>) {
+            if (distance4) {
+                processCandidateGrouped(curr_el_pair.second, data_point, ef,
+                                        visited_nodes_handler->getElementsTags(), visited_tag,
+                                        *top_candidates, candidate_set, lowerBound, distance4);
+                continue;
+            }
+        }
         processCandidate(curr_el_pair.second, data_point, 0, ef,
                          visited_nodes_handler->getElementsTags(), visited_tag, *top_candidates,
                          candidate_set, lowerBound);

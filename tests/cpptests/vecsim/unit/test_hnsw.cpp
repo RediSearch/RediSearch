@@ -11,6 +11,8 @@
 #include "vecsim/vec_sim.h"
 #include "vecsim/vec_sim_debug.h"
 #include "vecsim/algorithms/hnsw/hnsw_single.h"
+#include "vecsim/algorithms/hnsw/hnsw_multi.h"
+#include "vecsim/spaces/L2_space.h"
 #include "vecsim/index_factories/components/components_factory.h"
 #include "vecsim/index_factories/factory_utils.h"
 #include "vecsim/index_factories/hnsw_factory.h"
@@ -21,6 +23,7 @@
 #include <random>
 #include <thread>
 #include <atomic>
+#include <bit>
 
 template <typename index_type_t>
 class HNSWTest : public ::testing::Test {
@@ -51,7 +54,184 @@ float storedDispatchTestFunc(const void *, const void *, size_t) { return 11.0f;
 
 float queryDispatchTestFunc(const void *, const void *, size_t) { return 22.0f; }
 
+class StatefulQueryTestCalculator : public DistanceCalculatorCommon<float> {
+public:
+    using DistanceCalculatorCommon<float>::DistanceCalculatorCommon;
+    DistanceDispatch<float> getDistanceDispatch(DistanceMode mode) const override {
+        if (mode == DistanceMode::StoredToStored)
+            return DistanceCalculatorCommon<float>::getDistanceDispatch(mode);
+        return DistanceDispatch<float>::stateful(this, [](const void *context, const void *a,
+                                                          const void *b, size_t dim) {
+            return static_cast<const StatefulQueryTestCalculator *>(context)->calcDistanceForQuery(
+                a, b, dim);
+        });
+    }
+};
+
+float wrappedProductionL2(const void *a, const void *b, size_t dim) {
+    thread_local size_t cached_dim = 0;
+    thread_local spaces::dist_func_t<float> scalar = nullptr;
+    if (!scalar || cached_dim != dim) {
+        scalar = spaces::L2_FP32_GetDistFunc(dim);
+        cached_dim = dim;
+    }
+    return scalar(a, b, dim);
+}
+
 } // namespace
+
+TEST(HNSWDistanceDispatchTest, CustomAndStatefulCallbacksAtGroupedDimensions) {
+    for (bool stateful : {false, true}) {
+        HNSWParams params = {.type = VecSimType_FLOAT32, .dim = 384, .metric = VecSimMetric_L2};
+        auto init = VecSimFactory::NewAbstractInitParams(&params, nullptr, false);
+        auto components =
+            CreateIndexComponents<float, float>(init.allocator, params.metric, params.dim, false);
+        delete components.indexCalculator;
+        if (stateful)
+            components.indexCalculator = new (init.allocator) StatefulQueryTestCalculator(
+                init.allocator, storedDispatchTestFunc, queryDispatchTestFunc);
+        else
+            components.indexCalculator = new (init.allocator) DistanceCalculatorCommon<float>(
+                init.allocator, storedDispatchTestFunc, queryDispatchTestFunc);
+        std::unique_ptr<VecSimIndex, decltype(&VecSimIndex_Free)> index(
+            new (init.allocator) HNSWIndex_Single<float, float>(&params, init, components),
+            VecSimIndex_Free);
+        std::vector<float> vector(params.dim, 1.0f);
+        for (size_t label = 0; label < 64; ++label)
+            ASSERT_EQ(VecSimIndex_AddVector(index.get(), vector.data(), label), 1);
+        auto verify = [](size_t, double score, size_t) { ASSERT_DOUBLE_EQ(score, 22.0); };
+        runTopKSearchTest(index.get(), vector.data(), 10, verify);
+        runRangeQueryTest(index.get(), vector.data(), 23.0, verify, 64, BY_SCORE);
+        auto *batch = VecSimBatchIterator_New(index.get(), vector.data(), nullptr);
+        runBatchIteratorSearchTest(batch, 10, verify);
+        VecSimBatchIterator_Free(batch);
+    }
+}
+
+TEST(HNSWDistanceDispatchTest, GroupedTopKMatchesWrappedScalarAfterMutations) {
+    for (size_t dim : {size_t(192), size_t(193), size_t(384), size_t(385)}) {
+        for (bool multi : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << "dim=" << dim << " multi=" << multi);
+            HNSWParams params = {.type = VecSimType_FLOAT32,
+                                 .dim = dim,
+                                 .metric = VecSimMetric_L2,
+                                 .multi = multi,
+                                 .blockSize = 64,
+                                 .M = 16,
+                                 .efConstruction = 80,
+                                 .efRuntime = 128};
+            auto make_index = [&](bool wrapped) -> VecSimIndex * {
+                auto init = VecSimFactory::NewAbstractInitParams(&params, nullptr, false);
+                auto components =
+                    CreateIndexComponents<float, float>(init.allocator, params.metric, dim, false);
+                if (wrapped) {
+                    delete components.indexCalculator;
+                    components.indexCalculator =
+                        new (init.allocator) DistanceCalculatorCommon<float>(
+                            init.allocator, spaces::L2_FP32_GetDistFunc(dim), wrappedProductionL2);
+                }
+                if (multi)
+                    return new (init.allocator)
+                        HNSWIndex_Multi<float, float>(&params, init, components);
+                return new (init.allocator)
+                    HNSWIndex_Single<float, float>(&params, init, components);
+            };
+            std::unique_ptr<VecSimIndex, decltype(&VecSimIndex_Free)> automatic(make_index(false),
+                                                                                VecSimIndex_Free);
+            std::unique_ptr<VecSimIndex, decltype(&VecSimIndex_Free)> fallback(make_index(true),
+                                                                               VecSimIndex_Free);
+            std::mt19937 rng(47);
+            std::uniform_real_distribution<float> random(-1, 1);
+            std::vector<float> vectors(132 * dim), queries(4 * dim);
+            for (auto *values : {&vectors, &queries})
+                for (auto &value : *values)
+                    value = random(rng);
+            // Only the query callback address differs; construction uses identical arithmetic/seed.
+            for (size_t row = 0; row < 128; ++row)
+                for (auto *index : {automatic.get(), fallback.get()})
+                    ASSERT_EQ(VecSimIndex_AddVector(index, vectors.data() + row * dim,
+                                                    multi ? row / 2 : row),
+                              1);
+            std::vector<size_t> tombstones;
+            for (size_t phase = 0; phase < 4; ++phase) {
+                SCOPED_TRACE(::testing::Message() << "phase=" << phase);
+                auto collect = [&](VecSimIndex *index, const float *query, size_t kind, size_t ef) {
+                    std::vector<std::pair<size_t, uint64_t>> out;
+                    auto cb = [&](size_t label, double score, size_t) {
+                        if (phase)
+                            EXPECT_TRUE(label != 7 && label != 13 && label != 20);
+                        EXPECT_EQ(std::find(tombstones.begin(), tombstones.end(), label),
+                                  tombstones.end());
+                        out.emplace_back(label, std::bit_cast<uint64_t>(score));
+                    };
+                    VecSimQueryParams runtime{};
+                    runtime.hnswRuntimeParams.efRuntime = ef;
+                    if (kind == 0)
+                        runTopKSearchTest(index, query, 10, cb, &runtime);
+                    else if (kind == 1)
+                        runRangeQueryTest(index, query, 10000, cb, index->indexLabelCount(),
+                                          BY_SCORE);
+                    else {
+                        auto *batch = VecSimBatchIterator_New(index, query, &runtime);
+                        while (out.size() < index->indexLabelCount()) {
+                            const size_t count =
+                                std::min(size_t(7), index->indexLabelCount() - out.size());
+                            const size_t before = out.size();
+                            runBatchIteratorSearchTest(batch, count, cb);
+                            if (out.size() == before)
+                                break;
+                        }
+                        EXPECT_EQ(out.size(), index->indexLabelCount());
+                        EXPECT_FALSE(VecSimBatchIterator_HasNext(batch));
+                        VecSimBatchIterator_Free(batch);
+                    }
+                    return out;
+                };
+                for (size_t q = 0; q < 4; ++q)
+                    for (size_t ef : {size_t(10), size_t(128)})
+                        EXPECT_EQ(collect(automatic.get(), queries.data() + q * dim, 0, ef),
+                                  collect(fallback.get(), queries.data() + q * dim, 0, ef));
+                for (size_t kind : {size_t(1), size_t(2)})
+                    EXPECT_EQ(collect(automatic.get(), queries.data(), kind, 128),
+                              collect(fallback.get(), queries.data(), kind, 128));
+                for (auto *index : {automatic.get(), fallback.get()}) {
+                    if (phase == 0)
+                        for (size_t label : {size_t(7), size_t(13), size_t(20)})
+                            ASSERT_EQ(VecSimIndex_DeleteVector(index, label), multi ? 2 : 1);
+                    if (phase == 1) {
+                        ASSERT_EQ(VecSimIndex_UpdateVectors(index, 2, vectors.data() + 128 * dim,
+                                                            multi ? 3 : 1),
+                                  VecSimUpdate_OK);
+                        EXPECT_EQ(index->indexSize(), multi ? 123 : 125);
+                    }
+                }
+                if (phase == 2) {
+                    const size_t entrypoint =
+                        static_cast<HNSWIndex<float, float> *>(automatic.get())
+                            ->getEntryPointLabel();
+                    ASSERT_EQ(entrypoint, (static_cast<HNSWIndex<float, float> *>(fallback.get())
+                                               ->getEntryPointLabel()));
+                    tombstones.push_back(entrypoint);
+                    if (entrypoint != 17)
+                        tombstones.push_back(17);
+                    for (auto *index : {automatic.get(), fallback.get()}) {
+                        auto *hnsw = static_cast<HNSWIndex<float, float> *>(index);
+                        const size_t before = index->indexSize();
+                        for (size_t label : tombstones)
+                            ASSERT_FALSE(hnsw->markDelete(label).empty());
+                        ASSERT_EQ(index->indexSize(), before);
+                    }
+                    auto *automatic_hnsw = static_cast<HNSWIndex<float, float> *>(automatic.get());
+                    auto *fallback_hnsw = static_cast<HNSWIndex<float, float> *>(fallback.get());
+                    ASSERT_EQ(automatic_hnsw->getEntryPointLabel(),
+                              fallback_hnsw->getEntryPointLabel());
+                    for (auto *hnsw : {automatic_hnsw, fallback_hnsw})
+                        ASSERT_FALSE(hnsw->isMarkedDeleted(hnsw->safeGetEntryPointState().first));
+                }
+            }
+        }
+    }
+}
 
 TEST(HNSWDistanceDispatchTest, UsesStoredToQueryDispatch) {
     constexpr size_t dim = 4;

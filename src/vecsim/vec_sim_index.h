@@ -100,6 +100,10 @@ private:
                            // (possibly after pre-processing and may differ from inputBlobSize if
                            // NOT externally preprocessed).
 protected:
+    const DistanceDispatch<DistType> &getQueryDistanceDispatch() const {
+        return queryDistanceDispatch;
+    }
+
     /**
      * @brief Get the common info object
      *

@@ -8,12 +8,13 @@
  */
 #pragma once
 
-#include "vecsim/spaces/spaces.h"
+#include "vecsim/spaces/L2_space.h"
 
 namespace spaces {
 
 dist_func_t<float> Choose_FP32_IP_implementation_SVE2(size_t dim);
 dist_func_t<float> Choose_FP32_L2_implementation_SVE2(size_t dim);
+dist_func4_t Choose_FP32_L2_implementation4_SVE2(size_t dim);
 
 dist_func_t<float> Choose_FP16_IP_implementation_SVE2(size_t dim);
 dist_func_t<float> Choose_FP16_L2_implementation_SVE2(size_t dim);

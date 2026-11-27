@@ -340,6 +340,20 @@ dist_func_t<float> L2_FP32_GetDistFunc(size_t dim, unsigned char *alignment, con
     return ret_dist_func;
 }
 
+dist_func4_t L2_FP32_GetDistFunc4([[maybe_unused]] size_t dim,
+                                [[maybe_unused]] dist_func_t<float> actual_scalar) {
+#if defined(CPU_FEATURES_ARCH_AARCH64) && defined(OPT_SVE2)
+    // CPU discovery reads /proc/cpuinfo; only vector-length dispatch is query-local.
+    static const bool has_sve2 = getCpuOptimizationFeatures().sve2;
+    // Restrict grouped-call amortization to the measured large-dimension scope.
+    if (dim >= 192 && has_sve2 &&
+        actual_scalar == Choose_FP32_L2_implementation_SVE2(dim)) {
+        return Choose_FP32_L2_implementation4_SVE2(dim);
+    }
+#endif
+    return nullptr;
+}
+
 dist_func_t<double> L2_FP64_GetDistFunc(size_t dim, unsigned char *alignment,
                                         const void *arch_opt) {
     unsigned char dummy_alignment;
