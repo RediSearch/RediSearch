@@ -1,0 +1,24 @@
+name: Get Redis CI Revision
+
+on:
+  workflow_call:
+    outputs:
+      tag:
+        description: Redis revision for CI
+        value: ${{ jobs.redis-ref.outputs.tag }}
+
+permissions: {}
+
+jobs:
+  redis-ref:
+    runs-on: ubuntu-slim
+    outputs:
+      tag: ${{ steps.pin.outputs.tag }}
+    steps:
+      - name: Select Redis revision
+        id: pin
+        env:
+          # TODO: Delete this workflow once a Redis 8.8 release includes
+          # redis/redis#15979; restore callers to task-get-latest-tag.yml.
+          REDIS_REF: 4cf5c6f653b4d4ffe42d37f30eacaac7ea68c973
+        run: echo "tag=$REDIS_REF" >> "$GITHUB_OUTPUT"
