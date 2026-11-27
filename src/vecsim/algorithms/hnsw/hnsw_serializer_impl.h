@@ -43,6 +43,9 @@ HNSWIndex<DataType, DistType>::HNSWIndex(std::ifstream &input, const HNSWParams 
 
 template <typename DataType, typename DistType>
 HNSWSerializer::EncodingVersion HNSWIndex<DataType, DistType>::getWriteVersion() const {
+    // TQ2/TQ3 state is not serialized. Checked here, before saveIndex opens the file.
+    if (vecsim::quantization::GetTurboQuantCodec(this->getIndexCalculator()))
+        throw std::runtime_error("TQ2/TQ3 indexes do not support serialization");
     return this->isQuantized ? HNSWSerializer::EncodingVersion::V5
                              : HNSWSerializer::EncodingVersion::V4;
 }

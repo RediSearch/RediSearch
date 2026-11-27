@@ -75,6 +75,10 @@ typedef enum {
     VecSimQuant_SQ8 = 1,
     // Packed 4-bit scalar quantization with optional mean centering (FP32 input).
     VecSimQuant_SQ4 = 2,
+    // FP32 MSE TurboQuant with 2-bit or 3-bit codes, for IP (or normalized cosine) and a dim
+    // that is a multiple of 64.
+    VecSimQuant_TQ2 = 3,
+    VecSimQuant_TQ3 = 4,
 } VecSimQuantType;
 
 // Algorithm type/library.
@@ -192,7 +196,8 @@ typedef struct {
     size_t efRuntime;
     double epsilon;
     VecSimQuantType quantType; // Defaults to VecSimQuant_NONE.
-    // SQ8/SQ4 mean vector (float[dim]); NULL disables mean centering. Copied during construction.
+    // SQ8/SQ4/TQ2/TQ3 mean vector (float[dim]); NULL disables mean centering. Copied during
+    // construction.
     // L2 centering keeps queries in FLOAT32, including when the input type is FLOAT16.
     const void *quantParams;
 } HNSWParams;

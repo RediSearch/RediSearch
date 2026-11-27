@@ -22,6 +22,7 @@
 #include "vecsim/vec_sim_index.h"
 #include "vecsim/spaces/computer/preprocessors.h"
 #include "vecsim/quantization/sq8_mean.h"
+#include "vecsim/quantization/turboquant_components.h"
 #include <span>
 #include "vecsim/tombstone_interface.h"
 
@@ -106,6 +107,10 @@ public:
     // A quantizer that learns storedDataSize from data needs deferred backend creation.
     void setQuantizationMean(std::span<const float> mean) noexcept {
         assert(this->isQuantized && curElementCount == 0 && mean.size() == this->dim);
+        if (auto *codec = vecsim::quantization::GetTurboQuantCodec(this->getIndexCalculator())) {
+            codec->setMean(mean);
+            return;
+        }
         if constexpr (QuantInput<DataType> && std::is_same_v<DistType, float>) {
             if (this->metric == VecSimMetric_L2) {
                 setSQ8Mean<VecSimMetric_L2>(mean);
