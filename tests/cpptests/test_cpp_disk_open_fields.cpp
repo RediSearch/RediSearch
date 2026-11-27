@@ -248,6 +248,23 @@ TEST_F(DiskSchemaOpenTest, CreateForwardsIndexFlags) {
   EXPECT_FALSE(sp->flags & Index_StoreFieldFlags);
 }
 
+// The config at create sets the index's score-skipping flag; changing it later leaves the flag.
+TEST_F(DiskSchemaOpenTest, CreateRecordsTheScoreSkippingModeAsAFlag) {
+  Restore scoreSkipping{RSGlobalConfig.diskScoreSkipping};
+  QueryError err = QueryError_Default();
+
+  RSGlobalConfig.diskScoreSkipping = true;
+  IndexSpec *on = create("skipping_on", {"title", "TEXT"}, &err);
+  ASSERT_NE(on, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_EQ(flagsAtOpen.back(), on->flags);
+
+  RSGlobalConfig.diskScoreSkipping = false;
+  IndexSpec *off = create("skipping_off", {"title", "TEXT"}, &err);
+  ASSERT_NE(off, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_FALSE(off->flags & Index_DiskScoreSkipping);
+  EXPECT_TRUE(on->flags & Index_DiskScoreSkipping);
+}
+
 TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
   isFlex = false;
   QueryError err = QueryError_Default();

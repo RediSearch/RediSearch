@@ -31,6 +31,7 @@ use ::inverted_index::{FieldMask, NumericFilter};
 use index_result::{RSIndexResult, RawIndexResult};
 pub use query_error::QueryError;
 use query_term::RSQueryTerm;
+use query_types::scorers::BuiltInScorer;
 
 pub mod boxed;
 pub mod c2rust;
@@ -484,6 +485,27 @@ impl<'index, T> RQEIteratorPrintable<'index> for T where
 {
 }
 
+/// What a disk term iterator is told about how the query scores the term.
+///
+/// The term's own [`RSQueryTerm`] still carries both of its IDFs; this
+/// context names the one [`scorer`](Self::scorer) applies, together with the
+/// query- and index-level inputs the scorer combines it with.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TermScoringContext {
+    /// The built-in scorer ranking the query's results, or [`None`] for a
+    /// custom (extension) scorer, whose formula the disk index cannot know.
+    pub scorer: Option<BuiltInScorer>,
+    /// The term's IDF as [`scorer`](Self::scorer) applies it:
+    /// [`RSQueryTerm::bm25_idf`] for the `BM25STD` family,
+    /// [`RSQueryTerm::idf`] otherwise.
+    pub idf: f64,
+    /// The weight each document the iterator yields carries.
+    pub weight: f64,
+    /// The index's average document length when the iterator was created, as
+    /// the C scorers read it from `RSIndexStats::avgDocLen`.
+    pub avg_doc_len: f64,
+}
+
 /// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`
 /// to get access to iterators it does not know about.
 pub static SEARCH_ENTERPRISE_ITERATORS: OnceLock<Box<dyn SearchEnterpriseIterators>> =
@@ -521,8 +543,8 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the terms in the index, loading offset data for each document.
     ///
     /// Each document in the iterator will have the term inside the given `query_term` and will
-    /// have the given weight. The iterator will also filter the results according to the given
-    /// field mask. Use this variant for phrase queries, slop constraints, or any query that needs
+    /// have the weight in `scoring`. The iterator will also filter the results according to the
+    /// given field mask. Use this variant for phrase queries, slop constraints, or any query that needs
     /// term positions.
     ///
     /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
@@ -532,7 +554,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
-        weight: f64,
+        scoring: TermScoringContext,
         num_docs: usize,
         view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
@@ -540,8 +562,8 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over all the terms in the index, skipping offset data for efficiency.
     ///
     /// Each document in the iterator will have the term inside the given `query_term` and will
-    /// have the given weight. The iterator will also filter the results according to the given
-    /// field mask. Use this variant for BM25_STD queries or any query that doesn't need term
+    /// have the weight in `scoring`. The iterator will also filter the results according to the
+    /// given field mask. Use this variant for BM25_STD queries or any query that doesn't need term
     /// positions.
     ///
     /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
@@ -551,7 +573,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
-        weight: f64,
+        scoring: TermScoringContext,
         num_docs: usize,
         view: NonNull<ffi::RedisSearchDiskQueryView>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;

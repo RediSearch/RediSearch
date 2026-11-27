@@ -21,8 +21,8 @@ use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, expansion::Expansion,
-    expansion_needs_offsets,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, effective_scorer,
+    expansion::Expansion, expansion_needs_offsets,
 };
 
 /// `QN_PREFIX` — expand a prefix, suffix, or contains pattern over the spec's
@@ -89,6 +89,7 @@ pub(crate) fn eval<'index>(
     let field_mask = node_field_mask & ctx.opts().fieldmask;
     let is_disk = !ctx.spec().diskSpec.is_null();
     let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
+    let scorer = effective_scorer(ctx, config);
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
@@ -109,6 +110,7 @@ pub(crate) fn eval<'index>(
         field_mask,
         is_disk,
         needs_offsets,
+        scorer,
         max_expansions: config.max_prefix_expansions,
     };
 

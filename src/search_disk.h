@@ -256,13 +256,15 @@ uint64_t SearchDisk_AsyncLoader_GetAsyncWaitTime(ResultProcessor *rp);
  * @param docId Document ID to index
  * @param fieldMask Field mask indicating which fields are present
  * @param freq Frequency of the term in the document
+ * @param docStats Statistics of the document being indexed
  * @param offsets Pointer to varint-encoded term offset data (can be NULL)
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
                           const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
-                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+                          uint32_t freq, SearchDiskDocStats docStats, const uint8_t *offsets,
+                          size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document

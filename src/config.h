@@ -274,6 +274,11 @@ typedef struct {
   bool diskStatistics;
   // Admit new disk SQ8 fields only after every node has upgraded; existing indexes still load.
   bool diskSq8Enabled;
+  // Score-skipping mode of disk indexes created from now on, recorded in each index's
+  // `Index_DiskScoreSkipping` flag, which it keeps for its lifetime. A replica applying a
+  // replicated FT.CREATE takes its own value, so it must match the primary's; a full sync
+  // ships the flag.
+  bool diskScoreSkipping;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
   // rather than raising it later.
@@ -566,6 +571,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskStatistics = false,                                                   \
     .requestConfigParams.diskScoreSkippingQuery = true,                        \
     .diskSq8Enabled = false,                                                   \
+    .diskScoreSkipping = false,                                                \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
