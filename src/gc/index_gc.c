@@ -43,21 +43,13 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   }
 }
 
-static size_t runIntervalSec(void) {
-  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
-  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
-}
-
-// Whether a scheduled cycle should wait for more deletions; under THREAD the wait grows with the
-// index. The absolute threshold is checked first, so an idle index never takes the lock.
-static bool belowCleanThreshold(IndexSpec *sp, size_t deleted) {
-  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
-  if (!threadPolicyEnabled()) {
-    return deleted < settings->forkGcCleanThreshold;
-  }
-  const size_t ppm = settings->gcCleanRatioPpm;
-  if (deleted < settings->threadGcCleanThreshold || !ppm) {
-    return deleted < settings->threadGcCleanThreshold;
+// Whether a scheduled cycle should wait for more deletions. `threshold` is the run's queue-time
+// copy of the absolute threshold; under THREAD the wait also grows with the index, by the global
+// ratio. The absolute threshold is checked first, so an idle index never takes the lock.
+static bool belowCleanThreshold(IndexSpec *sp, size_t deleted, size_t threshold) {
+  const size_t ppm = RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm;
+  if (deleted < threshold || !threadPolicyEnabled() || !ppm) {
+    return deleted < threshold;
   }
   IndexSpec_LockRead(sp);
   const size_t docs = sp->stats.scoring.numDocuments;
@@ -86,7 +78,8 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun)) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check),
+                                     gc->deletedOrUpdatedDocsFromLastRun, gc->cleanThreshold)) {
     // Nothing is left to retry: without this, a threshold raised after a failed fork would
     // keep the index on the retry interval until enough changes accumulate.
     gc->schedState = INDEX_GC_SCHED_OK;
@@ -154,6 +147,20 @@ static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   out->lastRunTimeMs = gc->stats.lastRunTimeMs;
 }
 
+// This and onQueueRunCb promote with the plain reference API, not IndexSpecRef_Promote: they run
+// on the main thread, possibly inside a command, whose crash-report slot they must not clear.
+size_t IndexGC_RunIntervalSec(const IndexGC *gc) {
+  StrongRef ref = WeakRef_Promote(gc->index);
+  const IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return IndexGCSettings_GlobalRunIntervalSec();
+  }
+  const size_t sec = IndexGCSettings_RunIntervalSec(&sp->gcSettings);
+  StrongRef_Release(ref);
+  return sec;
+}
+
+// The retry interval stays global: only the run interval can be set per index.
 static GCTimerPlan nextTimerCb(void *ctx) {
   const IndexGC *gc = ctx;
   if (gc->schedState == INDEX_GC_SCHED_FORK_FAILED) {
@@ -161,7 +168,7 @@ static GCTimerPlan nextTimerCb(void *ctx) {
     return (GCTimerPlan){.kind = GC_TIMER_RETRY, .intervalMs = GC_IntervalSecToMs(retrySec)};
   }
   return (GCTimerPlan){.kind = GC_TIMER_RUN_INTERVAL,
-                       .intervalMs = GC_IntervalSecToMs(runIntervalSec())};
+                       .intervalMs = GC_IntervalSecToMs(IndexGC_RunIntervalSec(gc))};
 }
 
 static bool indexExistsCb(void *ctx) {
@@ -174,6 +181,17 @@ static bool indexExistsCb(void *ctx) {
   return true;
 }
 
+static void onQueueRunCb(void *ctx) {
+  IndexGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  const IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return;  // the run finds the drop; the threshold no longer matters
+  }
+  gc->cleanThreshold = IndexGCSettings_CleanThreshold(&sp->gcSettings);
+  StrongRef_Release(ref);
+}
+
 IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   IndexGC *forkGc = rm_calloc(1, sizeof(*forkGc));
   *forkGc = (IndexGC){
@@ -181,6 +199,8 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .schedState = INDEX_GC_SCHED_OK,
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
+  const IndexSpec *sp = StrongRef_Get(spec_ref);
+  forkGc->cleanThreshold = IndexGCSettings_CleanThreshold(&sp->gcSettings);
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
@@ -195,6 +215,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;
   callbacks->getStats = getStatsCb;
+  callbacks->onQueueRun = onQueueRunCb;
 
   return forkGc;
 }

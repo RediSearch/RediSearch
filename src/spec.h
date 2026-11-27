@@ -19,6 +19,7 @@
 #include "sorting_vector.h"
 #include "stopwords.h"
 #include "gc/gc.h"
+#include "gc/index_gc_settings.h"
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
@@ -208,7 +209,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 31
+#define INDEX_CURRENT_VERSION 32
+#define INDEX_GC_SETTINGS_VERSION 32
 #define INDEX_SPARSE_VECTOR_VERSION 31
 #define INDEX_SST_TAG_VALUES_VERSION 30
 #define INDEX_SST_SPEC_ID_VERSION 29
@@ -329,6 +331,9 @@ typedef struct IndexSpec {
   StopWordList *stopwords;        // List of stopwords for TEXT fields
 
   GCContext *gc;                  // Garbage collection
+  // Stored whether or not this node runs GC for the index, so a node without GC keeps and
+  // saves what it was told. Operational tuning, not schema: not part of schemaFingerprint.
+  IndexGCSettings gcSettings;
 
   SynonymMap *smap;               // List of synonym
   HiddenString **aliases;         // Aliases to self-remove when the index is deleted

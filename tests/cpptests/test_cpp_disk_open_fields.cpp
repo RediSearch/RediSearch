@@ -24,6 +24,7 @@ extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
 }
 
+#include <cstring>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -777,6 +778,16 @@ class DiskTagPersistenceTest : public DiskSchemaOpenTest {
     io->read_pos = 0;
   }
 
+  // A record saved now ends with the GC settings block, which encodings before
+  // INDEX_GC_SETTINGS_VERSION lack. With no override set, the block is only its count.
+  void dropGCSettingsBlock() {
+    uint64_t count;
+    ASSERT_GE(io->buffer.size(), sizeof(count));
+    memcpy(&count, io->buffer.data() + io->buffer.size() - sizeof(count), sizeof(count));
+    ASSERT_EQ(count, 0u);
+    io->buffer.resize(io->buffer.size() - sizeof(count));
+  }
+
   void load(int version) {
     QueryError err = QueryError_Default();
     loaded = IndexSpec_RdbLoad(io, version, true, &err);
@@ -861,6 +872,7 @@ TEST_F(DiskTagPersistenceTest, LegacySstWithoutTagFieldsCanLoad) {
   ASSERT_NE(sp, nullptr);
   IndexSpec_RdbSave(io, sp, REDISMODULE_CTX_FLAGS_SST_RDB);
   discardSource();
+  dropGCSettingsBlock();
   load(INDEX_SST_TAG_VALUES_VERSION - 1);
   ASSERT_NE(loaded, nullptr);
   EXPECT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
@@ -869,6 +881,7 @@ TEST_F(DiskTagPersistenceTest, LegacySstWithoutTagFieldsCanLoad) {
 TEST_F(DiskTagPersistenceTest, LegacyPlainRdbTagIndexCanLoadWithoutDictionaries) {
   ASSERT_NE(saveSource(0), nullptr);
   discardSource();
+  dropGCSettingsBlock();
   QueryError err = QueryError_Default();
   loaded = IndexSpec_RdbLoad(io, INDEX_SST_TAG_VALUES_VERSION - 1, false, &err);
   ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
