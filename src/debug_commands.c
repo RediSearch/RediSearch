@@ -4046,7 +4046,7 @@ DEBUG_COMMAND(DumpDeletedIds) {
 // Dumps the in-memory bucket routing map of a disk NUMERIC or GEO field (GEO
 // shares the NUMERIC field's bucket map) as a JSON string:
 // [{"max_val": ..., "state": "Active"|"BeingCreated", ("source": ...,)
-// "num_entries": ...}, ...]. Debug/testing only (e.g. asserting a bucket
+// "num_values": ...}, ...]. Debug/testing only (e.g. asserting a bucket
 // split's routing state on a master and its replica).
 DEBUG_COMMAND(NumericBucketMap) {
   if (!debugCommandsEnabled(ctx)) {
