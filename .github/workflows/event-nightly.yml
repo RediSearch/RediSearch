@@ -49,7 +49,9 @@ jobs:
     uses: ./.github/workflows/flow-redis-build-sanity.yml
     secrets: inherit
     with:
-      platform: all,ubuntu:latest
+      # almalinux/amazonlinux are explicit-only; redis's modules build covers them.
+      # Redis's modules build has no macOS job and its LTO=1 build_env is not possible there.
+      platform: all,ubuntu:latest,almalinux:8,almalinux:9,almalinux:10,amazonlinux:2023,!macos-15,!macos-26
       architecture: all
       redis-repository: redis/redis
       redis-ref: unstable

@@ -38,7 +38,7 @@ on:
       platform:
         type: string
         description: 'Platform filter. Use "all" for all supported platforms, comma-separated values to add explicit platforms, or "!platform" to exclude.'
-        default: all,ubuntu:latest
+        default: all,ubuntu:latest,almalinux:8,almalinux:9,almalinux:10,amazonlinux:2023,!macos-15,!macos-26
       architecture:
         type: choice
         options:
@@ -96,3 +96,6 @@ jobs:
       redis-ref: ${{ inputs.redis-ref }}
       redisearch-repository: ${{ inputs.redisearch-repository || github.repository }}
       redisearch-ref: ${{ inputs.redisearch-ref || github.sha }}
+      # Stock images, as redis's modules-build-flow.yml uses: the CI images for these
+      # (gcc:*-bookworm/-trixie) ship a compiler, which would hide bootstrap gaps.
+      image: ${{ fromJSON('{"debian:bookworm":"debian:bookworm","debian:trixie":"debian:trixie"}')[matrix.platform] || '' }}
