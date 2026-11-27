@@ -745,15 +745,41 @@ unsafe fn free_without_union(raw: *mut SuspendedSparseVectorIterator<'_>) {
     };
 }
 
+/// Print the profile of a [`SparseVectorIterator`], active or suspended: it
+/// reads only the dimension counts, which the two forms share.
+fn print_sparse_profile(
+    query_dimensions: usize,
+    num_dimensions: usize,
+    map: &mut redis_reply::MapBuilder<'_>,
+    ctx: &mut ProfilePrintCtx<'_>,
+) {
+    map.kv_simple_string(c"Type", c"SPARSE_VECTOR");
+    let as_cstring =
+        |n: usize| std::ffi::CString::new(n.to_string()).expect("a number has no interior NUL");
+    // The gap between the two is the query's dimensions no document has.
+    map.kv_simple_string(c"Query dimensions", &as_cstring(query_dimensions));
+    map.kv_simple_string(c"Dimensions", &as_cstring(num_dimensions));
+    ctx.print_optional_counters(map);
+    ctx.print_estimated(map);
+}
+
 impl ProfilePrint for SparseVectorIterator<'_> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
-        map.kv_simple_string(c"Type", c"SPARSE_VECTOR");
-        let as_cstring =
-            |n: usize| std::ffi::CString::new(n.to_string()).expect("a number has no interior NUL");
-        // The gap between the two is the query's dimensions no document has.
-        map.kv_simple_string(c"Query dimensions", &as_cstring(self.query_dimensions));
-        map.kv_simple_string(c"Dimensions", &as_cstring(self.num_dimensions));
-        ctx.print_optional_counters(map);
-        ctx.print_estimated(map);
+        print_sparse_profile(self.query_dimensions, self.num_dimensions, map, ctx);
+    }
+}
+
+impl ProfilePrint for SuspendedSparseVectorIterator<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        print_sparse_profile(self.query_dimensions, self.num_dimensions, map, ctx);
+    }
+}
+
+// A dimension is never profiled on its own: its `SparseVectorIterator` prints
+// the whole union. This impl only satisfies the `ProfilePrint` bounds of
+// `RQESuspendedIterator`.
+impl<P: ProfilePrint> ProfilePrint for RawDimensionIterator<P> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        self.it.print_profile(map, ctx);
     }
 }

@@ -247,9 +247,8 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Term<'index, R, E>
+impl<'query, Rf: Ref, R, E, RA> ProfilePrint for RawTerm<'query, Rf, R, E, RA>
 where
-    R: inverted_index::TermReader<'index>,
     E: crate::expiration_checker::ExpirationChecker,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

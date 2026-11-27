@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir, rename, appendFile, readdir, stat } from 'node:fs/promises';
-import path, { join, normalize, isAbsolute } from 'node:path';
+import { readFile, writeFile, mkdir, rename, appendFile, readdir, stat, realpath } from 'node:fs/promises';
+import path, { join, normalize, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs, { openSync, readSync, closeSync, statSync, readFileSync, appendFileSync, writeFileSync, createWriteStream, createReadStream, existsSync } from 'node:fs';
 import { ChildProcess, execFile, spawnSync, spawn } from 'node:child_process';
@@ -9922,6 +9922,7 @@ async function runChecks(run, checks) {
                     check: result,
                     log: await readLog(log),
                     root: run.root,
+                    plan: run.plan,
                 });
         Object.assign(result, verdict);
         run.debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);
@@ -14462,6 +14463,11 @@ function progressMark(state) {
 /** The plan's stages, in the profile's order, which the engine keeps them in. */
 const stageOrder = (job) => Object.keys(job.plan.stages);
 const previousStage = (job, stage) => stageOrder(job)[stageOrder(job).indexOf(stage) - 1];
+/** Whether the stage was admitted with nothing to change, as its base. */
+function unchanged(job, stage) {
+    const admission = job.admitted[stage];
+    return !!admission && admission.candidate === admission.base;
+}
 /** A stage stays admitted while the plan and the admitted stage it was built on are unchanged. */
 function isAdmitted(job, stage) {
     const admission = job.admitted[stage];
@@ -15277,6 +15283,8 @@ finding blocks only when the plugin confirms it: its repro patch, touching tests
 its command (one of ${runnerList(profile)}) then fails; its deletion patch, touching no test, removes more than
 it adds and every test check still passes; or it cites a rule. Anything else is a suggestion. Report each problem once; return
 {"findings": []} when there is nothing to report.`;
+/** The reviewers of `stage`. */
+const reviewersOf = (profile, stage) => profile.reviewers.filter((r) => !r.stages || r.stages.includes(stage));
 /** How findings, logs and thread labels name a reviewer, e.g. `swap / Correctness`. */
 const reviewerLabel = (stage, reviewer) => `${stage} / ${reviewer.name}`;
 /** What the stage's reviewers read first. */
@@ -15384,7 +15392,7 @@ async function tryReviewer(host, o, resume) {
 async function reviewStage(host, o) {
     const { prior, stage, signal, timeoutMs, profile } = o;
     const message = prior && followUpBrief({ ...o, previous: prior.candidate });
-    const reviews = await Promise.all(profile.reviewers.map(async (reviewer) => {
+    const reviews = await Promise.all(reviewersOf(profile, stage).map(async (reviewer) => {
         const thread = prior?.reviewers.find((r) => r.reviewer === reviewerLabel(stage, reviewer))?.thread;
         const r = await runReviewer(host, {
             ...{ reviewer, stage, owner: o.owner, signal, timeoutMs, brief: reviewBrief(reviewer, o) },
@@ -15839,7 +15847,7 @@ function engine(o) {
         },
         {
             name: 'claim',
-            description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and ${profile.reviewers.length} reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
+            description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and the stage's reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
             schema: {
                 type: 'object',
                 properties: {
@@ -15965,6 +15973,21 @@ function engine(o) {
             const { job } = state;
             if (job.retro)
                 return;
+            // Amp excludes the executing tool from children it creates. Hand off outside claim so
+            // the next worker retains the claim tool. Admissions and publication persist the intent.
+            const index = job.former?.length ?? 0;
+            const stage = stages[index];
+            const next = stages[index + 1];
+            const candidate = job.admitted[stage]?.candidate;
+            if (next &&
+                candidate &&
+                isAdmitted(job, stage) &&
+                (job.prs[stage]?.head === candidate || unchanged(job, stage)) &&
+                (await vcs.currentRevision()) === candidate &&
+                (await handOff(state, stage, next, candidate))) {
+                await save(state);
+                return;
+            }
             // An unreachable forge counts as pending, so the worker sleeps rather than spins.
             if (done(state) && (await collectFeedback(state).catch(() => true)))
                 return void (await save(state));
@@ -16008,7 +16031,11 @@ function engine(o) {
             throw new Error(`${stage} at ${candidate} cannot be admitted:\n- ${problems.join('\n- ')}`);
         // Evidence is bound to stage, candidate, base and plan; changing any misses.
         const key = `${stage}:${candidate}:${base}:${job.planHash}`;
-        if (state.evidence[key] && passed(state.evidence[key]))
+        // A stage that changes nothing has nothing to check or review, and opens no PR.
+        const empty = candidate === base;
+        if (empty)
+            debug(`${stage} changes nothing, so it is skipped`);
+        else if (state.evidence[key] && passed(state.evidence[key]))
             debug('reusing passing evidence');
         else {
             const reason = stopReason(job);
@@ -16029,25 +16056,22 @@ function engine(o) {
         }
         await collectFeedback(state);
         const holding = outstanding(state).filter((f) => blocksAdmission(f, stage));
-        const admitted = passed(state.evidence[key]) && !holding.length;
+        const admitted = (empty || passed(state.evidence[key])) && !holding.length;
         debug(`${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`);
-        let handedTo = '';
         if (admitted) {
             // Recorded first, so the PR's run record shows it; a failed publication throws, and a
             // failed call saves nothing.
             job.admitted[stage] = { candidate, base, plan: job.planHash };
             await publish(state, stage, candidate);
-            const next = stages[stages.indexOf(stage) + 1];
-            // Only the worker of this stage hands on; a later one re-admitting it keeps the job.
-            if (next && stages.indexOf(stage) === (job.former?.length ?? 0))
-                handedTo = await handOff(state, stage, next, candidate);
         }
         const big = sizeClass(size.lines);
-        const result = newFindingsMessage(state, `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
+        const result = newFindingsMessage(state, `${admitted ? `Stage ${stage} admitted at ${candidate}. ${empty ? 'It changes nothing, so it was skipped: it opens no PR, and the next stage opens below it.' : (job.prs[stage]?.url ?? '')}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
             `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
             (big ? ` ${big.label}: ${big.note}` : ''));
-        return handedTo
-            ? `${result}\n\nThe job continues in a fresh thread, ${handedTo}, which owns this checkout now. Change nothing more and end your turn.`
+        return admitted &&
+            stages[stages.indexOf(stage) + 1] &&
+            stages.indexOf(stage) === (job.former?.length ?? 0)
+            ? `${result}\n\nThe plugin will hand the job to a fresh worker when this turn ends. Report the admission without making further changes to the checkout.`
             : result;
     }
     /** The base the stage's diff starts from: the base branch, or the admitted stage before it. */
@@ -16083,7 +16107,7 @@ function engine(o) {
         const cancel = AbortSignal.any([signal, o.disposed]);
         const stop = AbortSignal.any([cancel, AbortSignal.timeout(timeoutMs)]);
         const env = {
-            ...{ root, dir, vcs, signal: stop, judges: profile.judges, debug },
+            ...{ root, dir, vcs, signal: stop, plan: job.plan, judges: profile.judges, debug },
             vars: { CLAIM_BASE: base, CLAIM_CANDIDATE: candidate },
         };
         const planned = job.plan.stages[stage].checks;
@@ -16184,11 +16208,19 @@ function engine(o) {
         throw new Error('The checks changed files, now restored; the evidence was discarded');
     }
     // ## Publishing and handing on
-    /** Opens or updates the stage's PR, stacked on the stage before it, and answers what it fixed. */
+    /**
+     * Opens or updates the stage's PR, stacked on the closest stage before it that has one, and
+     * answers what it fixed. A stage that changes nothing has no PR to open.
+     */
     async function publish(state, stage, candidate) {
         const { job } = state;
         const branch = (s) => `${job.plan.branchPrefix}-${s}`;
-        const prev = previousStage(job, stage);
+        if (unchanged(job, stage))
+            return void debug(`${stage} changes nothing, so it has no PR`);
+        const prev = stages
+            .slice(0, stages.indexOf(stage))
+            .reverse()
+            .find((s) => job.prs[s] && !unchanged(job, s));
         const admission = job.admitted[stage];
         const evidence = state.evidence[`${stage}:${candidate}:${admission.base}:${admission.plan}`];
         const reports = evidence?.checks
@@ -16236,7 +16268,7 @@ ${formatFindings(outstanding(state), tool('close')) || 'None.'}
 
 ${describePlan(job.plan, profile)}`;
         // Ownership moves only once the new thread has its briefing. Its first tool calls queue behind
-        // this claim, by when it owns the job; if anything fails, the current worker carries on.
+        // this turn-end transition, by when it owns the job; if anything fails, the worker carries on.
         try {
             const child = await host.startThread({ parent: from, labels: [next] });
             await host.sendMessage(child, briefing);
@@ -16531,6 +16563,95 @@ function isTestCommand(runners, command) {
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
+/** Line coverage of the C being ported, read from the lcov tracefile a test run wrote. */
+/** Ranges listed per file before the report elides the rest; the tracefile holds them all. */
+const MAX_RANGES = 30;
+/**
+ * Each source file of an lcov tracefile, as it names it, with its hits per line. A file in several
+ * records, one per test, adds up its hits.
+ */
+function parseLcov(text) {
+    const files = new Map();
+    let current;
+    for (const line of text.split('\n')) {
+        if (line.startsWith('SF:')) {
+            const path = line.slice(3).trim();
+            current = files.get(path) ?? new Map();
+            files.set(path, current);
+        }
+        else if (line.startsWith('DA:') && current) {
+            const [number, hits] = line.slice(3).split(',').map(Number);
+            current.set(number, (current.get(number) ?? 0) + hits);
+        }
+        else if (line.startsWith('end_of_record'))
+            current = undefined;
+    }
+    return files;
+}
+/** `[1, 2, 3, 7]` as `1-3, 7`. */
+function lineRanges(lines) {
+    const ranges = [];
+    for (let i = 0; i < lines.length;) {
+        let j = i;
+        while (j + 1 < lines.length && lines[j + 1] === lines[j] + 1)
+            j++;
+        ranges.push(i === j ? `${lines[i]}` : `${lines[i]}-${lines[j]}`);
+        i = j + 1;
+    }
+    return ranges;
+}
+/**
+ * Judges a test run that wrote the lcov tracefile `info`: it must have written it since `since`,
+ * and covered every one of `sources`. Reports each source's coverage and the lines left uncovered,
+ * which the port then reads as the behavior no test pins.
+ */
+async function judgeCoverage(info, sources, since, root) {
+    const written = await stat(info).catch(() => undefined);
+    if (!written || written.mtimeMs < since)
+        return { problem: `wrote no fresh coverage to ${relative(root, info)}` };
+    // Tracefiles name sources by absolute path, which may run through a symlink the root does not.
+    const top = await realpath(root);
+    const files = new Map();
+    for (const [path, hits] of parseLcov(await readFile(info, 'utf8'))) {
+        const real = await realpath(resolve(root, path)).catch(() => resolve(root, path));
+        const key = relative(top, real);
+        const merged = files.get(key) ?? new Map();
+        files.set(key, merged);
+        for (const [line, n] of hits)
+            merged.set(line, (merged.get(line) ?? 0) + n);
+    }
+    const missing = sources.filter((s) => !files.get(s)?.size);
+    if (missing.length)
+        return { problem: `has no coverage of ${missing.join(', ')}: is it compiled into the module?` };
+    const rows = sources.map((s) => {
+        const lines = [...files.get(s)].sort(([a], [b]) => a - b);
+        const total = lines.length;
+        const uncovered = lines.filter(([, n]) => n === 0).map(([line]) => line);
+        const covered = total - uncovered.length;
+        const ranges = lineRanges(uncovered);
+        const listed = ranges.slice(0, MAX_RANGES).join(', ');
+        const more = ranges.length > MAX_RANGES ? ` and ${ranges.length - MAX_RANGES} more` : '';
+        return `| \`${s}\` | ${covered}/${total} | ${((100 * covered) / total).toFixed(1)}% | ${listed || 'none'}${more} |`;
+    });
+    return {
+        report: `### Flow test coverage
+
+Lines of the C being ported that the Python flow tests reach, from this candidate's coverage run.
+
+| File | Lines covered | Coverage | Uncovered lines |
+| --- | ---: | ---: | --- |
+${rows.join('\n')}`,
+    };
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
 const TEST_GATE = '#[cfg(test)]';
 // Strings, char literals and comments are skipped whole, so a gate or brace in them does not count.
 const LITERAL = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
@@ -16692,6 +16813,7 @@ function rustHouseRules(layout) {
  */
 /** What a port of a C module to Rust adds: plan fields, the swap's completeness, its reviewers. */
 const SOURCES = /\.(c|h|cpp|cc|hpp|rs)$/;
+const C_TESTS = /\.(c|cpp|cc)$/;
 /**
  * Functions a C header declares: a name with a return type before it, either type words or a
  * macro call on the same line such as `arrayof(char**)`. Column-zero macro calls such as
@@ -16709,20 +16831,50 @@ function headerFunctions(header) {
     return [...code.matchAll(pattern)].map((m) => m[1]);
 }
 /**
+ * Tests a C or C++ file defines: gtest's `TEST`, `TEST_F`, `TEST_P`, `TYPED_TEST` and
+ * `TYPED_TEST_P` as `Suite.name`, and a C test by the function its `TESTFUNC` or minunit's
+ * `MU_RUN_TEST` registers. Mentions of a name in comments or other tests are not definitions.
+ */
+function cTests(text) {
+    const gtest = /^\s*(?:TYPED_TEST(?:_P)?|TEST(?:_[FP])?)\(\s*(\w+)\s*,\s*(\w+)\s*\)/gm;
+    const ctest = /^\s*(?:TESTFUNC|MU_RUN_TEST)\(\s*(\w+)\s*\)/gm;
+    return [
+        ...[...text.matchAll(gtest)].map((m) => `${m[1]}.${m[2]}`),
+        ...[...text.matchAll(ctest)].map((m) => m[1]),
+    ];
+}
+/**
  * What a port's plan gets wrong: a module without sources and headers, symbols missing or
- * invented against the headers on the base branch, tests named for their artifact, filtered
+ * invented against the headers on the base branch, replaced tests the base branch lacks, outside
+ * the swap's paths or covered by no cited test, tests named for their artifact, filtered
  * benchmarks, missing Cargo tools, and paths spanning several crates.
  */
 async function checkPortPlan(plan, stages, o) {
     const errors = [];
+    const nonblank = (v) => typeof v === 'string' && v.trim();
     if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
         errors.push('module needs the C files being ported: sources and headers');
     if (!plan.symbols?.length)
         errors.push('symbols needs every function the headers declare');
-    for (const [i, s] of (plan.symbols ?? []).entries())
-        if (![s?.c, s?.rust].every((v) => typeof v === 'string' && v.trim()))
-            errors.push(`symbols[${i}] needs c and rust`);
-    for (const t of citedTests(plan, stages.at(-1).name))
+    for (const [i, s] of (plan.symbols ?? []).entries()) {
+        if (!nonblank(s?.c) ||
+            !nonblank(s?.rust ?? s?.retired) ||
+            (s?.rust !== undefined && s?.retired !== undefined))
+            errors.push(`symbols[${i}] needs c and exactly one of rust or a retired reason`);
+    }
+    const swap = stages.at(-1).name;
+    const cited = citedTests(plan, swap);
+    if (!Array.isArray(plan.replacedTests))
+        errors.push('replacedTests is required, even if empty');
+    for (const [i, r] of (plan.replacedTests ?? []).entries()) {
+        if (!nonblank(r?.path) ||
+            !nonblank(r?.name) ||
+            !cited.some((t) => t.path === r?.by?.path && t.name === r?.by?.name))
+            errors.push(`replacedTests[${i}] needs path, name and by, a test the contract or divergences cite`);
+        else if (filesOutside([r.path], plan.stages[swap]?.paths ?? []).length)
+            errors.push(`replacedTests[${i}]: ${swap} may not change ${r.path}; add it to its paths`);
+    }
+    for (const t of cited)
         if (namedForArtifact(t.name))
             errors.push(`${t.path}::${t.name} is named for its artifact; name it for the behavior it asserts`);
     for (const { name } of stages) {
@@ -16749,6 +16901,11 @@ async function checkPortPlan(plan, stages, o) {
         errors.push(`symbols leaves out ${unmapped.join(', ')}`);
     if (unknown.length)
         errors.push(`symbols names undeclared ${unknown.join(', ')}`);
+    for (const r of plan.replacedTests) {
+        const text = await o.vcs.readFileAt(o.base, r.path);
+        if (text === undefined || !cTests(text).includes(r.name))
+            errors.push(`replacedTests names ${r.path}::${r.name}, which ${plan.baseBranch} lacks`);
+    }
     const files = await o.vcs.listFiles(o.base);
     for (const { name } of stages)
         errors.push(...multiCratePaths(plan.stages[name].paths, files));
@@ -16759,10 +16916,15 @@ const describePortPlan = (plan, swap) => `### What replaces each C function
 
 The C being ported, ${plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree until \`${swap}\` deletes it.
 
-${plan.symbols.map((s) => `- \`${s.c}\`: \`${s.rust}\``).join('\n')}`;
+${plan.symbols.map((s) => `- \`${s.c}\`: ${s.retired !== undefined ? `retired — ${s.retired}` : `\`${s.rust}\``}`).join('\n')}
+
+### C tests the swap replaces
+
+${(plan.replacedTests ?? []).map((r) => `- \`${r.path}::${r.name}\`: by \`${r.by.path}::${r.by.name}\``).join('\n') || 'None.'}`;
 /**
- * What the swap leaves undone: a Rust replacement or generated export missing, a module file
- * left, an export no production code calls, or Rust outside the FFI crate without a mutants check.
+ * What the swap leaves undone: a Rust replacement or generated export missing, a module file or
+ * replaced test left, a C test deleted that the plan does not replace, an export no production
+ * code calls, or Rust outside the FFI crate without a mutants check.
  * A C definition left elsewhere fails to link against the Rust export of its name. The candidate
  * is the clean checkout at `root`.
  */
@@ -16775,19 +16937,52 @@ async function checkSwap(layout, o) {
     if (pure.length && !o.plan.stages[o.stage].checks.some((c) => c.kind === 'mutants'))
         problems.push(`${o.stage} changes Rust outside its FFI crate (${pure.join(', ')}): add a mutants check`);
     const headers = tracked.filter((f) => f.startsWith(layout.headers));
+    // A retired function counts as exported only where declared, not where a comment names it.
+    const declared = new Set();
+    for (const f of headers)
+        for (const name of headerFunctions(await read(f)))
+            declared.add(name);
     for (const s of o.plan.symbols) {
+        if (s.retired !== undefined) {
+            if (declared.has(s.c))
+                problems.push(`retired function ${s.c} is still exported in a generated header`);
+            continue;
+        }
         if (!(await definesRust(layout, tracked, read, s.rust)))
             problems.push(`${s.rust}, which replaces ${s.c}, is not defined`);
+        // A replacement may be kept as a static inline shim or a macro, which declare no function.
         if (!(await anyFileMatches(headers, read, wholeWord(s.c))))
             problems.push(`no generated header exports ${s.c}`);
     }
     for (const path of o.plan.module)
         if (tracked.includes(path))
             problems.push(`${path} still exists; the swap deletes the module, headers included`);
+    // A plan made before replacedTests existed replaces none.
+    const replaced = o.plan.replacedTests ?? [];
+    for (const r of replaced)
+        if (tracked.includes(r.path) && cTests(await read(r.path)).includes(r.name))
+            problems.push(`${r.path}::${r.name} is still defined; the swap deletes it for ${r.by.path}::${r.by.name}`);
+    for (const t of deletedCTests(layout, o.files))
+        if (!replaced.some((r) => r.path === t.path && r.name === t.name))
+            problems.push(`${t.path}::${t.name} is deleted, but replacedTests does not name the test replacing it`);
     for (const name of await orphanedExports(layout, o.files, tracked, read))
         problems.push(`${name} is exported, but no production code calls it: delete it, and point any test ` +
             'that calls it at the Rust API');
     return problems;
+}
+/**
+ * The C and C++ tests a diff deletes: definitions it removes and does not add back, as a
+ * rewritten one would be. Only the swap may delete them, each listed in `replacedTests`.
+ */
+function deletedCTests(layout, files) {
+    return files
+        .filter((f) => layout.isTest(f.path) && C_TESTS.test(f.path))
+        .flatMap((f) => {
+        const added = new Set(cTests(f.added.join('\n')));
+        return cTests(f.removed.join('\n'))
+            .filter((name) => !added.has(name))
+            .map((name) => ({ path: f.path, name }));
+    });
 }
 /** Reads files of the checkout at `root` once each. */
 function fileReader(root) {
@@ -16891,12 +17086,13 @@ async function orphanedExports(layout, files, tracked, read) {
     return result;
 }
 /**
- * The reviewers of a C-to-Rust port: correctness against the plan, and idiomatic Rust checked
- * against `guides` rule by rule, citing `ruleFiles`.
+ * The reviewers of the `stages` that write Rust: correctness against the plan, and idiomatic Rust
+ * checked against `guides` rule by rule, citing `ruleFiles`.
  */
-const portReviewers = (guides, ruleFiles) => [
+const portReviewers = (guides, ruleFiles, stages) => [
     {
         name: 'Correctness',
+        stages,
         instructions: `Review correctness against the plan: its contract, its divergences from C, what
 replaces each C function, the stage's deliverable and the recorded interfaces. C behavior the
 contract does not list may change, provided the plan lists the divergence.
@@ -16917,6 +17113,7 @@ outlive what it points to), and ownership (who frees it, with which allocator, e
     },
     {
         name: 'Idiomatic Rust',
+        stages,
         instructions: `Review only the Rust: idiomatic, small, readable code, documentation and tests.
 Make two passes. First bugs and bloat, which matter most: look hardest for code the stage does
 not need, and give each such finding a deletion patch. Then design and house style: go through
@@ -16936,6 +17133,7 @@ expression proves nothing: give it a deletion patch.`,
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
+/** Everything specific to RediSearch: its layout, checks, CI and house rules. */
 /** The Cargo workspace the Rust lives in. */
 const WORKSPACE = 'src/redisearch_rs/';
 const RULE_FILES = '`.skills/`, CLAUDE.md or AGENTS.md';
@@ -16944,8 +17142,14 @@ const GUIDES = 'the generated-code smells and the house rules in .skills/rust-re
     '.skills/rust-tests-guidelines and .skills/rust-docs-guidelines';
 /** How much slower than C, in percent, Rust may be in any benchmark. */
 const SLOWDOWN_PERCENT = 5;
+/** Where `./build.sh RUN_PYTEST COV=1` writes the flow tests' lcov tracefile. */
+const FLOW_COVERAGE = 'bin/flow_standalone.info';
+/** What makes a flow test run measure coverage. */
+const COVERAGE_RUN = /(^|\s)COV=1(\s|$)/i;
+/** What makes a flow test run cover part of the suite; build.sh reads arguments in any case. */
+const SUBSET_RUN = /(^|\s)(TEST=|QUICK=1(\s|$))/i;
 const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
-// Miri runs in every stage, because nothing tells reliably whether a change reaches `unsafe` code.
+// Miri runs in every stage that writes Rust, because nothing tells reliably whether a change reaches `unsafe` code.
 // cargo mutants skips `unsafe extern` functions, so only a swap that adds other Rust needs it.
 // CI's lint job also checks formatting, which `make lint` does not.
 const LINT = [
@@ -17012,10 +17216,33 @@ const RULES = [
     },
 ];
 const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
-/** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
+/** Reviews the stage that pins the C's behavior before any Rust is written. */
+const FLOW_TESTS_REVIEWER = {
+    name: 'Flow tests',
+    stages: ['coverage'],
+    instructions: `Review a stage that changes no reachable behavior: it adds Python flow tests
+reaching C the tests left uncovered, and replaces unreachable defensive C with assertions, so the
+port that follows keeps every behavior a test pins. Go through .skills/write-flow-tests and the
+assertion rules of .skills/improve-flow-coverage rule by rule, checking the diff against each.
+A test must assert what the command returns: a reply, an error, the results. A test that only
+executes lines, or repeats an existing test, breaks .skills/write-flow-tests: cite the rule's
+line, since a deletion patch of a test is never confirmed. An assertion must guard a state no
+command can reach. One that an FT.* command, a cluster or coordinator run, a disk-only path or
+the C module API can reach turns an error into a crash, and into undefined behavior in release
+builds, where assertions compile out: its repro is a flow test that reaches it, which crashes the
+debug build. The coverage measures standalone runs only, so code it shows uncovered may still run
+in a cluster. A guard that frees resources, such as after a failed allocation, keeps its cleanup
+under an LCOV exclusion. Any other change to the C is a defect of this stage.`,
+};
+/**
+ * A port lands as three stacked PRs: the flow tests that pin the C, the Rust, then the swap that
+ * deletes the C.
+ */
 const profile = {
     name: 'rust-port',
     stages: [
+        // A coverage run is a debug build, so the assertions the stage adds hold under every flow test.
+        { name: 'coverage', checks: { test: ['RUN_PYTEST', 'COV=1'] } },
         {
             name: 'rust',
             checks: {
@@ -17044,15 +17271,32 @@ const profile = {
     ruleFiles: RULE_FILES,
     testRunners: RUNNERS,
     isTestCommand: (command) => isTestCommand(RUNNERS, command),
-    judges: cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
-    reviewers: portReviewers(GUIDES, RULE_FILES),
+    judges: {
+        ...cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
+        // Only the sources still in the checkout: the swap deletes them.
+        test: ({ check, root, plan }) => {
+            const sources = plan.module.filter((p) => p.endsWith('.c') && existsSync(join(root, p)));
+            return COVERAGE_RUN.test(check.command) && sources.length
+                ? judgeCoverage(join(root, FLOW_COVERAGE), sources, check.started, root)
+                : {};
+        },
+    },
+    reviewers: [FLOW_TESTS_REVIEWER, ...portReviewers(GUIDES, RULE_FILES, ['rust', 'swap'])],
     checkPlan: async (plan, o) => [
         ...Object.entries(plan.stages).flatMap(([s, { body }]) => releaseNoteErrors(body).map((e) => `${s} body ${e}`)),
+        // Coverage of a subset of the flow tests reads as gaps the full suite does not have.
+        ...plan.stages.coverage.checks
+            .filter((c) => c.kind === 'test' && SUBSET_RUN.test(c.command))
+            .map(() => 'coverage test check selects flow tests with TEST= or QUICK=1; run them all'),
+        // At `coverage` a test runs against the C, so it cannot show the Rust's divergent behavior.
+        ...plan.divergences.flatMap((d, i) => d.test.stage === 'coverage' ? [`divergences[${i}] test must be cited at rust or later`] : []),
         ...(await checkPortPlan(plan, profile.stages, { ...o, workspace: WORKSPACE })),
     ],
     checkClaim: async (o) => [
         ...multiCratePaths(o.plan.stages[o.stage].paths, await o.vcs.listFiles(o.candidate)),
-        ...(o.stage === 'swap' ? await checkSwap(layout, o) : []),
+        ...(o.stage === 'swap'
+            ? await checkSwap(layout, o)
+            : deletedCTests(layout, o.files).map((t) => `${t.path}::${t.name} is deleted; only swap deletes C tests, as replacedTests`)),
     ],
     describePlan: (plan) => describePortPlan(plan, 'swap'),
 };
