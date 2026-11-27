@@ -117,6 +117,24 @@ fn a_resumed_tag_iterator_keeps_its_variant_allocation_and_position(
     assert_eq!(next_doc_id(&mut it), None);
 }
 
+/// `FT.PROFILE` prints the tree after the query has suspended it, so a suspended tag must still
+/// report its query term, which it reads from the result suspending converts.
+#[rstest]
+fn a_suspended_tag_iterator_prints_the_profile_of_its_active_form(
+    #[values(DocIdEncoding::Varint, DocIdEncoding::Raw)] encoding: DocIdEncoding,
+) {
+    let _guard = GlobalGuard::default();
+    let ctx = TestContext::tag_with_encoding([1, 3, 5].into_iter(), encoding);
+    let mut it = tag_iterator(&ctx);
+    assert_eq!(next_doc_id(&mut it), Some(1));
+    let suspended = rqe_iterators_test_utils::assert_suspended_prints_as_active(it);
+
+    assert_eq!(
+        format!("{suspended:?}"),
+        r#"{"Type": "TAG", "Term": b"test_tag"}"#,
+    );
+}
+
 /// A tag whose current document was garbage-collected while suspended resumes on the next one.
 #[rstest]
 fn a_tag_iterator_whose_current_document_was_collected_moves_on_resume(

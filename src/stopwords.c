@@ -224,14 +224,9 @@ void StopWordList_RdbSave(RedisModuleIO *rdb, StopWordList *sl) {
 }
 
 void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
+  // Only called for indexes with custom stopwords, which always own a list.
+  RS_ASSERT(sl);
   RedisModule_Reply_SimpleString(reply, "stopwords_list");
-
-  if (sl == NULL) {
-    RedisModule_Reply_Array(reply);
-      RedisModule_Reply_Null(reply);
-    RedisModule_Reply_ArrayEnd(reply);
-    return;
-  }
 
   TrieMapIterator *it = TrieMap_Iterate(sl->m);
   char *str;

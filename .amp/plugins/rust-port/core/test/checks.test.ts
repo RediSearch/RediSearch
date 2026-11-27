@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { testRan, runChecks, type CheckEnv } from '../checks.ts';
+import type { Plan } from '../plan.ts';
 import type { Vcs } from '../ports.ts';
 
 async function run(judges: CheckEnv['judges'] = {}): Promise<CheckEnv> {
@@ -23,6 +24,7 @@ async function run(judges: CheckEnv['judges'] = {}): Promise<CheckEnv> {
     vcs,
     signal: new AbortController().signal,
     vars: {},
+    plan: {} as Plan,
     judges,
     debug: () => {},
   };

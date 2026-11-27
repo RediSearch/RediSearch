@@ -10,20 +10,26 @@
 /** What a port of a C module to Rust adds: plan fields, the swap's completeness, its reviewers. */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FileChange } from '../core/diff.ts';
-import { citedTests, type Plan } from '../core/plan.ts';
+import { filesOutside, type FileChange } from '../core/diff.ts';
+import { citedTests, type Plan, type Test } from '../core/plan.ts';
 import type { Profile, Stage, Vcs } from '../core/ports.ts';
 import type { Reviewer } from '../core/review.ts';
 import { benchFilter, multiCratePaths, missingCargoTools } from './cargo.ts';
 import { blockBodies, namedForArtifact, withoutTests, type Layout } from './rust.ts';
 
 const SOURCES = /\.(c|h|cpp|cc|hpp|rs)$/;
+const C_TESTS = /\.(c|cpp|cc)$/;
 
 export interface PortPlan {
   /** The C files being ported; the swap deletes them, headers included. */
   module: string[];
-  /** One per function the module's headers declare, and the Rust the swap exports under its name. */
-  symbols: { c: string; rust: string }[];
+  /** Each header function is replaced by Rust or retired with a reason shown on the PR. */
+  symbols: ({ c: string } & (
+    | { rust: string; retired?: never }
+    | { retired: string; rust?: never }
+  ))[];
+  /** C and C++ tests the swap deletes, each with the test the plan cites that covers it instead. */
+  replacedTests: { path: string; name: string; by: Pick<Test, 'path' | 'name'> }[];
 }
 
 /**
@@ -45,8 +51,23 @@ export function headerFunctions(header: string): string[] {
 }
 
 /**
+ * Tests a C or C++ file defines: gtest's `TEST`, `TEST_F`, `TEST_P`, `TYPED_TEST` and
+ * `TYPED_TEST_P` as `Suite.name`, and a C test by the function its `TESTFUNC` or minunit's
+ * `MU_RUN_TEST` registers. Mentions of a name in comments or other tests are not definitions.
+ */
+export function cTests(text: string): string[] {
+  const gtest = /^\s*(?:TYPED_TEST(?:_P)?|TEST(?:_[FP])?)\(\s*(\w+)\s*,\s*(\w+)\s*\)/gm;
+  const ctest = /^\s*(?:TESTFUNC|MU_RUN_TEST)\(\s*(\w+)\s*\)/gm;
+  return [
+    ...[...text.matchAll(gtest)].map((m) => `${m[1]}.${m[2]}`),
+    ...[...text.matchAll(ctest)].map((m) => m[1]),
+  ];
+}
+
+/**
  * What a port's plan gets wrong: a module without sources and headers, symbols missing or
- * invented against the headers on the base branch, tests named for their artifact, filtered
+ * invented against the headers on the base branch, replaced tests the base branch lacks, outside
+ * the swap's paths or covered by no cited test, tests named for their artifact, filtered
  * benchmarks, missing Cargo tools, and paths spanning several crates.
  */
 export async function checkPortPlan(
@@ -55,13 +76,34 @@ export async function checkPortPlan(
   o: { root: string; vcs: Vcs; base: string; workspace: string },
 ): Promise<string[]> {
   const errors: string[] = [];
+  const nonblank = (v: unknown) => typeof v === 'string' && v.trim();
   if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
     errors.push('module needs the C files being ported: sources and headers');
   if (!plan.symbols?.length) errors.push('symbols needs every function the headers declare');
-  for (const [i, s] of (plan.symbols ?? []).entries())
-    if (![s?.c, s?.rust].every((v) => typeof v === 'string' && v.trim()))
-      errors.push(`symbols[${i}] needs c and rust`);
-  for (const t of citedTests(plan, stages.at(-1)!.name))
+  for (const [i, s] of (plan.symbols ?? []).entries()) {
+    if (
+      !nonblank(s?.c) ||
+      !nonblank(s?.rust ?? s?.retired) ||
+      (s?.rust !== undefined && s?.retired !== undefined)
+    )
+      errors.push(`symbols[${i}] needs c and exactly one of rust or a retired reason`);
+  }
+  const swap = stages.at(-1)!.name;
+  const cited = citedTests(plan, swap);
+  if (!Array.isArray(plan.replacedTests)) errors.push('replacedTests is required, even if empty');
+  for (const [i, r] of (plan.replacedTests ?? []).entries()) {
+    if (
+      !nonblank(r?.path) ||
+      !nonblank(r?.name) ||
+      !cited.some((t) => t.path === r?.by?.path && t.name === r?.by?.name)
+    )
+      errors.push(
+        `replacedTests[${i}] needs path, name and by, a test the contract or divergences cite`,
+      );
+    else if (filesOutside([r.path], plan.stages[swap]?.paths ?? []).length)
+      errors.push(`replacedTests[${i}]: ${swap} may not change ${r.path}; add it to its paths`);
+  }
+  for (const t of cited)
     if (namedForArtifact(t.name))
       errors.push(
         `${t.path}::${t.name} is named for its artifact; name it for the behavior it asserts`,
@@ -86,6 +128,11 @@ export async function checkPortPlan(
   const unknown = [...mapped].filter((name) => !declared.has(name));
   if (unmapped.length) errors.push(`symbols leaves out ${unmapped.join(', ')}`);
   if (unknown.length) errors.push(`symbols names undeclared ${unknown.join(', ')}`);
+  for (const r of plan.replacedTests) {
+    const text = await o.vcs.readFileAt(o.base, r.path);
+    if (text === undefined || !cTests(text).includes(r.name))
+      errors.push(`replacedTests names ${r.path}::${r.name}, which ${plan.baseBranch} lacks`);
+  }
   const files = await o.vcs.listFiles(o.base);
   for (const { name } of stages) errors.push(...multiCratePaths(plan.stages[name].paths, files));
   return errors;
@@ -99,11 +146,16 @@ export const describePortPlan = (
 
 The C being ported, ${plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree until \`${swap}\` deletes it.
 
-${plan.symbols.map((s) => `- \`${s.c}\`: \`${s.rust}\``).join('\n')}`;
+${plan.symbols.map((s) => `- \`${s.c}\`: ${s.retired !== undefined ? `retired — ${s.retired}` : `\`${s.rust}\``}`).join('\n')}
+
+### C tests the swap replaces
+
+${(plan.replacedTests ?? []).map((r) => `- \`${r.path}::${r.name}\`: by \`${r.by.path}::${r.by.name}\``).join('\n') || 'None.'}`;
 
 /**
- * What the swap leaves undone: a Rust replacement or generated export missing, a module file
- * left, an export no production code calls, or Rust outside the FFI crate without a mutants check.
+ * What the swap leaves undone: a Rust replacement or generated export missing, a module file or
+ * replaced test left, a C test deleted that the plan does not replace, an export no production
+ * code calls, or Rust outside the FFI crate without a mutants check.
  * A C definition left elsewhere fails to link against the Rust export of its name. The candidate
  * is the clean checkout at `root`.
  */
@@ -128,21 +180,57 @@ export async function checkSwap(
       `${o.stage} changes Rust outside its FFI crate (${pure.join(', ')}): add a mutants check`,
     );
   const headers = tracked.filter((f) => f.startsWith(layout.headers));
+  // A retired function counts as exported only where declared, not where a comment names it.
+  const declared = new Set<string>();
+  for (const f of headers) for (const name of headerFunctions(await read(f))) declared.add(name);
   for (const s of o.plan.symbols) {
+    if (s.retired !== undefined) {
+      if (declared.has(s.c))
+        problems.push(`retired function ${s.c} is still exported in a generated header`);
+      continue;
+    }
     if (!(await definesRust(layout, tracked, read, s.rust)))
       problems.push(`${s.rust}, which replaces ${s.c}, is not defined`);
+    // A replacement may be kept as a static inline shim or a macro, which declare no function.
     if (!(await anyFileMatches(headers, read, wholeWord(s.c))))
       problems.push(`no generated header exports ${s.c}`);
   }
   for (const path of o.plan.module)
     if (tracked.includes(path))
       problems.push(`${path} still exists; the swap deletes the module, headers included`);
+  // A plan made before replacedTests existed replaces none.
+  const replaced = o.plan.replacedTests ?? [];
+  for (const r of replaced)
+    if (tracked.includes(r.path) && cTests(await read(r.path)).includes(r.name))
+      problems.push(
+        `${r.path}::${r.name} is still defined; the swap deletes it for ${r.by.path}::${r.by.name}`,
+      );
+  for (const t of deletedCTests(layout, o.files))
+    if (!replaced.some((r) => r.path === t.path && r.name === t.name))
+      problems.push(
+        `${t.path}::${t.name} is deleted, but replacedTests does not name the test replacing it`,
+      );
   for (const name of await orphanedExports(layout, o.files, tracked, read))
     problems.push(
       `${name} is exported, but no production code calls it: delete it, and point any test ` +
         'that calls it at the Rust API',
     );
   return problems;
+}
+
+/**
+ * The C and C++ tests a diff deletes: definitions it removes and does not add back, as a
+ * rewritten one would be. Only the swap may delete them, each listed in `replacedTests`.
+ */
+export function deletedCTests(layout: Layout, files: FileChange[]) {
+  return files
+    .filter((f) => layout.isTest(f.path) && C_TESTS.test(f.path))
+    .flatMap((f) => {
+      const added = new Set(cTests(f.added.join('\n')));
+      return cTests(f.removed.join('\n'))
+        .filter((name) => !added.has(name))
+        .map((name) => ({ path: f.path, name }));
+    });
 }
 
 type Read = (path: string) => Promise<string>;
@@ -256,12 +344,13 @@ export async function orphanedExports(
 }
 
 /**
- * The reviewers of a C-to-Rust port: correctness against the plan, and idiomatic Rust checked
- * against `guides` rule by rule, citing `ruleFiles`.
+ * The reviewers of the `stages` that write Rust: correctness against the plan, and idiomatic Rust
+ * checked against `guides` rule by rule, citing `ruleFiles`.
  */
-export const portReviewers = (guides: string, ruleFiles: string): Reviewer[] => [
+export const portReviewers = (guides: string, ruleFiles: string, stages: Stage[]): Reviewer[] => [
   {
     name: 'Correctness',
+    stages,
     instructions: `Review correctness against the plan: its contract, its divergences from C, what
 replaces each C function, the stage's deliverable and the recorded interfaces. C behavior the
 contract does not list may change, provided the plan lists the divergence.
@@ -282,6 +371,7 @@ outlive what it points to), and ownership (who frees it, with which allocator, e
   },
   {
     name: 'Idiomatic Rust',
+    stages,
     instructions: `Review only the Rust: idiomatic, small, readable code, documentation and tests.
 Make two passes. First bugs and bloat, which matter most: look hardest for code the stage does
 not need, and give each such finding a deletion patch. Then design and house style: go through

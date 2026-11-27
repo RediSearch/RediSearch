@@ -577,6 +577,20 @@ def testStopWords(env):
                                    'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0])
 
+@skip(cluster=True)
+def testStopWordLowercaseLongerThanUppercase(env):
+    '''A stopword whose lowercase form needs more UTF-8 bytes than the original
+    (U+023A 'Ⱥ', 2 bytes, lowercases to U+2C65 'ⱥ', 3 bytes) is stored in its
+    full lowercase form, so it keeps both cases out of the index.
+    '''
+    env.expect('FT.CREATE', 'idx', 'STOPWORDS', 1, 'Ⱥ',
+               'SCHEMA', 't', 'TEXT').ok()
+    env.assertEqual(index_info(env, 'idx')['stopwords_list'], ['ⱥ'])
+
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:1', 't', 'Ⱥ ⱥ hello')
+    env.assertEqual(env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx'), ['hello'])
+
 def testInvalidMultiByteSequence(env):
     '''Test that invalid multi-byte sequences are ignored when indexing terms.
     '''
