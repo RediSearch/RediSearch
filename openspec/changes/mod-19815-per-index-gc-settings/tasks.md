@@ -4,10 +4,11 @@ Each top-level task is one PR and matches a Jira task under
 [MOD-19815](https://redislabs.atlassian.net/browse/MOD-19815). Order: 0 and 1 can start
 in parallel. 2 needs 0, for the fingerprint decision. Whichever of 1 and 2 merges second
 connects the arm-time interval read to the effective-value helper (2.2). 3 needs 1 and
-2; 4 needs 3. 5 needs 3 and 4, and Product sign-off (0.5). It can be dropped or shipped
+2; 4 needs 3. 5 needs 3, and Product sign-off (0.5) before it merges; whichever of 4
+and 5 merges second adds `clean_ratio_ppm` to FT.INFO (5.4). 5 can be dropped or shipped
 in a later release without changing 1–4, because the RDB block (2.4) already takes new
 settings without a version bump. Phase 2: 6 needs 1–4 (and 5 for the ratio on disk); 7
-needs 2 and 3, and its Flex path needs 6. 9 needs 1–4 merged on master.
+needs 2 and 3, and its Flex path needs 6. 9 needs 1–5 merged on master.
 
 ## 0. Spec review ([MOD-20259](https://redislabs.atlassian.net/browse/MOD-20259))
 
@@ -184,14 +185,27 @@ needs 2 and 3, and its Flex path needs 6. 9 needs 1–4 merged on master.
       partial apply in a cluster, the coordinator's FT.INFO showing the first shard, how
       the clean ratio combines with `CLEAN_THRESHOLD` (both must be met)
 
-## 9. Backport to 8.12, FORK only (`design.md`, Backports)
+## 9. Backport to 8.12, 8.10 and 8.8, FORK only (`design.md`, Backports)
 
-- [ ] 9.1 Backport T1–T4 and MOD-21060 with `/pr-backport`, without the THREAD parts
-- [ ] 9.2 Register `ft_index0` at 32 on RAM nodes and at 29 on Flex nodes; load files up
-      to 32 in both modes; reserve 30 and 31 as numbers only
-- [ ] 9.3 Refuse an SST file at 30 or above, and field type bits 8.12 doesn't know
-- [ ] 9.4 Flex: keep overrides loaded from a RAM file in memory, with one notice that
+One PR per line, in this order, each a port onto the line's own FORK GC.
+
+- [ ] 9.1 8.10 and 8.8: backport the main-thread timer fix (#10728, #10747, MOD-17309)
+      as its own bug-fix PR first
+- [ ] 9.2 Port T1's arm-time interval read, timer restart and forced-run fix, and the
+      MOD-21060 timer cap, onto `src/gc.c` and `src/fork_gc/fork_gc.c`
+- [ ] 9.3 Port T2–T5 without the THREAD parts: overrides and RDB block, `FT.ALTER ...
+      GC SET` with all three settings, `search-fork-gc-clean-ratio-ppm`, FT.INFO
+      `gc_settings`, `FT.DEBUG GC_TIMER_INFO`
+- [ ] 9.4 Register `ft_index0` at 32 on RAM nodes and at the line's current version on
+      Flex nodes; load files up to 32 in both modes; reserve the versions between as
+      numbers only
+- [ ] 9.5 8.10 and 8.8: write and read the version 27 and 28 vector values for each
+      tiered HNSW field at 32, refusing any other value on load
+- [ ] 9.6 Refuse an SST file at 30 or above, and field type bits the line doesn't know
+- [ ] 9.7 Flex: keep overrides loaded from a RAM file in memory, with one notice that
       the next save drops them
-- [ ] 9.5 Tests: an 8.12 RAM RDB at 32 with overrides loads on master with them; master's
-      RAM RDB at 32 without sparse fields loads on 8.12; an 8.12 Flex node saves at 29;
-      a RAM RDB at 32 with overrides loads on an 8.12 Flex node
+- [ ] 9.8 Tests: the line's GC flow and unit tests for the ported parts; its RAM RDB at
+      32 with overrides and tiered HNSW, flat and SVS vector fields loads on master with
+      both; master's RAM RDB at 32 without sparse or quantized fields loads on the line;
+      its Flex node saves at its current version; a RAM RDB at 32 with overrides loads
+      on its Flex node

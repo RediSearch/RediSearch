@@ -153,32 +153,66 @@ The GC block is version 32 on every line that carries it, with master's layout. 
 gives it another number, so an RDB at 32 means the same bytes everywhere.
 
 - **The next release from master** carries it natively. A line cut again from master
-  after T1–T4 merge gets versions 30, 31 and 32 together, with no backport.
-- **8.12 (version 29), FORK only,** after T1–T4 merge on master (task 9):
-  - A RAM node registers the index type at 32. Versions 30 and 31 add no bytes to a RAM
-    index: the TAG dictionaries (30) are written only for a disk index in an SST RDB
-    (`sp->diskSpec` and `REDISMODULE_CTX_FLAGS_SST_RDB`), and the sparse vector
-    attributes (31) only for `INDEXFLD_T_SPARSE_VECTOR` fields, a type 8.12 doesn't have.
-    So an 8.12 RAM file at 32 holds what master writes for the same index. 30 and 31 are
-    reserved as numbers, with no code.
-  - A Flex node keeps registering at 29. Its SST saves carry no TAG dictionaries, and
-    master reads one per TAG field of a disk index in an SST RDB at 30 or above. Flex
-    mode is known before the type is registered: `isFlex` is set from `bigredis-enabled`
-    at the start of `RediSearch_InitModuleInternal`, before `Indexes_RegisterType`.
-    Nothing is lost, because `FT.ALTER` is rejected on Flex until task 6.
-  - Both modes load files up to 32 and read the GC block from 32. A Flex node that
-    loads a file saved by a RAM node, with overrides, keeps them in memory, where
-    they have no effect, and logs one notice that its next save drops them. It refuses
-    an SST file at 30 or above, which only master's Flex writes. Both modes refuse a
-    field type bit 8.12 doesn't know, because its field loader doesn't check the bits
-    and would misread master's sparse vector attributes. Both refusals happen only on a
-    downgrade.
-  - Flex moves to 32 once the line has the disk TAG dictionaries
-    ([#12385](https://github.com/RediSearch/RediSearch/pull/12385),
-    [#12410](https://github.com/RediSearch/RediSearch/pull/12410)), by backport or by
-    cutting the line again. Task 6 needs that on any line.
-- **Older lines** (8.10 at 27, 8.8 and 8.6 at 26, 8.4 and 8.2 at 25) are not
-  planned. Each would need the same check of the versions between its own and 32.
+  after T1–T5 merge gets versions 30, 31 and 32 together, with no backport.
+- **8.12, 8.10 and 8.8, FORK only** (task 9), in that order, after T1–T5 merge on master.
+  Each line gets the same user surface: `FT.ALTER ... GC SET` with `RUN_INTERVAL`,
+  `CLEAN_THRESHOLD` and `CLEAN_RATIO_PPM`, `search-fork-gc-clean-ratio-ppm`, and FT.INFO
+  `gc_settings`. A line that has shipped one of them ships it on every newer line too.
+- **Port, not cherry-pick.** These lines run the FORK GC in `src/gc.c` and
+  `src/fork_gc/`; master's `src/gc/` layout, the `index_gc` crate and the THREAD policy
+  came with a GC rewrite after 8.12 was cut
+  ([#12110](https://github.com/RediSearch/RediSearch/pull/12110),
+  [#12034](https://github.com/RediSearch/RediSearch/pull/12034),
+  [#12035](https://github.com/RediSearch/RediSearch/pull/12035) and others), and
+  [#12199](https://github.com/RediSearch/RediSearch/pull/12199) made THREAD the default.
+  None of that is backported. The per-index settings touch only the two points every
+  line's FORK GC already has: the interval read when the timer is armed, and the
+  threshold check before a fork. What a cycle collects, the scanners, stays as each line
+  has it: C on 8.8, the Rust `fork_gc` crate on 8.10 and 8.12. Porting master's scanners
+  instead would replace how every index on those lines collects deletions, for a
+  feature that doesn't need it, and still would not match master.
+- **What each port carries:** T1's arm-time interval read, timer restart and forced-run
+  fix; the MOD-21060 timer cap; T2's overrides and RDB block; T3's command; T4's FT.INFO
+  section; T5's ratio rule under FORK, with its global. The THREAD-only parts are left
+  out.
+- **8.10 and 8.8 first need the main-thread timer fix**
+  ([#10728](https://github.com/RediSearch/RediSearch/pull/10728),
+  [#10747](https://github.com/RediSearch/RediSearch/pull/10747), MOD-17309), as a bug-fix
+  backport of its own. On those lines the GC thread re-arms its own timer, so a timer
+  restart from `FT.ALTER` on the main thread would race it. 8.12 already has it. It also
+  brings the `GC_TIMER_ARMS` debug command and the GC sync points the tests use.
+- **RDB on RAM nodes.** A RAM node registers the index type at 32. Versions 30 and 31 add
+  no bytes to a RAM index: the TAG dictionaries (30) are written only for a disk index in
+  an SST RDB (`sp->diskSpec` and `REDISMODULE_CTX_FLAGS_SST_RDB`), and the sparse vector
+  attributes (31) only for `INDEXFLD_T_SPARSE_VECTOR` fields, a type these lines don't
+  have. Versions 27 and 28 do add bytes to a RAM index, for every tiered HNSW vector
+  field, so a line below 28 writes them with the only values it can hold:
+
+  | Line | Version today | Also written at 32, per tiered HNSW field |
+  | --- | --- | --- |
+  | 8.12 | 29 | nothing |
+  | 8.10 | 27 | the quantization type, none (0), and the training threshold, 0 (28) |
+  | 8.8 | 26 | the RERANK value, 1 (27), then the same two values (28) |
+
+  Its loader reads them back and refuses any other value, which only a newer line's
+  quantized index would hold. So a file a line saves at 32 holds what master writes for
+  the same index, and master loads it.
+- **Flex nodes** keep registering at the line's current version. Their SST saves carry
+  no TAG dictionaries, and master reads one per TAG field of a disk index in an SST RDB
+  at 30 or above. Flex mode is known before the type is registered: `isFlex` is set from
+  `bigredis-enabled` at the start of `RediSearch_InitModuleInternal`, before
+  `Indexes_RegisterType`. Nothing is lost, because `FT.ALTER` is rejected on Flex until
+  task 6. A Flex node that loads a file saved by a RAM node, with overrides, keeps them in
+  memory, where they have no effect, and logs one notice that its next save drops them.
+  Flex moves to 32 once the line has the disk TAG dictionaries
+  ([#12385](https://github.com/RediSearch/RediSearch/pull/12385),
+  [#12410](https://github.com/RediSearch/RediSearch/pull/12410)), by backport or by
+  cutting the line again.
+- **Both modes** load files up to 32 and read the GC block from 32. They refuse an SST
+  file at 30 or above, which only master's Flex writes, and a field type bit the line
+  doesn't know, because its field loader doesn't check the bits and would misread
+  master's sparse vector attributes. Both refusals happen only on a downgrade.
+- **Older lines** (8.6 at 26, 8.4 and 8.2 at 25) are not planned.
 - Version 31 needs no disk condition. Its guard is the field type, and sparse vector
   fields exist on RAM indexes too.
 

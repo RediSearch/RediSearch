@@ -108,5 +108,6 @@ Designed here (`design.md`, Phase 2) and shipped after tasks 0–5:
   unchanged.
 - Stopping or bounding a cycle that is already running
   ([MOD-19577](https://redislabs.atlassian.net/browse/MOD-19577)).
-- Backports to OSS lines older than 8.12. The 8.12 backport is FORK only, and saves at
-  version 32 on RAM nodes only (see `design.md`, Backports).
+- Backports to lines older than 8.8, and backporting the THREAD policy or master's GC
+  rewrite. The 8.12, 8.10 and 8.8 backports are FORK only, and save at version 32 on RAM
+  nodes only (see `design.md`, Backports).
