@@ -13,10 +13,8 @@ use std::{
     ffi::{CStr, c_void},
     ops::Bound,
     ptr::NonNull,
-    time::Instant,
 };
 
-use c_trie::QueryRequestLimitsHandle;
 use fat_array::{FatArray, FatArrayRef};
 use lending_iterator::LendingIterator as _;
 use query::{QueryNode, WildcardMode};
@@ -26,12 +24,11 @@ use rqe_core::FieldIndex;
 use rqe_iterators::{
     c2rust::CRQEIterator,
     union_opaque::{build_union, build_union_with_q_str},
-    utils::duration_from_redis_timespec,
 };
 use string_utils::{tag::unescape, unicode::tolower_bytes};
 use trie_rs::{
     TrieMap, TrieMapOpaque,
-    iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
+    iter::{PatternLendingIter, PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
 use super::wildcard_query::below_min_term_prefix;
@@ -39,45 +36,42 @@ use crate::{
     Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, into_child_iterator,
 };
 
-/// The request's clock deadline, or `None` when it has no clock-based timeout.
-fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
-    // SAFETY: a non-null request timeout is an initialized C object, aligned by its allocation,
-    // that outlives query evaluation; the handle lives only for the single deadline read below,
-    // so it never outlives the request. Its source is fixed for this execution cycle; only the
-    // blocked-client marker and the memory stop flag may change concurrently, through the C
-    // atomic API. Nothing in the evaluator holds a Rust reference to the timeout object.
-    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) }?;
-    timeout.clock_deadline()
-}
+/// Run a TAG walk with a stop callback that cannot outlive the evaluation context.
+fn with_expansion_stop_check<R>(
+    ctx: &mut QueryEvalContext,
+    walk: impl FnOnce(&mut QueryEvalContext, &(dyn Fn() -> bool + Sync)) -> R,
+) -> R {
+    struct ExpansionLimits(*const ffi::QueryRequestLimits);
 
-/// Whether the request has been cancelled by the blocked-client callback.
-///
-/// A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
-/// blocked-client cycle, which publishes a flag instead of a clock deadline, so
-/// [`clock_deadline`] reports nothing for it and a deadline-driven walk would
-/// run on past the client's timeout while holding the spec read lock.
-fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
-    // SAFETY: as in `clock_deadline` -- a non-null request timeout is an
-    // initialized C object that outlives query evaluation, and the handle lives
-    // only for the single flag read below.
-    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
-    timeout.is_some_and(QueryRequestLimitsHandle::blocked_client_timed_out)
-}
+    // SAFETY: the exact check reads the fixed timeout source and deadline, and uses
+    // atomic loads for the blocked-client and memory-stop flags. It does not touch
+    // the shared clock poll counter.
+    unsafe impl Sync for ExpansionLimits {}
 
-/// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
-/// clock deadline when there is one, otherwise a zeroed deadline with checks
-/// skipped.
-fn suffix_lookup_timeout(ctx: &QueryEvalContext) -> (ffi::timespec, bool) {
-    match clock_deadline(ctx) {
-        Some(deadline) => (deadline, false),
-        None => (
-            ffi::timespec {
-                tv_sec: 0,
-                tv_nsec: 0,
-            },
-            true,
-        ),
+    impl ExpansionLimits {
+        fn should_stop(&self) -> bool {
+            // SAFETY: the callback stays within synchronous evaluation, when the limits
+            // are live in the same execution cycle.
+            !self.0.is_null() && unsafe { ffi::QueryRequestLimits_ShouldStopExact(self.0) }
+        }
     }
+
+    let limits = ExpansionLimits(ctx.sctx().limits);
+    walk(ctx, &move || limits.should_stop())
+}
+
+fn request_should_stop(ctx: &mut QueryEvalContext) -> bool {
+    with_expansion_stop_check(ctx, |_, stop| stop())
+}
+
+/// Amortize request-limit checks while turning suffix matches into posting readers.
+fn suffix_reader_should_stop(ctx: &mut QueryEvalContext, remaining: &mut u32) -> bool {
+    *remaining -= 1;
+    if *remaining != 0 {
+        return false;
+    }
+    *remaining = ffi::QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT;
+    request_should_stop(ctx)
 }
 
 /// `QN_TAG` — evaluate exact values and tag-specific expansions against a tag
@@ -135,7 +129,10 @@ pub(crate) fn eval<'index>(
     // or (2) the node's weight is zero, so its subtree is irrelevant to scoring.
     let quick_exit = ctx.in_not_sub_tree() || weight == 0.0;
     let children = (0..num_children)
-        .map(|i| {
+        .map_while(|i| {
+            if request_should_stop(ctx) {
+                return None;
+            }
             let child = node.child_mut(i);
             let child = eval_child(
                 ctx,
@@ -147,7 +144,7 @@ pub(crate) fn eval<'index>(
                 max_prefix_expansions,
                 config,
             );
-            into_child_iterator(child)
+            Some(into_child_iterator(child))
         })
         .collect();
     let iter = build_union(
@@ -324,14 +321,8 @@ fn eval_prefix<'index>(
             WildcardMode::Suffix => PatternMode::Suffix,
             WildcardMode::Contains => PatternMode::Contains,
         };
-        collect_filtered_readers(
-            ctx,
-            index,
-            value,
-            iter_mode,
-            field.index,
-            max_prefix_expansions,
-        )
+        let values = index.values().pattern_lending_iter(value, iter_mode);
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     } else {
         collect_suffix_readers(
             ctx,
@@ -459,16 +450,7 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
     }
 }
 
-/// Values walked between two blocked-client cancellation probes, matching the
-/// cadence `trie_rs` uses between its own clock probes.
-const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
-
-/// Open one reader per value the range covers, up to the expansion cap.
-///
-/// The cap counts readers opened, not values visited, and a value whose reader
-/// cannot be opened leaves it where it was, so the walk carries the request
-/// deadline as the pattern walk in [`collect_filtered_readers`] does, and
-/// observes a blocked-client cancellation, which carries no deadline.
+/// Open one reader per matching value, subject to the request limits and expansion cap.
 fn collect_range_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
@@ -476,36 +458,23 @@ fn collect_range_readers(
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
-    let values = index.values().range_iter(filter);
-    let mut values = RangeLendingIter::from(values);
-    values.set_timeout(
-        clock_deadline(ctx)
-            .and_then(duration_from_redis_timespec)
-            .map(|remaining| Instant::now() + remaining),
-    );
+    with_expansion_stop_check(ctx, |ctx, stop| {
+        let values = index.values().range_iter(filter);
+        let mut values = RangeLendingIter::from(values);
+        values.set_stop_check(stop);
 
-    let mut children = Vec::new();
-    let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-    while let Some((value, _)) = values.next() {
-        if children.len() == max_prefix_expansions {
-            ctx.status()
-                .warnings_mut()
-                .set_reached_max_prefix_expansions();
-            break;
-        }
-        // The deadline installed above covers a clock cycle. A blocked-client
-        // cycle carries no deadline, so without this the walk would not observe
-        // that the client has already timed out.
-        until_cancellation_check -= 1;
-        if until_cancellation_check == 0 {
-            until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-            if blocked_client_cancelled(ctx) {
+        let mut children = Vec::new();
+        while let Some((value, _)) = values.next() {
+            if children.len() == max_prefix_expansions {
+                ctx.status()
+                    .warnings_mut()
+                    .set_reached_max_prefix_expansions();
                 break;
             }
+            children.extend(open_reader_child(ctx, index, value, field_index));
         }
-        children.extend(open_reader_child(ctx, index, value, field_index));
-    }
-    children
+        children
+    })
 }
 
 /// Evaluate a `@tag:{w'pattern'}` child as a union of every value matching the pattern.
@@ -543,9 +512,8 @@ fn eval_wildcard<'index>(
             .into_iter()
             .collect()
     } else if index.has_suffix() {
-        let (timeout, skip_timeout_checks) = suffix_lookup_timeout(ctx);
-        // SAFETY: the index is live for evaluation and `pattern` is readable
-        // for the call. The callee also reads the byte at `pattern[len]` while
+        // SAFETY: the index and any non-null request limits are live for evaluation.
+        // The pattern is readable for the call. The callee also reads `pattern[len]` while
         // scanning for `*` runs, so it relies on the NUL terminator that
         // `tok_ref`, an `RSTokenRefNulTerminated`, guarantees sits there.
         let matches = unsafe {
@@ -553,9 +521,8 @@ fn eval_wildcard<'index>(
                 index.as_ptr(),
                 pattern.as_ptr().cast(),
                 pattern.len() as u32,
-                timeout,
                 max_prefix_expansions as i64,
-                skip_timeout_checks,
+                ctx.sctx().limits,
             )
         };
         let matches = NonNull::new(matches)?;
@@ -567,14 +534,10 @@ fn eval_wildcard<'index>(
         // FIXME: return a proper type when porting
         // `TagIndex_GetSuffixWildcardMatches` to Rust.
         if matches.addr().get() == ffi::BAD_POINTER_ADDR as usize {
-            collect_filtered_readers(
-                ctx,
-                index,
-                pattern,
-                PatternMode::Wildcard,
-                field.index,
-                max_prefix_expansions,
-            )
+            let values = index
+                .values()
+                .pattern_lending_iter(pattern, PatternMode::Wildcard);
+            collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
         } else {
             // SAFETY: any other non-null result is a fat array of `char *`
             // elements, built by the C array API and so aligned for them and
@@ -591,14 +554,10 @@ fn eval_wildcard<'index>(
             )
         }
     } else {
-        collect_filtered_readers(
-            ctx,
-            index,
-            pattern,
-            PatternMode::Wildcard,
-            field.index,
-            max_prefix_expansions,
-        )
+        let values = index
+            .values()
+            .pattern_lending_iter(pattern, PatternMode::Wildcard);
+        collect_filtered_readers(ctx, index, values, field.index, max_prefix_expansions)
     };
 
     let q_str = tok_ref
@@ -619,36 +578,33 @@ fn eval_wildcard<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
-/// Open a reader for each tag value matching `pattern` in `mode`, by scanning the values trie.
+/// Open a reader for each matching value, subject to the request limits and expansion cap.
 fn collect_filtered_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
-    pattern: &[u8],
-    mode: PatternMode,
+    values: PatternLendingIter<'_, '_, *mut c_void>,
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
-    let mut values = index.values().pattern_lending_iter(pattern, mode);
-    values.set_timeout(
-        clock_deadline(ctx)
-            .and_then(duration_from_redis_timespec)
-            .map(|remaining| Instant::now() + remaining),
-    );
+    with_expansion_stop_check(ctx, |ctx, stop| {
+        let mut values = values;
+        values.set_stop_check(stop);
 
-    let mut children = Vec::new();
-    while let Some((value, _)) = values.next() {
-        if children.len() == max_prefix_expansions {
-            ctx.status()
-                .warnings_mut()
-                .set_reached_max_prefix_expansions();
-            break;
+        let mut children = Vec::new();
+        while let Some((value, _)) = values.next() {
+            if children.len() == max_prefix_expansions {
+                ctx.status()
+                    .warnings_mut()
+                    .set_reached_max_prefix_expansions();
+                break;
+            }
+            if memory_stop(ctx) {
+                break;
+            }
+            children.extend(open_reader_child(ctx, index, value, field_index));
         }
-        if memory_stop(ctx) {
-            break;
-        }
-        children.extend(open_reader_child(ctx, index, value, field_index));
-    }
-    children
+        children
+    })
 }
 
 /// Open a reader for each tag value ending with `pattern`, or containing it when `contains`,
@@ -661,17 +617,15 @@ fn collect_suffix_readers(
     field_index: ffi::t_fieldIndex,
     max_prefix_expansions: usize,
 ) -> Option<Vec<CRQEIterator>> {
-    let (timeout, skip_timeout_checks) = suffix_lookup_timeout(ctx);
-    // SAFETY: the index is live for evaluation and `pattern` is readable for
-    // the call.
+    // SAFETY: the index and any non-null request limits are live for evaluation,
+    // and `pattern` is readable for the call.
     let matches = unsafe {
         ffi::TagIndex_GetSuffixMatches(
             index.as_ptr(),
             pattern.as_ptr().cast(),
             pattern.len() as u32,
             contains,
-            timeout,
-            skip_timeout_checks,
+            ctx.sctx().limits,
         )
     };
     // SAFETY: a non-null result is a fat array of `char **` elements, built
@@ -680,7 +634,8 @@ fn collect_suffix_readers(
     // stay owned by the suffix trie.
     let matches = unsafe { FatArray::new(NonNull::new(matches)?) };
     let mut children = Vec::new();
-    'outer: for &inner in matches.as_slice() {
+    let mut remaining = ffi::QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT;
+    for &inner in matches.as_slice() {
         if children.len() >= max_prefix_expansions {
             break;
         }
@@ -690,20 +645,16 @@ fn collect_suffix_readers(
         // query holds the spec read lock; it is consumed within this loop
         // iteration, well inside that lock.
         let arr = unsafe { FatArrayRef::new(inner) };
-        for &value in arr.as_slice() {
-            if children.len() >= max_prefix_expansions {
-                ctx.status()
-                    .warnings_mut()
-                    .set_reached_max_prefix_expansions();
-                break;
-            }
-            if memory_stop(ctx) {
-                break 'outer;
-            }
-            debug_assert!(!value.is_null(), "a suffix match must carry a string");
-            // SAFETY: the suffix trie stores NUL-terminated tag strings.
-            let value = unsafe { CStr::from_ptr(value) }.to_bytes();
-            children.extend(open_reader_child(ctx, index, value, field_index));
+        if !extend_suffix_readers(
+            ctx,
+            index,
+            arr.as_slice(),
+            field_index,
+            max_prefix_expansions,
+            &mut remaining,
+            &mut children,
+        ) {
+            break;
         }
     }
     Some(children)
@@ -718,22 +669,45 @@ fn collect_wildcard_suffix_readers(
     max_prefix_expansions: usize,
 ) -> Vec<CRQEIterator> {
     let mut children = Vec::new();
+    let mut remaining = ffi::QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT;
+    extend_suffix_readers(
+        ctx,
+        index,
+        matches,
+        field_index,
+        max_prefix_expansions,
+        &mut remaining,
+        &mut children,
+    );
+    children
+}
+
+/// Open readers from one suffix match bucket. Return false once expansion must stop.
+fn extend_suffix_readers(
+    ctx: &mut QueryEvalContext,
+    index: TagIndexRef,
+    matches: &[*mut std::ffi::c_char],
+    field_index: ffi::t_fieldIndex,
+    max_prefix_expansions: usize,
+    remaining: &mut u32,
+    children: &mut Vec<CRQEIterator>,
+) -> bool {
     for &value in matches {
         if children.len() >= max_prefix_expansions {
             ctx.status()
                 .warnings_mut()
                 .set_reached_max_prefix_expansions();
-            break;
+            return false;
         }
-        if memory_stop(ctx) {
-            break;
+        if memory_stop(ctx) || suffix_reader_should_stop(ctx, remaining) {
+            return false;
         }
         debug_assert!(!value.is_null(), "a suffix match must carry a string");
         // SAFETY: the suffix trie stores NUL-terminated tag strings.
         let value = unsafe { CStr::from_ptr(value) }.to_bytes();
         children.extend(open_reader_child(ctx, index, value, field_index));
     }
-    children
+    true
 }
 
 /// Open a reader over one tag value, or `None` when the value has no index.
