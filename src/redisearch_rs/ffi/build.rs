@@ -104,6 +104,17 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/snowball/include/libstemmer.h",
+        fns: &[
+            "sb_stemmer_new",
+            "sb_stemmer_delete",
+            "sb_stemmer_stem",
+            "sb_stemmer_length",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -420,6 +431,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         types: &["CharBuf"],
         vars: &["invIdxDictType", "isCrdt", "missingFieldDictType"],
+    },
+    HeaderAllowlist {
+        path: "src/stemmer.h",
+        fns: &["NewStemmer"],
+        types: &["Stemmer", "StemmerType"],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/suffix.h",

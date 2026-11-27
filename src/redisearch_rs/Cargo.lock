@@ -3142,6 +3142,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "stemmer"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "stemmer_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "language",
+ "redis_mock",
+ "redisearch_rs",
+ "stemmer",
+ "workspace_hack",
+]
+
+[[package]]
 name = "stopwords"
 version = "0.0.1"
 dependencies = [
