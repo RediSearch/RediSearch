@@ -93,10 +93,12 @@ typedef struct {
   // GCPolicy_Thread's own, so settings tuned for the fork's cost do not carry over to it.
   size_t threadGcRunIntervalSec;
   size_t threadGcCleanThreshold;
-  // Under GCPolicy_Thread, the clean threshold also grows with the index: a cycle waits for this
-  // many deletions per million live documents, and for at least threadGcCleanThreshold. The share
-  // is of the live documents, so its maximum waits until as many are deleted as remain.
+  // Each policy's clean ratio, which an index can override: a scheduled cycle also waits for this
+  // many deletions per million live documents (see IndexGCCleanBar). The share is of the live
+  // documents, so its maximum waits until as many are deleted as remain. GCPolicy_Thread's has the
+  // older, unqualified name.
   size_t gcCleanRatioPpm;
+  size_t forkGcCleanRatioPpm;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
@@ -407,7 +409,8 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
 #define MAX_THREAD_GC_RUN_INTERVAL GC_MAX_INTERVAL_SEC  // gc/gc.h
 #define DEFAULT_GC_CLEAN_RATIO_PPM 1000
-// search-gc-clean-ratio-ppm is in parts per million of the live documents.
+#define DEFAULT_FORK_GC_CLEAN_RATIO_PPM 0  // off, so FORK keeps collecting on its threshold alone
+// The clean ratios are in parts per million of the live documents.
 #define GC_CLEAN_RATIO_PPM_SCALE 1000000
 #define MAX_GC_CLEAN_RATIO_PPM GC_CLEAN_RATIO_PPM_SCALE
 #define MAX_GC_THREADS 64
@@ -519,6 +522,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .gcConfigParams.gcSettings.gcCleanRatioPpm = DEFAULT_GC_CLEAN_RATIO_PPM,   \
+    .gcConfigParams.gcSettings.forkGcCleanRatioPpm = DEFAULT_FORK_GC_CLEAN_RATIO_PPM,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \

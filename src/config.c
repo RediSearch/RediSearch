@@ -2303,6 +2303,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
+      ctx, "search-fork-gc-clean-ratio-ppm", DEFAULT_FORK_GC_CLEAN_RATIO_PPM,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_GC_CLEAN_RATIO_PPM, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanRatioPpm)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
