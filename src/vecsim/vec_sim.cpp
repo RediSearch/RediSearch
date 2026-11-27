@@ -18,6 +18,7 @@
 #if HAVE_SVS
 #include "vecsim/algorithms/svs/svs_utils.h"
 #endif
+#include <atomic>
 #include <cassert>
 #include <cstdarg>
 #include <cstdio>
@@ -38,6 +39,16 @@ extern "C" void VecSim_SetLogCallbackFunction(logCallbackFunction callback) {
 }
 
 extern "C" void VecSim_SetWriteMode(VecSimWriteMode mode) { VecSimIndex::setWriteMode(mode); }
+
+static std::atomic<VecSimHNSWHybridPolicy> hnswHybridPolicy{VecSimHNSWHybridPolicy_Legacy};
+
+extern "C" void VecSim_SetHNSWHybridPolicy(VecSimHNSWHybridPolicy policy) {
+    hnswHybridPolicy.store(policy, std::memory_order_relaxed);
+}
+
+extern "C" VecSimHNSWHybridPolicy VecSim_GetHNSWHybridPolicy(void) {
+    return hnswHybridPolicy.load(std::memory_order_relaxed);
+}
 
 extern "C" void VecSim_UpdateThreadPoolSize(size_t new_size) {
     if (new_size == 0) {
@@ -530,6 +541,12 @@ extern "C" void VecSimTieredIndex_ReleaseSharedLocks(VecSimIndex *index) {
     index->releaseSharedLocks();
 }
 
+extern "C" VecSimIndex *VecSimIndex_AdhocDistanceIndex_Unsafe(VecSimIndex *index) {
+    return VecSim_GetHNSWHybridPolicy() == VecSimHNSWHybridPolicy_Latency
+               ? index->adHocDistanceIndex()
+               : index;
+}
+
 extern "C" void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions) {
     VecSimAllocator::setMemoryFunctions(memoryfunctions);
 }
@@ -537,6 +554,16 @@ extern "C" void VecSim_SetMemoryFunctions(VecSimMemoryFunctions memoryfunctions)
 extern "C" bool VecSimIndex_PreferAdHocSearch(VecSimIndex *index, size_t subsetSize, size_t k,
                                               bool initial_check) {
     return index->preferAdHocSearch(subsetSize, k, initial_check);
+}
+
+extern "C" bool VecSimIndex_PrepareHybridSearch(VecSimIndex *index, size_t subsetSize, size_t k,
+                                                const VecSimQueryParams *queryParams,
+                                                bool *allowEarlyAdhoc) {
+    *allowEarlyAdhoc = false;
+    if (VecSim_GetHNSWHybridPolicy() != VecSimHNSWHybridPolicy_Latency) {
+        return index->preferAdHocSearch(subsetSize, k, true);
+    }
+    return index->prepareHybridSearch(subsetSize, k, *queryParams, *allowEarlyAdhoc);
 }
 
 // Ad-hoc Brute Force Context API - delegates to virtual methods on the index/context

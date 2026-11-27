@@ -17,14 +17,15 @@ use crate::{BatchIterator, QueryError, QueryReply, ReplyOrder};
 use ffi::{
     VecSim_Normalize, VecSimAdhocBfCtx, VecSimBool_VecSimBool_TRUE, VecSimIndex,
     VecSimIndex_AdhocBfCtx_Free, VecSimIndex_AdhocBfCtx_GetDistanceFrom,
-    VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
+    VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New,
+    VecSimIndex_AdhocDistanceIndex_Unsafe, VecSimIndex_BasicInfo,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_RangeQuery, VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine,
-    VecSimParams_GetQueryBlobSize, VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks,
-    VecSimTieredIndex_ReleaseSharedLocks, VecSimType_VecSimType_BFLOAT16,
-    VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32, VecSimType_VecSimType_FLOAT64,
-    VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32, VecSimType_VecSimType_INT64,
-    VecSimType_VecSimType_UINT8,
+    VecSimIndex_PrepareHybridSearch, VecSimIndex_RangeQuery, VecSimIndex_TopKQuery,
+    VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize, VecSimQueryParams,
+    VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
+    VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
+    VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
+    VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
 };
 use rqe_core::DocId;
 
@@ -175,6 +176,28 @@ impl<'index> IndexRef<'index> {
         unsafe { VecSimIndex_PreferAdHocSearch(self.inner.as_ptr(), subset_size, k, initial_check) }
     }
 
+    /// Choose the initial AUTO mode and whether to consider an earlier exact scan.
+    pub fn prepare_hybrid(
+        &self,
+        subset_size: usize,
+        k: usize,
+        params: &VecSimQueryParams,
+    ) -> (bool, bool) {
+        let mut allow_early_adhoc = false;
+        // SAFETY: `self.inner` upholds its invariant. Both argument pointers remain
+        // valid for the call and VecSim does not retain them.
+        let adhoc = unsafe {
+            VecSimIndex_PrepareHybridSearch(
+                self.inner.as_ptr(),
+                subset_size,
+                k,
+                params,
+                &mut allow_early_adhoc,
+            )
+        };
+        (adhoc, allow_early_adhoc)
+    }
+
     /// Run a single-shot top-`k` query.
     ///
     /// `params` is mutated by VecSim (e.g. it reads/writes `stopCtx`). See
@@ -318,8 +341,16 @@ impl<'index> IndexRef<'index> {
         let query = unsafe { self.prepare_query(query_vector) };
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimTieredIndex_AcquireSharedLocks(self.inner.as_ptr()) };
+        // SAFETY: `self.inner` is valid and all tiered locks are held. VecSim returns
+        // this index or an owned backend, both live for the duration of the guard.
+        let distance_index = unsafe {
+            IndexRef::from_raw(NonNull::new_unchecked(
+                VecSimIndex_AdhocDistanceIndex_Unsafe(self.inner.as_ptr()),
+            ))
+        };
         SharedLockGuard {
             index: *self,
+            distance_index,
             query,
         }
     }
@@ -405,6 +436,7 @@ impl<'index> IndexRef<'index> {
 #[must_use = "the shared locks are released when the guard is dropped"]
 pub struct SharedLockGuard<'index> {
     index: IndexRef<'index>,
+    distance_index: IndexRef<'index>,
     /// Query blob reused by every [`get_distance_from`](Self::get_distance_from)
     /// call: an owned normalized copy for cosine indexes, or a borrow of the
     /// caller's blob (no copy) for non-cosine — see [`PreparedAdhocQueryBlob`].
@@ -417,7 +449,7 @@ impl SharedLockGuard<'_> {
     /// returns `NaN` (label not found).
     pub fn get_distance_from(&self, doc_id: DocId) -> Option<f64> {
         // SAFETY:
-        // 1. `self.index.inner` upholds its invariant.
+        // 1. `self.distance_index` points at the guarded index or its owned backend.
         // 2. The tiered-index shared locks are held for the lifetime of
         //    `self`, satisfying the `_Unsafe` precondition.
         // 3. `self.query` was sized and (for cosine) normalized to match the
@@ -426,7 +458,7 @@ impl SharedLockGuard<'_> {
         //    `self`'s lifetime is guaranteed by `acquire_shared_locks`' contract.
         let distance = unsafe {
             VecSimIndex_GetDistanceFrom_Unsafe(
-                self.index.inner.as_ptr(),
+                self.distance_index.inner.as_ptr(),
                 doc_id as usize,
                 self.query.ptr(),
             )

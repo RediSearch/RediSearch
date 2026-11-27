@@ -38,6 +38,7 @@
 #include "util/references.h"
 #include "util/strconv.h"
 #include "util/stringify.h"
+#include "vecsim/vec_sim.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
@@ -1078,6 +1079,28 @@ static int set_on_timeout(const char *name, int val, void *privdata,
 static int get_on_timeout(const char *name, void *privdata){
   REDISMODULE_NOT_USED(name);
   return *((RSTimeoutPolicy *)privdata);
+}
+
+static const char *hnsw_hybrid_policy_vals[] = {"legacy", "trained", "latency"};
+static const int hnsw_hybrid_policy_enums[] = {
+    VecSimHNSWHybridPolicy_Legacy,
+    VecSimHNSWHybridPolicy_Trained,
+    VecSimHNSWHybridPolicy_Latency,
+};
+
+static int get_hnsw_hybrid_policy(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  return VecSim_GetHNSWHybridPolicy();
+}
+
+static int set_hnsw_hybrid_policy(const char *name, int val, void *privdata,
+                                  RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  REDISMODULE_NOT_USED(err);
+  VecSim_SetHNSWHybridPolicy((VecSimHNSWHybridPolicy)val);
+  return REDISMODULE_OK;
 }
 
 // GC_SCANSIZE
@@ -2652,6 +2675,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   // Enum parameters
+  RM_TRY(RedisModule_RegisterEnumConfig(
+      ctx, "search-_hnsw-hybrid-policy", VecSimHNSWHybridPolicy_Legacy,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_UNPREFIXED, hnsw_hybrid_policy_vals,
+      hnsw_hybrid_policy_enums, 3, get_hnsw_hybrid_policy, set_hnsw_hybrid_policy, NULL, NULL))
+
   RM_TRY(
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout",

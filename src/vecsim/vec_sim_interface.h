@@ -227,6 +227,13 @@ public:
 
     virtual bool preferAdHocSearch(size_t subsetSize, size_t k, bool initial_check) const = 0;
 
+    virtual bool prepareHybridSearch(size_t subsetSize, size_t k, const VecSimQueryParams &,
+                                     bool &) const {
+        return preferAdHocSearch(subsetSize, k, true);
+    }
+
+    virtual VecSimIndexInterface *adHocDistanceIndex() { return this; }
+
     /**
      * @brief Set the latest search mode in the index data (for info/debugging).
      * @param mode The search mode.
