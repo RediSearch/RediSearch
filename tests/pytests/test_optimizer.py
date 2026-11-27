@@ -181,7 +181,7 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 19, 'Estimated number of matches', 3200],
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9,
+                    ['Type', 'Index', 'Results processed', 10,
                      'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
@@ -222,7 +222,7 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9,
+                    ['Type', 'Index', 'Results processed', 10,
                      'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
@@ -310,7 +310,7 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 10, 'Estimated number of matches', 10000],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9,
+                    ['Type', 'Index', 'Results processed', 10,
                      'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
@@ -353,7 +353,7 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'WILDCARD', 'Number of reading operations', 10],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9,
+                    ['Type', 'Index', 'Results processed', 10,
                      'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)

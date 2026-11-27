@@ -304,7 +304,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
-        fns: &["RPProfile_IncrementCount", "RPQueryIterator_New"],
+        fns: &["RPQueryIterator_New"],
         types: &["RPStatus"],
         vars: &[],
     },

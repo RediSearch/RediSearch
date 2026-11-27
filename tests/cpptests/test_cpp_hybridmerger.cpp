@@ -1563,3 +1563,50 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
 }
+
+/*
+ * In profile mode every merger upstream is wrapped in an RPProfile, whose count FT.PROFILE reports
+ * as that upstream's "Results processed". It must equal the results the merger took from it:
+ * neither an RS_RESULT_DEPLETING poll (a background depleter still running) nor the EOF call yields
+ * a result, and the merger stops calling an upstream once WINDOW results are in hand.
+ */
+TEST_F(HybridMergerTest, testProfiledUpstreamCountsOnlyYieldedResults) {
+  const size_t window = 3;
+  // Polled twice while depleting, then holds more results than the window.
+  MockUpstream upstream1(0, {1.0, 1.0, 1.0, 1.0, 1.0}, {1, 2, 3, 4, 5}, 2);
+  // Polled once while depleting, then runs out below the window and returns EOF.
+  MockUpstream upstream2(0, {2.0, 2.0}, {21, 22}, 1);
+
+  QueryProcessingCtx qitr = {0};
+  ResultProcessor *profile1 = RPProfile_New(&upstream1, &qitr);
+  ResultProcessor *profile2 = RPProfile_New(&upstream2, &qitr);
+
+  arrayof(ResultProcessor*) upstreams = NULL;
+  array_ensure_append_1(upstreams, profile1);
+  array_ensure_append_1(upstreams, profile2);
+  HybridLookupContext *lookupCtx = CreateDummyLookupContext(2);
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60.0, window, lookupCtx);
+  QITR_PushRP(&qitr, hybridMerger);
+
+  SearchResult r = SearchResult_New();
+  size_t count = 0;
+  int rc;
+  while ((rc = hybridMerger->Next(hybridMerger, &r)) == RS_RESULT_OK) {
+    count++;
+    SearchResult_Clear(&r);
+  }
+  ASSERT_EQ(RS_RESULT_EOF, rc);
+  ASSERT_EQ(window + 2, count);
+  // Both upstreams were polled while depleting, and the first was left with results unread.
+  ASSERT_EQ(2 + window, static_cast<size_t>(upstream1.counter));
+  ASSERT_EQ(1 + 2, upstream2.counter);
+
+  EXPECT_EQ(window, RPProfile_GetCount(profile1));
+  EXPECT_EQ(2u, RPProfile_GetCount(profile2));
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookupCtx);
+  QITR_FreeChain(&qitr);
+  profile1->Free(profile1);
+  profile2->Free(profile2);
+}

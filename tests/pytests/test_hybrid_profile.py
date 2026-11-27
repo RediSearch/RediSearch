@@ -686,6 +686,57 @@ def test_profile_standalone_with_background_depletion():
         # Drain the thread pool to make sure all background jobs are done
         env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
+
+_DEPLETER_COUNT_DOCS = 5
+
+
+def _assert_exact_depleter_counts(env, depleter_type):
+    """Assert each subquery's depleter reports exactly the results it handed the merger.
+
+    Every document matches both subqueries, so each subquery yields
+    min(WINDOW, _DEPLETER_COUNT_DOCS) results. With a WINDOW below the document
+    count the merger takes WINDOW results and stops without the EOF call; with
+    the default WINDOW it drains the depleter to EOF. Both must count the same.
+    """
+    env.expect('FT.CREATE idx SCHEMA t TEXT v VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(_DEPLETER_COUNT_DOCS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'hello {i}', 'v', f'aaaaaaa{i}')
+
+    query = ['FT.PROFILE', 'idx', 'HYBRID', 'QUERY',
+             'SEARCH', 'hello',
+             'VSIM', '@v', '$blob',
+             'PARAMS', 2, 'blob', 'aaaaaaaa']
+    window = 3
+    for combine, expected in [(['COMBINE', 'RRF', 2, 'WINDOW', window], window),
+                              ([], _DEPLETER_COUNT_DOCS)]:
+        res = env.cmd(*query, *combine)
+        shard = to_dict(res[8][1][0])
+        for subquery in ['SEARCH', 'VSIM']:
+            rps = to_dict(shard[subquery])['Result processors profile']
+            env.assertEqual(rps[-1], ['Type', depleter_type, 'Results processed', expected],
+                            message=f'{subquery} combine={combine}: {res}')
+
+
+@skip(cluster=True)
+def test_profile_depleter_count_is_exact():
+    """Without workers the subqueries end in a foreground Depleter."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
+    _assert_exact_depleter_counts(env, 'Depleter')
+
+
+@skip(cluster=True)
+def test_profile_threadsafe_depleter_count_is_exact():
+    """With workers the subqueries end in a Threadsafe-Depleter, whose polls may return
+    RS_RESULT_DEPLETING while another subquery is still running. Those polls yield nothing and
+    must not be counted. Whether one happens depends on thread scheduling, so this test pins the
+    count whenever it does; test_cpp_hybridmerger.cpp forces them deterministically."""
+    env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false',
+              enableDebugCommand=True)
+    _assert_exact_depleter_counts(env, 'Threadsafe-Depleter')
+    env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+
+
 @skip(cluster=False)
 def test_profile_cluster():
     # This structure test requires complete profiles from every shard.

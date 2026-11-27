@@ -82,7 +82,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     double deltaTime = totalRPTime - upstreamTime;
     printProfileTime(deltaTime);
   }
-  printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  printProfileRPCounter(RPProfile_GetCount(rp));
   if (printProfileClock && rp->upstream && rp->upstream->type == RP_DISK_ASYNC_LOADER) {
     RedisModule_ReplyKV_Double(reply, "Async wait time",
         rs_wall_clock_convert_ns_to_ms_d(SearchDisk_AsyncLoader_GetAsyncWaitTime(rp->upstream)));
