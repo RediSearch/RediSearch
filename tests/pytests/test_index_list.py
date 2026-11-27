@@ -276,6 +276,19 @@ def test_synonyms_move_the_fingerprint(env):
     env.assertEqual(cluster_state(env)['idx']['status'], 'ok')
 
 
+@skip(cluster=True)
+def test_stopwords_move_the_fingerprint(env):
+    """Custom stopwords are part of the schema: lists with different words must hash
+    apart, while the order the words were given in must not matter."""
+    env.expect('FT.CREATE', 'idx_ab', 'STOPWORDS', 2, 'a', 'b', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_ba', 'STOPWORDS', 2, 'b', 'a', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_ac', 'STOPWORDS', 2, 'a', 'c', 'SCHEMA', 't', 'TEXT').ok()
+
+    fps = dict(internal_payload(env)[3])
+    env.assertEqual(fps['idx_ab'], fps['idx_ba'], message=fps)
+    env.assertNotEqual(fps['idx_ab'], fps['idx_ac'], message=fps)
+
+
 @skip(cluster=False)
 @env_spec(shardsCount=3)
 def test_divergence_and_uncertainty_are_reported_together(env):

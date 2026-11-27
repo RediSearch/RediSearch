@@ -458,10 +458,10 @@ const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
     case VecSimSvsQuant_4x8: return VECSIM_LVQ_4X8;
     case VecSimSvsQuant_4x8_LeanVec: return VECSIM_LEANVEC_4X8;
     case VecSimSvsQuant_8x8_LeanVec: return VECSIM_LEANVEC_8X8;
+    case VecSimSvsQuant_Scalar: return VECSIM_LVQ_SCALAR;
     default:;
   }
-  return NULL;
-
+  return "UNKNOWN";
 }
 
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option) {
@@ -554,6 +554,22 @@ static bool VecSimHnswQuantParams_AreValid(const HNSWParams *params, size_t trai
          trainingThreshold <= HNSW_QUANT_MAX_TRAINING_THRESHOLD;
 }
 
+// Takes the wire value so a value wider than the enum cannot narrow into a valid one.
+static bool isValidSvsQuantBits(uint64_t quantBits) {
+  switch (quantBits) {
+    case VecSimSvsQuant_NONE:
+    case VecSimSvsQuant_Scalar:
+    case VecSimSvsQuant_4:
+    case VecSimSvsQuant_8:
+    case VecSimSvsQuant_4x4:
+    case VecSimSvsQuant_4x8:
+    case VecSimSvsQuant_4x8_LeanVec:
+    case VecSimSvsQuant_8x8_LeanVec:
+      return true;
+  }
+  return false;
+}
+
 static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, StrongRef sp_ref,
                                 const char *field_name, bool hasHnswQuantParams) {
   VecSimLogCtx *logCtx = NULL;
@@ -611,7 +627,13 @@ static int VecSim_RdbLoad_v4_v5(RedisModuleIO *rdb, VecSimParams *vecsimParams, 
       primaryParams->algoParams.svsParams.dim = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.metric = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.multi = LoadUnsigned_IOError(rdb, goto fail);
-      primaryParams->algoParams.svsParams.quantBits = LoadUnsigned_IOError(rdb, goto fail);
+      uint64_t quantBits = LoadUnsigned_IOError(rdb, goto fail);
+      if (!isValidSvsQuantBits(quantBits)) {
+        RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING,
+                               "ERROR: loading vector index failed! Invalid SVS compression");
+        goto fail;
+      }
+      primaryParams->algoParams.svsParams.quantBits = quantBits;
       primaryParams->algoParams.svsParams.graph_max_degree = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.construction_window_size = LoadUnsigned_IOError(rdb, goto fail);
       primaryParams->algoParams.svsParams.leanvec_dim = LoadUnsigned_IOError(rdb, goto fail);

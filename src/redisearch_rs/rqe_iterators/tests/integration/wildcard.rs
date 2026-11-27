@@ -982,4 +982,42 @@ mod new_wildcard_via_resume {
             Err(RQEIteratorError::Stopped)
         ));
     }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn every_suspended_arm_prints_the_profile_of_its_active_form() {
+        let not_optimized = Box::new(NewWildcardIterator::NotOptimized(Wildcard::new(10, 1.0)));
+        insta::assert_debug_snapshot!(
+            rqe_iterators_test_utils::assert_suspended_prints_as_active(not_optimized),
+            @r#"{"Type": "WILDCARD"}"#
+        );
+
+        let fixture = ExistingDocs::doc_ids_only();
+        let optimized = Box::new(NewWildcardIterator::Optimized(
+            OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
+                fixture
+                    .typed::<inverted_index::doc_ids_only::DocIdsOnly>()
+                    .reader(),
+                1.0,
+            )),
+        ));
+        insta::assert_debug_snapshot!(
+            rqe_iterators_test_utils::assert_suspended_prints_as_active(optimized),
+            @r#"{"Type": "WILDCARD"}"#
+        );
+
+        let empty = Box::new(NewWildcardIterator::Empty(Empty));
+        insta::assert_debug_snapshot!(
+            rqe_iterators_test_utils::assert_suspended_prints_as_active(empty),
+            @r#"{"Type": "EMPTY"}"#
+        );
+
+        let disk = Box::new(NewWildcardIterator::Disk(*mock_disk_wildcard(
+            MockRevalidateResult::Ok,
+        )));
+        insta::assert_debug_snapshot!(
+            rqe_iterators_test_utils::assert_suspended_prints_as_active(disk),
+            @r#"{"Type": "MOCK"}"#
+        );
+    }
 }

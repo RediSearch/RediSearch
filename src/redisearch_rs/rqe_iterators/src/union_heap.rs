@@ -150,6 +150,26 @@ fn for_each_contributor(heap: &[HeapEntry], min_id: DocId, mut f: impl FnMut(usi
 }
 
 // Methods used in both modes.
+impl<'query, Rf: Ref, I, const QUICK_EXIT: bool> RawUnionHeap<'query, Rf, I, QUICK_EXIT> {
+    /// Returns the total number of children (including exhausted ones).
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    ///
+    /// If any child was removed, there is no guarantee that the same child will be at this position.
+    /// Returns [`None`] if the child is out of range.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+}
+
 impl<'index, I, const QUICK_EXIT: bool> UnionHeap<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -182,24 +202,6 @@ where
             heap: DocIdMinHeap::with_capacity(num_children),
             pivot_frontier: None,
         }
-    }
-
-    /// Returns the total number of children (including exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns the number of currently active (non-exhausted) children.
-    pub const fn num_children_active(&self) -> usize {
-        self.num_active
-    }
-
-    /// Returns a shared reference to the child originally at insertion index `idx`.
-    ///
-    /// If any child was removed, there is no guarantee that the same child will be at this position.
-    /// Returns [`None`] if the child is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        self.children.get(idx)
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
@@ -1324,5 +1326,22 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             heap: self.heap,
             pivot_frontier: self.pivot_frontier,
         }
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `ProfilePrint` supertrait of `RQESuspendedIterator`, and is not reached in
+// practice. It is limited to the suspended form so the active one cannot print a
+// placeholder by mistake.
+impl<I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
+    for RawUnionHeap<'_, Suspended, I, QUICK_EXIT>
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }

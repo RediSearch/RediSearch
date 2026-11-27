@@ -536,6 +536,48 @@ mod not_miri {
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
+        /// The suspended form can no longer read the live count, so it reports the
+        /// one cached at its last resume: an index that grew while the iterator was
+        /// suspended must not see its estimate fall back to the construction-time count.
+        #[test]
+        fn suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+            let test = TermRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let constructed = it.num_estimated();
+            let suspended = it.suspend();
+
+            // The lock is released while the iterator is suspended, so the index may grow.
+            let ii = {
+                use inverted_index::{full::Full, opaque::OpaqueEncoding};
+                Full::from_mut_opaque(test.test.context.term_inverted_index_mut()).inner_mut()
+            };
+            const OFFSETS: &[u8] = &[0, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+            let mut term = RSQueryTerm::new("term", 1, 0);
+            term.set_idf(5.0);
+            term.set_bm25_idf(10.0);
+            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+            // fresh, larger one.
+            let record = expected_record(23, u32::MAX as FieldMask, term, OFFSETS);
+            ii.add_record(&record).expect("failed to add record");
+
+            let guard = test.test.context.spec_read();
+            let ResumeOutcome::Ok(it) = suspended
+                .resume(&guard)
+                .expect("resume should not fail in this test")
+            else {
+                panic!("resume should find the iterator where it was");
+            };
+            assert_eq!(it.num_estimated(), constructed + 1);
+
+            let suspended = it.suspend();
+            assert_eq!(
+                RQESuspendedIterator::num_estimated(&*suspended),
+                constructed + 1
+            );
+        }
+
         #[test]
         fn term_revalidate_basic() {
             let test = TermRevalidateTest::new(10);
