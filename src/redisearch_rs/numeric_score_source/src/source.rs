@@ -25,7 +25,7 @@ use rqe_iterators::{
     ExpirationChecker, NoOpChecker, RQEIteratorError,
     utils::{NoTimeoutChecker, TimeoutContext},
 };
-use top_k::{BatchStrategy, ScoreSource};
+use top_k::{BatchStrategy, Offer, ScoreSource};
 
 use crate::range_iterator::{NumericRangeIterator, NumericTreeRef};
 use crate::score_batch::NumericScoreBatch;
@@ -168,6 +168,10 @@ pub struct NumericScoreSource<
     timeout: T,
 }
 
+/// Callback streaming live document IDs for unfiltered missing-value
+/// collection, stopping early as soon as the visitor returns `false`.
+pub type UnscoredLiveDocsFn = Box<dyn Fn(usize, &mut dyn FnMut(DocId) -> bool)>;
+
 /// Scan state is independent of the query's validity, expiration and timeout
 /// policies, so replacing a policy transfers this state unchanged.
 struct NumericScan<'index> {
@@ -190,6 +194,10 @@ struct NumericScan<'index> {
     num_iterations: usize,
     /// Strategy reported as the profile's `Optimizer mode`.
     optimizer_mode: NumericOptimizerMode,
+    /// When set, collect matches lacking the sort field once an unbounded walk
+    /// finishes with `heap.len() < k`. For unfiltered (elided wildcard) walks,
+    /// this enumerates live unscored document IDs directly from the doc table.
+    unscored_live_docs: Option<UnscoredLiveDocsFn>,
 }
 
 impl<'index> NumericScoreSource<'index> {
@@ -226,6 +234,7 @@ impl<'index> NumericScoreSource<'index> {
                 heap_old_size: 0,
                 num_iterations: 0,
                 optimizer_mode: NumericOptimizerMode::PartialRange,
+                unscored_live_docs: None,
             },
             validity: AllValid,
             expiration: NoOpChecker,
@@ -289,6 +298,14 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     /// Set the strategy the profile reports.
     pub fn with_optimizer_mode(mut self, mode: NumericOptimizerMode) -> Self {
         self.scan.optimizer_mode = mode;
+        self
+    }
+
+    /// Enable collecting matching documents that lack a value for the sort
+    /// field when the walk finishes short of `k`, using `live_docs` to
+    /// enumerate live unscored document IDs when no filter child is present.
+    pub fn with_collect_missing(mut self, live_docs: UnscoredLiveDocsFn) -> Self {
+        self.scan.unscored_live_docs = Some(live_docs);
         self
     }
 
@@ -403,13 +420,16 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.timeout.check_timeout()?;
         // Drop stale entries pre-heap so they never displace a live document from
         // the bounded top-k: document deletion and field-level TTL, the two the
-        // range tree only sheds at GC time.
+        // range tree only sheds at GC time. Missing-value candidates (`score.is_nan()`)
+        // have no sort-field value (including documents whose sort field expired), so
+        // field expiration does not exclude them.
         Ok(!self.scan.ranges.is_retained(doc_id)
             && self.validity.is_valid(doc_id)
-            && !(self.expiration.has_expiration()
-                && self
-                    .expiration
-                    .is_expired(&self.build_result(doc_id, score))))
+            && (score.is_nan()
+                || !(self.expiration.has_expiration()
+                    && self
+                        .expiration
+                        .is_expired(&self.build_result(doc_id, score)))))
     }
 
     fn admitted(&mut self, doc_id: DocId, evicted: Option<DocId>) {
@@ -434,6 +454,45 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         self.scan.ranges.can_collect_after_lock_release()
     }
 
+    fn collects_unscored_on_shortfall(&self) -> bool {
+        self.scan.unscored_live_docs.is_some()
+    }
+
+    fn for_each_unscored_live_doc(
+        &mut self,
+        heap_count: usize,
+        is_valued: &dyn Fn(DocId) -> bool,
+        on_accepted: &mut dyn FnMut(DocId) -> Offer,
+    ) -> Result<(), RQEIteratorError> {
+        let Some(streamer) = self.scan.unscored_live_docs.take() else {
+            return Ok(());
+        };
+        let mut err: Option<RQEIteratorError> = None;
+        streamer(heap_count, &mut |doc_id| {
+            if is_valued(doc_id) {
+                return true;
+            }
+            match self.accept_candidate(doc_id, f64::NAN) {
+                Ok(true) => {
+                    if let Offer::Inserted { evicted } = on_accepted(doc_id) {
+                        self.admitted(doc_id, evicted);
+                    }
+                    true
+                }
+                Ok(false) => true,
+                Err(e) => {
+                    err = Some(e);
+                    false
+                }
+            }
+        });
+        self.scan.unscored_live_docs = Some(streamer);
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
     fn rewind(&mut self) {
         // Full reset to the initial window. The expand-and-retry path resolves
         // its own windows inside `expand_window`, so this is only reached for an
@@ -449,6 +508,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     where
         Self: 'r,
     {
+        let score = if score.is_nan() { 0.0 } else { score };
         RSIndexResult::build_numeric(score).doc_id(doc_id).build()
     }
 

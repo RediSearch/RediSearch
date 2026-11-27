@@ -57,6 +57,79 @@ static bool planHasSortKeys(const AGGPlan *pln) {
   return false;
 }
 
+/* Resolve the sort keys after the first to the sorting-vector slots the optimizer's heap reads
+ * them from. The heap only keeps `limit` results, so among results tied on the numeric key it must
+ * keep the ones the sorter would rank first; it can only do so for keys in the sorting vector. */
+static bool resolveTieBreakKeys(QOptimizer *opt, const IndexSpec *spec,
+                                const PLN_ArrangeStep *arng) {
+  size_t numKeys = array_len(arng->sortKeys);
+  for (size_t i = 1; i < numKeys; i++) {
+    const char *name = arng->sortKeys[i];
+    const FieldSpec *field = IndexSpec_GetFieldWithLength(spec, name, strlen(name));
+    if (!field || !FieldSpec_IsSortable(field)) {
+      return false;
+    }
+    opt->tieBreakSortIdx[i - 1] = field->sortIdx;
+  }
+  opt->numTieBreakKeys = numKeys - 1;
+  return true;
+}
+
+/* Whether a LOAD step aliases a loaded field onto any key of the arrange step, overwriting the
+ * value the optimizer would otherwise read from the schema's sorting vector. */
+static bool loadStepOverwritesSortKey(const PLN_LoadStep *lstp, const PLN_ArrangeStep *arng) {
+  ArgsCursor ac = lstp->args;
+  while (!AC_IsAtEnd(&ac)) {
+    AC_Advance(&ac);  // field path
+    if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR) && !AC_IsAtEnd(&ac)) {
+      const char *alias = NULL;
+      size_t len = 0;
+      if (AC_GetString(&ac, &alias, &len, 0) == AC_OK) {
+        if (len > 0 && alias[0] == '@') {
+          alias++;
+          len--;
+        }
+        for (size_t i = 0; i < array_len(arng->sortKeys); i++) {
+          if (strlen(arng->sortKeys[i]) == len && memcmp(arng->sortKeys[i], alias, len) == 0) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/* Whether a step before the arrange step can drop rows or change their sort values. The optimizer
+ * prunes documents while collecting them, before any later step runs, so such a step would act on
+ * the rows the optimizer kept rather than on every match. Only LOAD without a sort-key alias
+ * leaves rows and sort values as they are. */
+static bool stepsBeforeCanReshapeRows(const AGGPlan *pln, const PLN_ArrangeStep *arng) {
+  DLLIST_FOREACH(nn, &pln->steps) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (stp == &arng->base) {
+      return false;
+    }
+    if (stp->type == PLN_T_LOAD) {
+      if (loadStepOverwritesSortKey((const PLN_LoadStep *)stp, arng)) {
+        return true;
+      }
+      continue;
+    }
+    if (stp->type != PLN_T_ROOT) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether a document can hold several numeric values for the field. On JSON indexes even a
+ * single-result JSONPath (such as `$.n`) can select a JSON array `[0, 10]`, which is indexed as
+ * multiple numeric values; on HASH indexes every numeric field holds at most one value. */
+static bool fieldMayHoldManyValues(const IndexSpec *spec) {
+  return isSpecJson(spec);
+}
+
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -72,12 +145,16 @@ void QOptimizer_Parse(AREQ *req) {
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
+      if (field && field->types == INDEXFLD_T_NUMERIC &&
+          !stepsBeforeCanReshapeRows(AREQ_AGGPlan(req), arng) &&
+          resolveTieBreakKeys(opt, sctx->spec, arng)) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
+        opt->sortAscMap = arng->sortAscMap;
+        opt->sortFieldMayHoldManyValues = fieldMayHoldManyValues(sctx->spec);
       } else {
-        // sortby other fields, or more than one sort key, no optimization
+        // sortby a non-numeric field first, or by a later key the heap cannot read, no optimization
         opt->type = Q_OPT_NONE;
       }
     }
@@ -174,6 +251,71 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
+/* Widen `hull` to also cover `range`. */
+static void widenToInclude(SortFieldBounds *hull, const SortFieldBounds *range) {
+  if (range->min < hull->min) {
+    hull->min = range->min;
+    hull->minInclusive = range->minInclusive;
+  } else if (range->min == hull->min) {
+    hull->minInclusive |= range->minInclusive;
+  }
+  if (range->max > hull->max) {
+    hull->max = range->max;
+    hull->maxInclusive = range->maxInclusive;
+  } else if (range->max == hull->max) {
+    hull->maxInclusive |= range->maxInclusive;
+  }
+}
+
+/* Whether every document matching `node` has its sort field inside some range, and if so, which.
+ * The node stays in the tree as the exact filter; the range only bounds the optimizer's walk, so
+ * it may be wider than the matches but never narrower. A range on the field bounds itself, an
+ * intersection is bounded by any range it contains on the field, and a union by the hull of its
+ * branches when each of them is bounded. A union with an unbounded branch, and every other node,
+ * bounds nothing. */
+static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldIndex,
+                                   SortFieldBounds *bounds) {
+  switch (node->type) {
+    case QN_NUMERIC: {
+      const NumericFilter *nf = node->nn.nf;
+      if (nf->fieldIndex != fieldIndex) {
+        return false;
+      }
+      *bounds = (SortFieldBounds){.min = nf->min,
+                                  .max = nf->max,
+                                  .minInclusive = nf->minInclusive,
+                                  .maxInclusive = nf->maxInclusive};
+      return true;
+    }
+
+    case QN_PHRASE:  // INTERSECT
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        if (impliedSortFieldBounds(node->children[i], fieldIndex, bounds)) {
+          return true;
+        }
+      }
+      return false;
+
+    case QN_UNION: {
+      if (QueryNode_NumChildren(node) == 0 ||
+          !impliedSortFieldBounds(node->children[0], fieldIndex, bounds)) {
+        return false;
+      }
+      for (int i = 1; i < QueryNode_NumChildren(node); ++i) {
+        SortFieldBounds branch;
+        if (!impliedSortFieldBounds(node->children[i], fieldIndex, &branch)) {
+          return false;
+        }
+        widenToInclude(bounds, &branch);
+      }
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
 void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
   const FieldSpec *field = opt->field;
   bool isSortby = !!field;
@@ -208,6 +350,14 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       }
       return;
     }
+  }
+
+  // No range on the sort field could be lifted out of the tree, but the query may still confine
+  // the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
+  // On a field with several values per document the predicates constrain any of them, not the
+  // value the document sorts by, so they bound nothing the walk could start from.
+  if (isSortby && !opt->nf && !opt->sortFieldMayHoldManyValues) {
+    opt->hasImpliedBounds = impliedSortFieldBounds(root, targetFieldIndex, &opt->impliedBounds);
   }
 
   // there is no sorting field and scorer is required - we must check all results
@@ -270,25 +420,46 @@ static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterato
       IndexSpec_GetFieldWithLength(spec, qOpt->fieldName, strlen(qOpt->fieldName));
   const NumericRangeTree *tree = openNumericOrGeoIndex(spec, (FieldSpec *)field, DONT_CREATE_INDEX);
   if (!tree) {
-    // No numeric index for the field: nothing to scan. `NewNumericTopKIterator`
-    // has not adopted `root` yet, so free it here.
+    // No numeric index for the field, so no document has a value for it. A range lifted out of
+    // the query (or implied by a union) matches nothing; otherwise the query alone decides the
+    // matches, which all tie on the field, so it runs unoptimized.
+    bool requiresValue = (qOpt->nf != NULL) || qOpt->hasImpliedBounds;
+    if (!requiresValue) {
+      return root;
+    }
     root->Free(root);
     return NewEmptyIterator();
   }
 
-  // With no explicit numeric range, scan the whole field.
-  NumericFilter wholeField = {.fieldIndex = field->index,
-                              .min = -INFINITY,
-                              .max = INFINITY,
-                              .minInclusive = true,
-                              .maxInclusive = true,
-                              .ascending = qOpt->asc};
-  const NumericFilter *nf = qOpt->nf ? qOpt->nf : &wholeField;
+  // With no explicit numeric range, scan either the range the query implies (e.g. a keyset union)
+  // or the whole field.
+  NumericFilter syntheticRange =
+      qOpt->hasImpliedBounds
+          ? (NumericFilter){.fieldIndex = field->index,
+                            .min = qOpt->impliedBounds.min,
+                            .max = qOpt->impliedBounds.max,
+                            .minInclusive = qOpt->impliedBounds.minInclusive,
+                            .maxInclusive = qOpt->impliedBounds.maxInclusive,
+                            .ascending = qOpt->asc}
+          : (NumericFilter){.fieldIndex = field->index,
+                            .min = -INFINITY,
+                            .max = INFINITY,
+                            .minInclusive = true,
+                            .maxInclusive = true,
+                            .ascending = qOpt->asc};
+  const NumericFilter *nf = qOpt->nf ? qOpt->nf : &syntheticRange;
   FieldFilterContext filterCtx = {
       .field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
       .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  // Only an unbounded walk over the whole field can leave matches without a sort value unvisited.
+  NumericTopKSortSpec sortSpec = {
+      .sort_asc_map = qOpt->sortAscMap,
+      .tie_break_sort_idx = qOpt->numTieBreakKeys ? qOpt->tieBreakSortIdx : NULL,
+      .num_tie_break_keys = qOpt->numTieBreakKeys,
+      .collect_missing = (qOpt->nf == NULL) && !qOpt->hasImpliedBounds,
+  };
   return NewNumericTopKIterator(tree, nf, qOpt->limit, spec->docs.size, numericOptimizerMode(qOpt),
-                                root, qOpt->sctx, &filterCtx);
+                                root, qOpt->sctx, &filterCtx, &sortSpec);
 }
 
 // wraps root with a numeric top-k iterator, leaving root in place if that fails
