@@ -18,6 +18,8 @@
 #include <array>
 #include <cmath>
 #include <numeric>
+#include <latch>
+#include <condition_variable>
 
 #include "unit_test_utils.h"
 #include "mock_thread_pool.h"
@@ -2303,7 +2305,7 @@ TYPED_TEST(HNSWTieredIndexTest, invalidRepairJobOnSwap) {
     EXPECT_EQ(state.valid_state, true);
     EXPECT_EQ(state.connections_to_repair, 0);
 
-    // Both GC rounds went through defrag(), which the info reports. Other callers of defrag() may
+    // Both GC rounds went through compact(), which the info reports. Other callers of compact() may
     // have run too, hence the lower bound on the count.
     EXPECT_GE(tiered_index->defragRuns.load(), 2);
     EXPECT_GT(tiered_index->defragTimeNs.load(), 0);
@@ -4732,9 +4734,9 @@ TYPED_TEST(HNSWTieredIndexTestBasic, deleteInplaceAvoidUpdatedMarkedDeleted) {
     VecSimDebug_ReleaseElementNeighborsInHNSWGraph(neighbours);
 
     auto &level_data = tiered_index->getHNSWIndex()->getElementLevelData((idType)0, 0);
-    // Expect 1 neighbors at level 0 (id=1) and that 3 is NOT a new neighbor for 0.
-    ASSERT_EQ(level_data.getNumLinks(), 1);
-    ASSERT_EQ(level_data.getLinkAtPos(0), 1);
+    // Invalidation completes deletion of 0, so finalization has already cleared its links.
+    ASSERT_EQ(level_data.getNumLinks(), 0);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
 
     // Expect that id=0 is a ready swap job and execute it.
     ASSERT_EQ(tiered_index->readySwapJobs, 1);
@@ -5861,6 +5863,840 @@ TYPED_TEST(HNSWTieredIndexTestBasic, updateVectorsSingleValueZeroVectorsRemovesL
         ASSERT_EQ(tiered_index->updateVectors(label, nullptr, 0), VecSimUpdate_OK);
 
         ASSERT_EQ(tiered_index->indexLabelCount(), 0);
+    }
+}
+
+static void RunAllJobs(tieredIndexMock &mock_thread_pool) {
+    while (!mock_thread_pool.jobQ.empty()) {
+        mock_thread_pool.thread_iteration();
+    }
+}
+
+// Deletes the given labels asynchronously and runs their repairs, leaving a ready swap job each.
+template <typename data_t, typename dist_t>
+static void DeleteLabelsAndRepair(TieredHNSWIndex<data_t, dist_t> *tiered_index,
+                                  tieredIndexMock &mock_thread_pool,
+                                  const std::vector<labelType> &labels) {
+    for (labelType label : labels) {
+        ASSERT_EQ(tiered_index->deleteVector(label), 1);
+    }
+    RunAllJobs(mock_thread_pool);
+}
+
+// A one-shot hook pause that lets other workers reach the same hook without blocking.
+class RuntimeMarkerPause {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool paused = false;
+    bool resumed = false;
+
+public:
+    void pauseOnce() {
+        std::unique_lock lock(mutex);
+        if (paused) {
+            return;
+        }
+        paused = true;
+        cv.notify_all();
+        cv.wait(lock, [&] { return resumed; });
+    }
+    bool waitUntilPaused() {
+        std::unique_lock lock(mutex);
+        return cv.wait_for(lock, std::chrono::seconds(10), [&] { return paused; });
+    }
+    void resume() {
+        std::lock_guard lock(mutex);
+        resumed = true;
+        cv.notify_all();
+    }
+};
+
+TYPED_TEST(HNSWTieredIndexTestBasic, reuseOnInsertIsDisabledByDefault) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    ASSERT_FALSE(tiered_index->isReuseOnInsert());
+
+    // The GC compacts the deleted elements as it always did, leaving nothing to reuse.
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {2, 5, 7});
+    ASSERT_EQ(tiered_index->readySwapJobs, 3);
+    tiered_index->runGC();
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 3);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// The finalizer publishes reusable holes before any GC runs. Inserts can reuse them immediately.
+TYPED_TEST(HNSWTieredIndexTestBasic, insertTakesReusableIdHolesFromFinalizer) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    auto expect_holes = [&](size_t expected) {
+        auto info = tiered_index->debugInfo();
+        EXPECT_EQ(info.tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles, expected);
+        auto frontend_info = tiered_index->frontendIndex->debugInfo();
+        auto backend_info = hnsw_index->debugInfo();
+        auto *info_iterator = VecSimIndex_DebugInfoIterator(tiered_index);
+        compareTieredIndexInfoToIterator(info, frontend_info, backend_info, info_iterator);
+        VecSimDebugInfoIterator_Free(info_iterator);
+    };
+    expect_holes(0);
+
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {2, 5});
+    ASSERT_EQ(tiered_index->readySwapJobs, 2);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 2);
+    expect_holes(2);
+    ASSERT_EQ(hnsw_index->indexSize(), n);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 2);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 2);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+
+    // Every new label lands in one of the reusable holes, and the index doesn't grow.
+    for (size_t i = 0; i < 2; i++) {
+        labelType label = 100 + i;
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, label, 100 + i);
+        RunAllJobs(mock_thread_pool);
+        ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1 - i);
+        expect_holes(1 - i);
+        ASSERT_EQ(hnsw_index->indexSize(), n);
+        ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 1 - i);
+    }
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+
+    // With the cache empty, the next one is appended.
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 200, 200);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->indexSize(), n + 1);
+    ASSERT_EQ(tiered_index->indexLabelCount(), n + 1);
+    for (labelType label : {100, 101, 200}) {
+        TEST_DATA_T vec[dim];
+        GenerateVector<TEST_DATA_T>(vec, dim, label);
+        ASSERT_EQ(tiered_index->getDistanceFrom_Unsafe(label, vec), 0);
+    }
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, finalizerCachesDeletionWithoutRepairJobs) {
+    size_t dim = 4;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, 1, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    // The only element has no incoming neighbors, so deletion itself must finalize it.
+    ASSERT_EQ(tiered_index->deleteVector(0), 1);
+    ASSERT_TRUE(mock_thread_pool.jobQ.empty());
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    ASSERT_EQ(hnsw_index->indexSize(), 1);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 1, 1);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(hnsw_index->indexSize(), 1);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// The last reader's shared_ptr deleter publishes the slot, without an exclusive main lock.
+TYPED_TEST(HNSWTieredIndexTestBasic, finalizerWaitsForLastBatchReader) {
+    const size_t dim = 4;
+    const size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const idType deleted_id = hnsw_index->getElementIds(2).at(0);
+    const auto exclusive_locks = tiered_index->getMainIndexGuardWriteLockCount();
+    TEST_DATA_T query[dim];
+    GenerateVector<TEST_DATA_T>(query, dim, 0);
+
+    auto start_reader = [&]() {
+        auto reader =
+            std::unique_ptr<VecSimBatchIterator>(tiered_index->newBatchIterator(query, nullptr));
+        auto *reply = reader->getNextResults(1, BY_SCORE);
+        EXPECT_EQ(VecSimQueryReply_Len(reply), 1);
+        VecSimQueryReply_Free(reply);
+        EXPECT_FALSE(reader->isDepleted());
+        return reader;
+    };
+    auto first = start_reader();
+    auto second = start_reader();
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {2});
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        0);
+    ASSERT_EQ(hnsw_index->indexSize(), n);
+    ASSERT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+
+    // A reader starting after isolation cannot hold a stale ID and must not delay this finalizer.
+    auto later = start_reader();
+    first->reset();
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        0);
+    second.reset();
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        1);
+    ASSERT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 100, 100);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->getElementIds(100).at(0), deleted_id);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        0);
+    ASSERT_EQ(hnsw_index->indexSize(), n);
+    ASSERT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, finalizerWaitsForPausedQuery) {
+    for (bool range_query : {false, true}) {
+        SCOPED_TRACE(range_query ? "range" : "top-K");
+        const size_t dim = 4;
+        const size_t n = 32;
+        auto mock_thread_pool = tieredIndexMock();
+        auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+        tiered_index->setReuseOnInsert(true);
+        auto *hnsw_index = this->CastToHNSW(tiered_index);
+        const idType deleted_id = hnsw_index->safeGetEntryPointState().first;
+        const labelType deleted_label = hnsw_index->getExternalLabel(deleted_id);
+        const auto *saved_graph = hnsw_index->getGraphDataByInternalId(deleted_id);
+        const auto exclusive_locks = tiered_index->getMainIndexGuardWriteLockCount();
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, deleted_label);
+
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool pointer_saved = false;
+        bool resume_scan = false;
+        bool scan_finished = false;
+        bool deletion_finished = false;
+        bool finish_query = false;
+        hnsw_index->setAfterCandidateGraphDataReadHook([&](idType id) {
+            std::unique_lock lock(mutex);
+            if (id != deleted_id || pointer_saved) {
+                return;
+            }
+            pointer_saved = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return resume_scan; });
+        });
+        tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook([&] {
+            std::unique_lock lock(mutex);
+            scan_finished = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return finish_query; });
+        });
+        VecSimQueryReply *reply = nullptr;
+        std::thread reader([&] {
+            reply = range_query ? tiered_index->rangeQuery(query, 1, nullptr, BY_SCORE)
+                                : tiered_index->topKQuery(query, 1, nullptr);
+        });
+        bool paused;
+        {
+            std::unique_lock lock(mutex);
+            paused = cv.wait_for(lock, std::chrono::seconds(10), [&] { return pointer_saved; });
+        }
+        EXPECT_TRUE(paused);
+        std::thread deleter([&] {
+            DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {deleted_label});
+            std::lock_guard lock(mutex);
+            deletion_finished = true;
+            cv.notify_all();
+        });
+        bool deleted_while_paused;
+        {
+            std::unique_lock lock(mutex);
+            deleted_while_paused =
+                cv.wait_for(lock, std::chrono::seconds(10), [&] { return deletion_finished; });
+        }
+        EXPECT_TRUE(deleted_while_paused);
+        if (paused && deleted_while_paused) {
+            // The query holds the exact graph pointer that deletion is about to retire.
+            EXPECT_TRUE(hnsw_index->getElementIds(deleted_label).empty());
+            EXPECT_EQ(hnsw_index->getGraphDataByInternalId(deleted_id), saved_graph);
+            EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+            EXPECT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+        }
+        {
+            std::lock_guard lock(mutex);
+            resume_scan = true;
+        }
+        cv.notify_all();
+        bool resumed;
+        {
+            std::unique_lock lock(mutex);
+            resumed = cv.wait_for(lock, std::chrono::seconds(10), [&] { return scan_finished; });
+        }
+        EXPECT_TRUE(resumed);
+        if (paused && deleted_while_paused && resumed) {
+            // Scanning has resumed and finished, but the query still owns its marker.
+            EXPECT_EQ(hnsw_index->getGraphDataByInternalId(deleted_id), saved_graph);
+            EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        }
+        {
+            std::lock_guard lock(mutex);
+            finish_query = true;
+        }
+        cv.notify_all();
+        reader.join();
+        deleter.join();
+        hnsw_index->setAfterCandidateGraphDataReadHook({});
+        tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook({});
+        ASSERT_NE(reply, nullptr);
+        EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+        VecSimQueryReply_Free(reply);
+        ASSERT_TRUE(paused && deleted_while_paused && resumed);
+        ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+        ASSERT_EQ(hnsw_index->getGraphDataByInternalId(deleted_id)->toplevel, 0);
+        ASSERT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+
+        // The completed query's last reference has now made the hole available for reuse.
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, n, n);
+        RunAllJobs(mock_thread_pool);
+        ASSERT_EQ(hnsw_index->getElementIds(n).at(0), deleted_id);
+        ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        ASSERT_EQ(hnsw_index->indexSize(), n);
+        ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+        ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+    }
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, insertMarkerDelaysFinalizer) {
+    for (bool direct : {false, true}) {
+        for (bool reuse_hole : {false, true}) {
+            SCOPED_TRACE(testing::Message() << "direct=" << direct << ", reuse=" << reuse_hole);
+            const size_t dim = 4;
+            const size_t n = 8;
+            auto mock_thread_pool = tieredIndexMock();
+            HNSWParams params = {
+                .type = TypeParam::get_index_type(), .dim = dim, .metric = VecSimMetric_L2};
+            auto primary_params = CreateParams(params);
+            auto *tiered_index = this->CreateTieredHNSWIndex(primary_params, mock_thread_pool, 0,
+                                                             direct ? 0 : SIZE_MAX);
+            VecSim_SetWriteMode(VecSim_WriteAsync);
+            for (labelType label = 0; label < n; ++label) {
+                GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, label, label);
+            }
+            RunAllJobs(mock_thread_pool);
+            tiered_index->setReuseOnInsert(true);
+            auto *hnsw_index = this->CastToHNSW(tiered_index);
+            const idType deleted_id = hnsw_index->getElementIds(0).at(0);
+            if (reuse_hole) {
+                DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {n - 1});
+                ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+            }
+            if (!direct) {
+                GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, n, n);
+            }
+            ASSERT_EQ(tiered_index->deleteVector(0), 1);
+            RuntimeMarkerPause pause;
+            tiered_index->setBeforeRuntimeMarkerDetachHook([&](auto operation) {
+                if (operation == HNSWRuntimeMarkerOperation::Insert) {
+                    pause.pauseOnce();
+                }
+            });
+            std::thread inserter([&] {
+                if (direct) {
+                    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, n, n);
+                } else {
+                    mock_thread_pool.thread_iteration();
+                }
+            });
+            const bool paused = pause.waitUntilPaused();
+            EXPECT_TRUE(paused);
+            if (paused) {
+                RunAllJobs(mock_thread_pool);
+                EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 1);
+                EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+            }
+            pause.resume();
+            inserter.join();
+            tiered_index->setBeforeRuntimeMarkerDetachHook({});
+            ASSERT_TRUE(paused);
+            ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+            GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, n + 1, n + 1);
+            RunAllJobs(mock_thread_pool);
+            ASSERT_EQ(hnsw_index->getElementIds(n + 1).at(0), deleted_id);
+            ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+            ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+            ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+        }
+    }
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, repairMarkerDelaysFinalizer) {
+    const size_t dim = 4;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, 2, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const idType deleted_id = hnsw_index->getElementIds(0).at(0);
+    ASSERT_EQ(tiered_index->deleteVector(0), 1);
+    ASSERT_FALSE(mock_thread_pool.jobQ.empty());
+    auto *repair = static_cast<HNSWRepairJob *>(mock_thread_pool.jobQ.front().job);
+    auto *swap_job = repair->associatedSwapJobs.at(0);
+    RuntimeMarkerPause pause;
+    tiered_index->setBeforeRuntimeMarkerDetachHook([&](auto operation) {
+        if (operation == HNSWRuntimeMarkerOperation::Repair &&
+            swap_job->pending_repair_jobs_counter.load() == 0) {
+            pause.pauseOnce();
+        }
+    });
+    std::thread repairer([&] { RunAllJobs(mock_thread_pool); });
+    const bool paused = pause.waitUntilPaused();
+    EXPECT_TRUE(paused);
+    if (paused) {
+        EXPECT_EQ(swap_job->pending_repair_jobs_counter.load(), 0);
+        EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    }
+    pause.resume();
+    repairer.join();
+    tiered_index->setBeforeRuntimeMarkerDetachHook({});
+    ASSERT_TRUE(paused);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 2, 2);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->getElementIds(2).at(0), deleted_id);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, asyncDeleteMarkerDelaysFinalizer) {
+    const size_t dim = 4;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, 2, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const idType deleted_id = hnsw_index->getElementIds(0).at(0);
+    RuntimeMarkerPause pause;
+    tiered_index->setBeforeRuntimeMarkerDetachHook([&](auto operation) {
+        if (operation == HNSWRuntimeMarkerOperation::AsyncDelete) {
+            pause.pauseOnce();
+        }
+    });
+    int deleted = 0;
+    std::thread deleter([&] { deleted = tiered_index->deleteVector(0); });
+    const bool paused = pause.waitUntilPaused();
+    EXPECT_TRUE(paused);
+    if (paused) {
+        RunAllJobs(mock_thread_pool);
+        EXPECT_TRUE(hnsw_index->getElementIds(0).empty());
+        EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 1);
+        EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    }
+    pause.resume();
+    deleter.join();
+    tiered_index->setBeforeRuntimeMarkerDetachHook({});
+    ASSERT_TRUE(paused);
+    ASSERT_EQ(deleted, 1);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 2, 2);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->getElementIds(2).at(0), deleted_id);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, inplaceDeleteMarkerDelaysFinalizer) {
+    const size_t dim = 4;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, 2, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const idType deleted_id = hnsw_index->getElementIds(0).at(0);
+    ASSERT_EQ(tiered_index->deleteVector(0), 1);
+    RuntimeMarkerPause pause;
+    tiered_index->setBeforeRuntimeMarkerDetachHook([&](auto operation) {
+        if (operation == HNSWRuntimeMarkerOperation::InplaceDelete) {
+            pause.pauseOnce();
+        }
+    });
+    tiered_index->setWriteMode(VecSim_WriteInPlace);
+    int deleted = 0;
+    std::thread deleter([&] { deleted = tiered_index->deleteVector(1); });
+    const bool paused = pause.waitUntilPaused();
+    EXPECT_TRUE(paused);
+    if (paused) {
+        // Removing 1 invalidates its pending repair and completes the earlier deletion of 0.
+        RunAllJobs(mock_thread_pool);
+        EXPECT_EQ(hnsw_index->indexSize(), 1);
+        EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 1);
+        EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    }
+    pause.resume();
+    deleter.join();
+    tiered_index->setBeforeRuntimeMarkerDetachHook({});
+    tiered_index->setWriteMode(VecSim_WriteAsync);
+    ASSERT_TRUE(paused);
+    ASSERT_EQ(deleted, 1);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 2, 2);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->getElementIds(2).at(0), deleted_id);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, timedOutQueriesReleaseMarkers) {
+    for (bool range_query : {false, true}) {
+        SCOPED_TRACE(range_query ? "range" : "top-K");
+        const size_t dim = 4;
+        auto mock_thread_pool = tieredIndexMock();
+        auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, 8, dim);
+        tiered_index->setReuseOnInsert(true);
+        auto *hnsw_index = this->CastToHNSW(tiered_index);
+        const idType deleted_id = hnsw_index->safeGetEntryPointState().first;
+        const labelType deleted_label = hnsw_index->getExternalLabel(deleted_id);
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, deleted_label);
+        RuntimeMarkerPause timeout_pause;
+        RuntimeMarkerPause return_pause;
+        const auto original_callback = VecSimIndexInterface::timeoutCallback;
+        VecSim_SetTimeoutCallbackFunction([](void *ctx) {
+            static_cast<RuntimeMarkerPause *>(ctx)->pauseOnce();
+            return 1;
+        });
+        tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook(
+            [&] { return_pause.pauseOnce(); });
+        VecSimQueryParams params = {.timeoutCtx = &timeout_pause};
+        VecSimQueryReply *reply = nullptr;
+        std::thread reader([&] {
+            reply = range_query ? tiered_index->rangeQuery(query, 1, &params, BY_SCORE)
+                                : tiered_index->topKQuery(query, 1, &params);
+        });
+        const bool paused = timeout_pause.waitUntilPaused();
+        EXPECT_TRUE(paused);
+        if (paused) {
+            DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {deleted_label});
+            EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        }
+        timeout_pause.resume();
+        const bool returning = return_pause.waitUntilPaused();
+        EXPECT_TRUE(returning);
+        if (paused && returning) {
+            EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        }
+        return_pause.resume();
+        reader.join();
+        tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook({});
+        VecSim_SetTimeoutCallbackFunction(original_callback);
+        ASSERT_TRUE(paused && returning);
+        ASSERT_NE(reply, nullptr);
+        EXPECT_EQ(reply->code, VecSim_QueryReply_TimedOut);
+        VecSimQueryReply_Free(reply);
+        ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 8, 8);
+        RunAllJobs(mock_thread_pool);
+        ASSERT_EQ(hnsw_index->getElementIds(8).at(0), deleted_id);
+        ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+    }
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, depletedBatchIteratorReleasesMarker) {
+    const size_t dim = 4;
+    const size_t n = 16;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const idType deleted_id = hnsw_index->getElementIds(n - 1).at(0);
+    TEST_DATA_T query[dim];
+    GenerateVector<TEST_DATA_T>(query, dim, 0);
+    auto reader =
+        std::unique_ptr<VecSimBatchIterator>(tiered_index->newBatchIterator(query, nullptr));
+    auto *reply = reader->getNextResults(1, BY_SCORE);
+    VecSimQueryReply_Free(reply);
+    ASSERT_FALSE(reader->isDepleted());
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {n - 1});
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    for (size_t calls = 0; calls < n + 2 && !reader->isDepleted(); ++calls) {
+        reply = reader->getNextResults(1, BY_SCORE);
+        VecSimQueryReply_Free(reply);
+    }
+    ASSERT_TRUE(reader->isDepleted());
+    // The iterator object is still alive: depletion alone must detach its marker.
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, n, n);
+    RunAllJobs(mock_thread_pool);
+    ASSERT_EQ(hnsw_index->getElementIds(n).at(0), deleted_id);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, sharedPtrFinalizersDuringConcurrentQueriesAndOverwrites) {
+    const size_t dim = 4;
+    const size_t n = 64;
+    auto mock_thread_pool = tieredIndexMock(2);
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    const auto exclusive_locks = tiered_index->getMainIndexGuardWriteLockCount();
+    std::atomic<bool> done{false};
+    std::atomic<size_t> invalid_results{0};
+    std::latch query_started(1);
+    mock_thread_pool.init_threads();
+    std::thread query_thread([&] {
+        TEST_DATA_T query[dim];
+        GenerateVector<TEST_DATA_T>(query, dim, n / 2);
+        bool first = true;
+        do {
+            auto check = [&](VecSimQueryReply *reply) {
+                if (reply->code != VecSim_QueryReply_OK) {
+                    ++invalid_results;
+                }
+                for (const auto &result : reply->results) {
+                    if (result.id >= n || !std::isfinite(result.score)) {
+                        ++invalid_results;
+                    }
+                }
+                VecSimQueryReply_Free(reply);
+            };
+            check(tiered_index->topKQuery(query, 10, nullptr));
+            check(tiered_index->rangeQuery(query, 100, nullptr, BY_SCORE));
+            if (first) {
+                query_started.count_down();
+                first = false;
+            }
+        } while (!done.load());
+    });
+    query_started.wait();
+    for (size_t round = 1; round <= 4; ++round) {
+        for (labelType label = 0; label < n; ++label) {
+            GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, label, round * n + label);
+        }
+    }
+    mock_thread_pool.thread_pool_wait();
+    done = true;
+    query_thread.join();
+    mock_thread_pool.thread_pool_join();
+
+    ASSERT_EQ(invalid_results.load(), 0);
+    ASSERT_EQ(tiered_index->indexLabelCount(), n);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), tiered_index->getReusableIdHolesCount());
+    ASSERT_EQ(tiered_index->getMainIndexGuardWriteLockCount(), exclusive_locks);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+TYPED_TEST(HNSWTieredIndexTestBasic, explicitGcWaitsForPendingFinalizer) {
+    const size_t dim = 4;
+    const size_t n = 8;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {1});
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+
+    RuntimeMarkerPause pause;
+    tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook([&] { pause.pauseOnce(); });
+    TEST_DATA_T query[dim];
+    GenerateVector<TEST_DATA_T>(query, dim, 0);
+    VecSimQueryReply *reply = nullptr;
+    std::thread reader([&] { reply = tiered_index->topKQuery(query, 1, nullptr); });
+    const bool paused = pause.waitUntilPaused();
+    EXPECT_TRUE(paused);
+    if (paused) {
+        DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {n - 1});
+        EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 2);
+        EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+        auto *pending_job = tiered_index->idToSwapJob.at(n - 1);
+
+        // Compacting hole 1 relocates the last ID, whose finalizer still waits for the query.
+        VecSimTieredIndex_GC(tiered_index);
+        EXPECT_EQ(hnsw_index->indexSize(), n - 1);
+        EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 1);
+        EXPECT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+        EXPECT_TRUE(tiered_index->idToSwapJob.contains(1));
+        if (tiered_index->idToSwapJob.contains(1)) {
+            EXPECT_EQ(tiered_index->idToSwapJob.at(1), pending_job);
+            EXPECT_EQ(tiered_index->idToSwapJob.at(1)->deleted_id, 1);
+            EXPECT_FALSE(tiered_index->idToSwapJob.at(1)->idSlotCleared);
+        }
+        VecSimTieredIndex_GC(tiered_index);
+        EXPECT_EQ(hnsw_index->indexSize(), n - 1);
+        EXPECT_EQ(hnsw_index->getNumMarkedDeleted(), 1);
+    }
+    pause.resume();
+    reader.join();
+    tiered_index->setAfterBackendQueryBeforeMarkerReleaseHook({});
+    ASSERT_NE(reply, nullptr);
+    EXPECT_EQ(reply->code, VecSim_QueryReply_OK);
+    VecSimQueryReply_Free(reply);
+    ASSERT_TRUE(paused);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+
+    VecSimTieredIndex_GC(tiered_index);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 2);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(tiered_index->readySwapJobs.load(), 0);
+    ASSERT_TRUE(tiered_index->idToSwapJob.empty());
+    ASSERT_TRUE(tiered_index->idToRepairJobs.empty());
+    ASSERT_EQ(tiered_index->pendingFinalizersHead, nullptr);
+    ASSERT_EQ(tiered_index->pendingFinalizersTail, nullptr);
+    ASSERT_EQ(tiered_index->currentlyRunning, nullptr);
+    ASSERT_TRUE(mock_thread_pool.jobQ.empty());
+    for (labelType label : {0, 2, 3, 4, 5, 6}) {
+        TEST_DATA_T vector[dim];
+        GenerateVector<TEST_DATA_T>(vector, dim, label);
+        ASSERT_EQ(tiered_index->getDistanceFrom_Unsafe(label, vector), 0);
+    }
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// Limited compaction can relocate slots that remain available for inserts.
+TYPED_TEST(HNSWTieredIndexTestBasic, gcCompactionKeepsRelocatedCachedHolesReusable) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    // Deleting the last ids too, so that compactions have to relocate cached holes.
+    std::vector<labelType> deleted = {1, 3, 6, 8, 9};
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, deleted);
+    ASSERT_EQ(tiered_index->readySwapJobs, deleted.size());
+    ASSERT_EQ(tiered_index->executeReadySwapJobs(2), 2);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 3);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 2);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 3);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 3);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+
+    // The survivors are intact, and the cached holes, wherever they went, can be filled.
+    for (labelType label : {0, 2, 4, 5, 7}) {
+        TEST_DATA_T vec[dim];
+        GenerateVector<TEST_DATA_T>(vec, dim, label);
+        ASSERT_EQ(tiered_index->getDistanceFrom_Unsafe(label, vec), 0);
+    }
+    for (size_t i = 0; i < 3; i++) {
+        GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, 100 + i, 100 + i);
+        RunAllJobs(mock_thread_pool);
+    }
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 2);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_EQ(tiered_index->indexLabelCount(), n - 2);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// The finalizer fills the whole cache; GC consumes at most its swap job limit.
+TYPED_TEST(HNSWTieredIndexTestBasic, gcCompactsAtMostTheSwapJobLimit) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {1, 3, 6, 8, 9});
+    ASSERT_EQ(tiered_index->readySwapJobs, 5);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 5);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        5);
+    ASSERT_EQ(tiered_index->executeReadySwapJobs(2), 2);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 3);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        3);
+    ASSERT_EQ(tiered_index->readySwapJobs, 3);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 2);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+
+    ASSERT_EQ(tiered_index->executeReadySwapJobs(2), 2);
+    ASSERT_EQ(tiered_index->readySwapJobs, 1);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 1);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        1);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 4);
+
+    // A GC consumes the last slot too, even with insert-time reuse enabled.
+    tiered_index->runGC();
+    ASSERT_EQ(tiered_index->readySwapJobs, 0);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(
+        tiered_index->debugInfo().tieredInfo.specificTieredBackendInfo.hnswTieredInfo.numIdHoles,
+        0);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 5);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 0);
+    ASSERT_EQ(tiered_index->executeReadySwapJobs(), 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// Turning reuse off hands the reusable holes back to the ordinary compaction.
+TYPED_TEST(HNSWTieredIndexTestBasic, gcCompactsReusableIdHolesWhenReuseIsTurnedOff) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    DeleteLabelsAndRepair(tiered_index, mock_thread_pool, {2, 5, 7});
+    ASSERT_EQ(tiered_index->readySwapJobs, 3);
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 3);
+
+    tiered_index->setReuseOnInsert(false);
+    tiered_index->runGC();
+    ASSERT_EQ(tiered_index->getReusableIdHolesCount(), 0);
+    ASSERT_EQ(hnsw_index->indexSize(), n - 3);
+    ASSERT_EQ(hnsw_index->getNumMarkedDeleted(), 0);
+    ASSERT_EQ(tiered_index->idToSwapJob.size(), 0);
+    ASSERT_EQ(tiered_index->readySwapJobs, 0);
+    ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+}
+
+// Overwrites reuse slots as soon as repairs finish, keeping the index from growing.
+TYPED_TEST(HNSWTieredIndexTestBasic, overwritesStopGrowingTheIndexWithReuse) {
+    size_t dim = 4;
+    size_t n = 10;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *tiered_index = this->CreateIngestedAsyncIndex(mock_thread_pool, n, dim);
+    tiered_index->setReuseOnInsert(true);
+    auto *hnsw_index = this->CastToHNSW(tiered_index);
+
+    size_t rounds = 6;
+    for (size_t round = 1; round <= rounds; round++) {
+        for (size_t label = 0; label < n; label++) {
+            GenerateAndAddVector<TEST_DATA_T>(tiered_index, dim, label, 1000 * round + label);
+        }
+        RunAllJobs(mock_thread_pool);
+        tiered_index->runGC();
+        // GC compacts every finalized slot that inserts have not already reused.
+        ASSERT_LE(hnsw_index->indexSize(), 2 * n);
+        if (round >= 2) {
+            ASSERT_EQ(hnsw_index->indexSize(), n);
+        }
+        ASSERT_EQ(tiered_index->indexLabelCount(), n);
+        ASSERT_TRUE(hnsw_index->checkIntegrity().valid_state);
+    }
+    for (size_t label = 0; label < n; label++) {
+        TEST_DATA_T vec[dim];
+        GenerateVector<TEST_DATA_T>(vec, dim, 1000 * rounds + label);
+        ASSERT_EQ(tiered_index->getDistanceFrom_Unsafe(label, vec), 0);
     }
 }
 
