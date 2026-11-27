@@ -424,12 +424,13 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
  * @param sctx Search context whose `diskQueryView` field carries the query's read view. The
  *             `diskQueryView` field is required to be non-NULL.
  * @param tok Pointer to the token (contains tag value string)
+ * @param numDocs Number of documents carrying the tag, for its IDF
  * @param fieldIndex Field index for the tag field
  * @param weight Weight for the term (used in scoring)
  * @param status QueryError to populate with the cause when creation fails (may be NULL)
  * @return Pointer to the IndexIterator, or NULL on error
  */
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, size_t numDocs, t_fieldIndex fieldIndex, double weight, QueryError *status);
 
 /**
  * @brief Open a per-query read view of this index.

@@ -528,9 +528,9 @@ QueryIterator* SearchDisk_NewTermIterator(RedisSearchDiskIndexSpec *index, const
     return disk->index.newTermIterator(index, term, fieldMask, weight, numDocs, needsOffsets, sctx->diskQueryView, status);
 }
 
-QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, t_fieldIndex fieldIndex, double weight, QueryError *status) {
-    RS_ASSERT(disk && index && sctx && sctx->diskQueryView && tok);
-    return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskQueryView, status);
+QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const RedisSearchCtx *sctx, const RSToken *tok, size_t numDocs, t_fieldIndex fieldIndex, double weight, QueryError *status) {
+    RS_ASSERT(disk && index && sctx && sctx->spec && sctx->diskQueryView && tok);
+    return disk->index.newTagIterator(index, tok, sctx->spec->stats.scoring.numDocuments, numDocs, fieldIndex, weight, sctx->diskQueryView, status);
 }
 
 // Read views pin storage resources until freed, so tests need to see whether any outlived their query.

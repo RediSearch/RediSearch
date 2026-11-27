@@ -26,6 +26,7 @@ extern bool isFlex;
 
 #include <string>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -625,8 +626,8 @@ TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
   };
   api.index.freeQueryView = [](RedisSearchDiskQueryView *) {};
   static std::vector<std::string> opened;
-  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, t_fieldIndex,
-                                double, RedisSearchDiskQueryView *,
+  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *tok, size_t, size_t,
+                                t_fieldIndex, double, RedisSearchDiskQueryView *,
                                 QueryError *) -> QueryIterator * {
     opened.emplace_back(tok->str, tok->len);
     return nullptr;
@@ -663,6 +664,44 @@ TEST_F(DiskSchemaOpenTest, TagWildcardOpensOnlyMatchingDiskReaders) {
     QueryError_ClearError(&err);
   }
   SearchCtx_CleanUp(&sctx);
+}
+
+// The disk iterator derives the tag's IDF from these two counts, so a swap or a wrong trie
+// lookup would silently skew disk ranking.
+TEST_F(DiskSchemaOpenTest, TagReaderForwardsIndexAndTagDocumentCounts) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("tag_reader_counts", {"tags", "TAG"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  TagIndex *idx = TagIndex_Open(&sp->fields[0]);
+  const char *values[] = {"hello", "world"};
+  TagIndex_Commit(idx, values, std::size(values), &sp->stats);
+  TagIndex_Commit(idx, values, 1, &sp->stats);
+  sp->stats.scoring.numDocuments = 7;
+
+  api.index.createQueryView = [](RedisSearchDiskIndexSpec *index) {
+    return reinterpret_cast<RedisSearchDiskQueryView *>(index);
+  };
+  api.index.freeQueryView = [](RedisSearchDiskQueryView *) {};
+  static std::vector<std::pair<size_t, size_t>> counts;
+  api.index.newTagIterator = [](RedisSearchDiskIndexSpec *, const RSToken *, size_t totalDocs,
+                                size_t numDocs, t_fieldIndex, double, RedisSearchDiskQueryView *,
+                                QueryError *) -> QueryIterator * {
+    counts.emplace_back(totalDocs, numDocs);
+    return nullptr;
+  };
+
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
+  IndexSpec_LockRead(sp);
+  ASSERT_EQ(SearchCtx_OpenDiskQueryView(&sctx, &err), REDISMODULE_OK)
+      << QueryError_GetUserError(&err);
+  counts.clear();
+  for (const char *tag : {"hello", "world", "absent"}) {
+    EXPECT_EQ(TagIndex_OpenReader(idx, &sctx, tag, strlen(tag), 1.0, 0, &err), nullptr);
+  }
+  IndexSpec_Unlock(sp);
+  SearchCtx_CleanUp(&sctx);
+
+  EXPECT_EQ(counts, (std::vector<std::pair<size_t, size_t>>{{7, 2}, {7, 1}, {7, 0}}));
 }
 
 TEST_F(DiskSchemaOpenTest, TagValsEnumeratesDiskDictionary) {

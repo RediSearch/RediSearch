@@ -644,6 +644,8 @@ typedef struct IndexDiskAPI {
    *
    * @param index Pointer to the index
    * @param tok Pointer to the token (contains tag string and length)
+   * @param totalDocs Number of documents in the index, for the tag's IDF
+   * @param numDocs Number of documents carrying the tag, for the tag's IDF
    * @param fieldIndex Field index for the tag field
    * @param weight Weight for the iterator (used in scoring)
    * @param view Required per-query read view. Must have been returned by
@@ -651,7 +653,7 @@ typedef struct IndexDiskAPI {
    * @param status QueryError to populate with the cause when creation fails (may be NULL)
    * @return Pointer to the created iterator, or NULL if creation failed
    */
-  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, t_fieldIndex fieldIndex, double weight, RedisSearchDiskQueryView *view, QueryError* status);
+  QueryIterator *(*newTagIterator)(RedisSearchDiskIndexSpec* index, const RSToken* tok, size_t totalDocs, size_t numDocs, t_fieldIndex fieldIndex, double weight, RedisSearchDiskQueryView *view, QueryError* status);
 
   /**
    * @brief Open a per-query read view of this index.
