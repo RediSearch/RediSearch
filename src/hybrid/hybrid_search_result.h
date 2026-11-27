@@ -12,6 +12,7 @@
 
 #include "result_processor.h"
 #include "hybrid_scoring.h"
+#include "hybrid_arm.h"
 #include "hybrid_lookup_context.h"
 #include "vector_index.h"
 #include "util/arr/arr.h"
@@ -29,30 +30,36 @@ typedef struct HybridExplainContext {
   // Owned. Resolved scorer name (defaults to RSGlobalConfig.defaultScorer when
   // the search sub-query did not specify one). Duplicated at build time so a
   // concurrent FT.CONFIG SET DEFAULT_SCORER cannot pull the string out from
-  // under a long-running query while we render the explain wrapper.
+  // under a long-running query while we render the explain wrapper. NULL without
+  // a text arm.
   char *textScorerName;
-  // Owned: e.g. "vector branch (KNN)", "vector branch (RANGE: radius=…, epsilon=…)" or
-  // "sparse vector branch (KNN, IP: raw dot product)".
-  char *vectorBranchEnvelope;
-  // Vector retrieval mode of the VSIM sub-query.
-  VectorQueryType vectorMode;
+  // One entry per arm, in slot order.
+  struct {
+    bool isText;
+    // Owned, VSIM arms only: e.g. "vector branch (KNN)", "vector branch (RANGE: radius=…,
+    // epsilon=…)" or "sparse vector branch (KNN, IP: raw dot product)".
+    char *envelope;
+    VectorQueryType vectorMode;  // VSIM arms only
+    bool isSparse;               // VSIM arms only
+  } arms[HYBRID_NUM_ARM_SLOTS];
+  size_t numArms;
 } HybridExplainContext;
 
 void HybridExplainContext_Free(HybridExplainContext *ctx);
 
 /**
- * Build an EXPLAINSCORE context from the two hybrid sub-AREQs.
+ * Build an EXPLAINSCORE context from the hybrid sub-AREQs, in slot order.
  *
- * Reads the search sub-query's resolved scorer name and the vector
+ * Reads the search sub-query's resolved scorer name and each vector
  * sub-query's retrieval mode (and, for RANGE, radius + optional epsilon
  * QueryAttribute) and freezes them into strings the merger reuses per row.
  *
- * Must be called after AREQ_ApplyContext on both sub-queries (it relies on the
+ * Must be called after AREQ_ApplyContext on every sub-query (it relies on the
  * resolved scorer name and the still-intact ParsedVectorData snapshot).
  * Returned context is owned by the caller.
  */
 struct AREQ;
-HybridExplainContext *HybridExplainContext_Build(const struct AREQ *searchReq, const struct AREQ *vectorReq);
+HybridExplainContext *HybridExplainContext_Build(const struct AREQ *const *arms, size_t numArms);
 
 /**
  * HybridSearchResult structure that stores SearchResults from multiple sources.

@@ -26,10 +26,6 @@ struct Cursor;
 
 // Number of requests in a hybrid command: SEARCH + VSIM
 #define HYBRID_REQUEST_NUM_SUBQUERIES 2
-// Position of the VSIM arm in HybridRequest.requests, after SEARCH. Its slot, dense or sparse,
-// is known only once the field is resolved; until then MakeDefaultHybridRequest's mask assumes
-// dense.
-#define HYBRID_VSIM_ARM_POSITION 1
 // Field name for implicit key loading in hybrid requests
 #define HYBRID_IMPLICIT_KEY_FIELD "__key"
 
@@ -37,10 +33,15 @@ typedef struct HybridRequest {
     QueryRequest base;
 
     // The active arms, in slot order: requests[HybridArmMask_Position(armMask, slot)] is the arm
-    // in `slot`, so nrequests == HybridArmMask_Count(armMask).
+    // in `slot`, so nrequests == HybridArmMask_Count(armMask). Entries past nrequests are spare
+    // sub-requests that construction allocated (on the main thread, which holding the command
+    // arguments requires) and parsing did not use; they are only freed.
     arrayof(AREQ*) requests;
     size_t nrequests;
     HybridArmMask armMask;
+    // Owned. One label per active arm, naming it in profiles, warnings and the shard cursor
+    // reply: SEARCH, VSIM, or VSIM @<field> when the query has two VSIM arms.
+    arrayof(char *) armLabels;
     Pipeline *tailPipeline;
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
@@ -68,6 +69,19 @@ static_assert(offsetof(HybridRequest, base) == 0,
 _Static_assert(offsetof(HybridRequest, base) == 0,
                "QueryRequest must be HybridRequest's first member");
 #endif
+
+/* The label of the arm at `position`; see HybridRequest.armLabels. */
+const char *HybridRequest_ArmLabel(const HybridRequest *req, size_t position);
+
+/* "(<label>)", the suffix that tags warnings and errors with the arm at `position`. The caller
+ * frees it with rm_free. Sized to the label, so two arms always have different suffixes. */
+char *HybridRequest_ArmSuffix(const HybridRequest *req, size_t position);
+
+/*
+ * Make `arms` the request's active arms, in that order, which must be slot order, with `mask`
+ * their slots. `arms` are taken from req->requests; the rest of it become spares.
+ */
+void HybridRequest_SetArms(HybridRequest *req, AREQ **arms, size_t numArms, HybridArmMask mask);
 
 /* The arm in `slot`, or NULL when the request has none. */
 static inline AREQ *HybridRequest_Arm(const HybridRequest *req, HybridArmSlot slot) {

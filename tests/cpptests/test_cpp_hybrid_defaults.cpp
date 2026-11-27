@@ -77,6 +77,7 @@ protected:
     result = MakeDefaultHybridRequest(sctx, args, args.size());
     parseCtx.search = result->requests[0];
     parseCtx.vector = result->requests[1];
+    parseCtx.hreq = result;
     parseCtx.tailPlan = &result->tailPipeline->ap;
     parseCtx.hybridParams = &hybridParams;
 
@@ -85,6 +86,7 @@ protected:
     ParseHybridCommandCtx cmd = {0};
     cmd.search = result->requests[0];
     cmd.vector = result->requests[1];
+    cmd.hreq = result;
     cmd.tailPlan = &result->tailPipeline->ap;
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->base.reqConfig;

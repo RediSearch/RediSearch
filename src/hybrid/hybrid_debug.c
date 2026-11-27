@@ -129,18 +129,14 @@ int applyHybridDebugTimeout(HybridRequest *hreq, const HybridDebugParams *params
   // Apply component-specific timeouts to search, vector, and tail pipelines
   // A timeout value of 0 means no timeout for that component
 
-  RS_ASSERT(hreq->nrequests >= 2);
-  AREQ *search_req = hreq->requests[0];
-  AREQ *vector_req = hreq->requests[1];
-
-  // Apply timeout to search subquery
-  if (params->search_timeout_count > 0) {
-    PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(search_req), AREQ_SearchCtx(search_req), params->search_timeout_count);
-  }
-
-  // Apply timeout to vector subquery
-  if (params->vsim_timeout_count > 0) {
-    PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(vector_req), AREQ_SearchCtx(vector_req), params->vsim_timeout_count);
+  // TIMEOUT_AFTER_N_SEARCH applies to the SEARCH arm, TIMEOUT_AFTER_N_VSIM to every VSIM arm.
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    AREQ *arm = hreq->requests[i];
+    const unsigned long long count =
+        IsHybridSearchSubquery(arm) ? params->search_timeout_count : params->vsim_timeout_count;
+    if (count > 0) {
+      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(arm), AREQ_SearchCtx(arm), count);
+    }
   }
 
   // Apply timeout to the tail pipeline, but only when it was built: internal shard

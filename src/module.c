@@ -2986,7 +2986,10 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // initQueryTimeout already resolved the command override and foreground cap.
   hreq->base.limits.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
-    HybridRequest_Arm(hreq, SEARCH_INDEX)->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    // On every sub-request: parsing decides which become arms, and the reply reads the first.
+    for (size_t i = 0; i < array_len(hreq->requests); i++) {
+      hreq->requests[i]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
+    }
   }
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];

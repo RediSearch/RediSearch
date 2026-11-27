@@ -156,16 +156,9 @@ HybridScoringContext* HybridScoringContext_NewDefault(void) {
     return HybridScoringContext_NewRRF(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW, false);
 }
 
-// Branch labels used by the formula formatter's "no match" placeholders.
-static const char *sourceLabelForIndex(size_t i) {
-  if (i == 0) return "text";
-  if (i == 1) return "vector";
-  return "source";
-}
-
 static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoringCtx,
                                     const double *ranks, const bool *has_rank,
-                                    size_t num_sources) {
+                                    const char *const *labels, size_t num_sources) {
   const double k = scoringCtx->rrfCtx.constant;
   const double *weights = scoringCtx->rrfCtx.weights;
   for (size_t i = 0; i < num_sources; i++) {
@@ -176,7 +169,7 @@ static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoring
       }
       buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, ranks[i]);
     } else {
-      buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
+      buf = sdscatprintf(buf, "0 [%s: no match]", labels[i]);
     }
   }
   return buf;
@@ -184,7 +177,7 @@ static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoring
 
 static sds appendLinearFinalScoreTerms(sds buf, const HybridScoringContext *scoringCtx,
                                        const double *scores, const bool *has_score,
-                                       size_t num_sources) {
+                                       const char *const *labels, size_t num_sources) {
   const double *w = scoringCtx->linearCtx.linearWeights;
   const size_t numWeights = scoringCtx->linearCtx.numWeights;
   for (size_t i = 0; i < num_sources; i++) {
@@ -193,7 +186,7 @@ static sds appendLinearFinalScoreTerms(sds buf, const HybridScoringContext *scor
       const double wi = i < numWeights ? w[i] : 0.0;
       buf = sdscatprintf(buf, "%.4f * %.4f", wi, scores[i]);
     } else {
-      buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
+      buf = sdscatprintf(buf, "0 [%s: no match]", labels[i]);
     }
   }
   return buf;
@@ -201,7 +194,8 @@ static sds appendLinearFinalScoreTerms(sds buf, const HybridScoringContext *scor
 
 char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
                                          const double *values, const bool *has_value,
-                                         size_t num_sources, double finalScore) {
+                                         const char *const *labels, size_t num_sources,
+                                         double finalScore) {
   RS_ASSERT(scoringCtx && values && has_value && num_sources > 0);
 
   // sds owns growth + formatting; we convert to rm_malloc at the end so the
@@ -209,10 +203,10 @@ char *HybridScoring_FormatFinalScoreLine(const HybridScoringContext *scoringCtx,
   sds buf = sdsnew("final score: ");
 
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    buf = appendRRFFinalScoreTerms(buf, scoringCtx, values, has_value, num_sources);
+    buf = appendRRFFinalScoreTerms(buf, scoringCtx, values, has_value, labels, num_sources);
   } else {
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
-    buf = appendLinearFinalScoreTerms(buf, scoringCtx, values, has_value, num_sources);
+    buf = appendLinearFinalScoreTerms(buf, scoringCtx, values, has_value, labels, num_sources);
   }
 
   buf = sdscatprintf(buf, " = %.17g", finalScore);
@@ -243,10 +237,18 @@ char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
     const double *w = scoringCtx->linearCtx.linearWeights;
     const size_t numWeights = scoringCtx->linearCtx.numWeights;
-    const double alpha = numWeights > 0 ? w[0] : 0.0;
-    const double beta = numWeights > 1 ? w[1] : 0.0;
-    rm_asprintf(&buf, "Hybrid score (LINEAR: alpha=%.4f, beta=%.4f, window=%zu)",
-                alpha, beta, scoringCtx->linearCtx.window);
+    if (numWeights == 2) {
+      rm_asprintf(&buf, "Hybrid score (LINEAR: alpha=%.4f, beta=%.4f, window=%zu)", w[0], w[1],
+                  scoringCtx->linearCtx.window);
+    } else {
+      sds s = sdsnew("Hybrid score (LINEAR: weights=[");
+      for (size_t i = 0; i < numWeights; i++) {
+        s = sdscatprintf(s, i ? ", %.4f" : "%.4f", w[i]);
+      }
+      s = sdscatprintf(s, "], window=%zu)", scoringCtx->linearCtx.window);
+      buf = rm_strdup(s);
+      sdsfree(s);
+    }
   }
   return buf;
 }

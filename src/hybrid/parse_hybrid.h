@@ -30,6 +30,9 @@ extern "C" {
 #define HYBRID_DEFAULT_KNN_K 10
 
 typedef struct ParseHybridCommandCtx {
+    // The request being parsed, whose pre-allocated sub-requests become its arms.
+    HybridRequest *hreq;
+    // Output: the SEARCH arm and the first VSIM arm in slot order, NULL when absent.
     AREQ *search;
     AREQ *vector;
     AGGPlan *tailPlan;

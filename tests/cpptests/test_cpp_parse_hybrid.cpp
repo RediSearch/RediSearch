@@ -146,6 +146,7 @@ class ParseHybridTest : public ::testing::Test {
         MakeDefaultHybridRequest(NewSearchCtxC(ctx, indexName, true), args, args.size());
     result.search = hybridRequest->requests[0];
     result.vector = hybridRequest->requests[1];
+    result.hreq = hybridRequest;
     result.tailPlan = &hybridRequest->tailPipeline->ap;
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->base.reqConfig;
