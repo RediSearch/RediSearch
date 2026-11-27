@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: disk-api-signature
+expected_outcome: |
+  Assigns risk:T3 because it changes the IndexDiskAPI indexNumeric function-pointer signature in src/search_disk_api.h, the disk contract with RediSearchEnterprise. Needs code-owner approval, and the matching RediSearchEnterprise change has to land with it.

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: unsafe-pointer-refactor
+expected_outcome: |
+  Does not settle on T1 from size alone. Notes the PR replaces references with NonNull plus a new unsafe block because the range cache can outlive a spec lock release, so it concerns state shared across a lock release. Assigns risk:T3 under the general concurrency/shared-state rule, or risk:T2 with that question explicitly flagged.

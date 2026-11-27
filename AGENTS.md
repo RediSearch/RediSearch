@@ -399,6 +399,7 @@ Invoke [/jj-split-changeset](.skills/jj-split-changeset/SKILL.md) to break a jj 
 Invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete a jj workspace (a second checkout of the repo).
 Follow [/commit-guidelines](.skills/commit-guidelines/SKILL.md) whenever the worktree is dirty or you are about to commit, split, or rewrite history.
 Invoke [/open-pr](.skills/open-pr/SKILL.md) to open a pull request.
+Invoke [/review-tier](.skills/review-tier/SKILL.md) to assign a PR its `risk:T0`–`risk:T3` review tier under the Search code review procedure.
 Invoke [/close-pr](.skills/close-pr/SKILL.md) to close a pull request or clean up a mistaken or unwanted PR.
 Invoke [/adversarial-review](.skills/adversarial-review/SKILL.md) to get an independent review of a change before opening or updating a PR.
 
