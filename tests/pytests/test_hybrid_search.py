@@ -80,6 +80,27 @@ def test_hybrid_search_explicit_scorer():
         agg_results = {dict['__key']: float(dict[SCORE_FIELD]) for dict in (to_dict(a) for a in agg_response[1:])}
         env.assertEqual(results, agg_results)
 
+def test_hybrid_withcursor_rejected_only_as_keyword():
+    """WITHCURSOR is rejected as an option, but stays valid as a param name or search term."""
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    setup_basic_index(env)
+    blob = b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
+
+    base = ['FT.HYBRID', 'idx', 'SEARCH', 'shoes', 'VSIM', '@embedding', '$BLOB',
+            'PARAMS', 2, 'BLOB', blob]
+    # Case-insensitive, and neither the cursor sub-options nor a later invalid
+    # argument (the first error wins) may change the message.
+    for cursor_args in (['WITHCURSOR'], ['withcursor'],
+                        ['WITHCURSOR', 'COUNT', 5], ['WITHCURSOR', 'MAXIDLE', 10],
+                        ['WITHCURSOR', 'LIMIT', 0, -1]):
+        env.expect(*base, *cursor_args) \
+            .error().contains('WITHCURSOR is not supported by FT.HYBRID')
+
+    # Same token used as a PARAMS name and as a search term must not be mistaken for the option.
+    env.expect('FT.HYBRID', 'idx', 'SEARCH', 'WITHCURSOR',
+               'VSIM', '@embedding', '$WITHCURSOR',
+               'PARAMS', 2, 'WITHCURSOR', blob).noError()
+
 def test_hybrid_knn_invalid_syntax():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index(env)
@@ -112,7 +133,7 @@ def test_hybrid_ram_nonblocking_contexts(env):
         env.assertEqual(get_results_from_hybrid_response(responses[0]), expected)
     lua_response = env.cmd('EVAL', 'return redis.call(unpack(ARGV))', 0, *command)
     env.assertEqual(get_results_from_hybrid_response(lua_response), expected)
-    env.expect(*command, 'WITHCURSOR').error().contains('WITHCURSOR: Unknown argument')
+    env.expect(*command, 'WITHCURSOR').error().contains('WITHCURSOR is not supported by FT.HYBRID')
 
 
 @skip(cluster=True)
