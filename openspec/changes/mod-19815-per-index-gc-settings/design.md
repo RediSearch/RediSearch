@@ -299,6 +299,12 @@ Implemented in [#12234](https://github.com/RediSearch/RediSearch/pull/12234)
 
 ## Clean ratio (T5)
 
+Implemented in [#12620](https://github.com/RediSearch/RediSearch/pull/12620)
+([MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691)), on top of
+[#12526](https://github.com/RediSearch/RediSearch/pull/12526) (T3). There the queue-time
+copy is `IndexGCCleanBar` (threshold and ratio), replacing `IndexGC.cleanThreshold`, and
+the per-index settings are rows of one table that the parser and the RDB block both read.
+
 Replaces the earlier percentage design (`CLEAN_THRESHOLD_PERCENT`, combined with
 `CLEAN_THRESHOLD` by OR, over a sampled peak of live documents). Master's THREAD policy
 already has a size-relative threshold, `search-gc-clean-ratio-ppm`, so a per-index

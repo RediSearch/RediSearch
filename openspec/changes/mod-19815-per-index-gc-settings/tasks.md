@@ -128,7 +128,7 @@ needs 2 and 3, and its Flex path needs 6. 9 needs 1–5 merged on master.
       for fully upgraded clusters only
 - [ ] 4.5 Update the delta spec to match what shipped
 
-## 5. Per-index clean ratio ([MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691), pending 0.5)
+## 5. Per-index clean ratio ([MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691), [#12620](https://github.com/RediSearch/RediSearch/pull/12620), merge pending 0.5)
 
 - [ ] 5.1 Global module config `search-fork-gc-clean-ratio-ppm`, 0 to 1,000,000,
       default 0, no `FT.CONFIG` alias, read only under FORK
