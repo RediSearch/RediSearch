@@ -78,8 +78,6 @@ static void freeDocumentContext(void *p) {
   rm_free(aCtx);
 }
 
-#define DUP_FIELD_ERRSTR "Requested to index field twice"
-
 #define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].fieldName != NULL)
 #define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
@@ -99,8 +97,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   // size: uint16_t * SPEC_MAX_FIELDS
   FieldSpecDedupeArray dedupe = {0};
-  int hasTextFields = 0;
-  int hasOtherFields = 0;
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
@@ -137,23 +133,9 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       }
     }
 
-    if (FieldSpec_IsIndexable(fs)) {
-      if (f->indexAs & INDEXFLD_T_FULLTEXT) {
-        numTextIndexable++;
-        hasTextFields = 1;
-      }
-
-      if (f->indexAs != INDEXFLD_T_FULLTEXT) {
-        // has non-text but indexable fields
-        hasOtherFields = 1;
-      }
+    if (FieldSpec_IsIndexable(fs) && (f->indexAs & INDEXFLD_T_FULLTEXT)) {
+      numTextIndexable++;
     }
-  }
-
-  if (hasTextFields || hasOtherFields) {
-    aCtx->stateFlags |= ACTX_F_INDEXABLES;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
@@ -259,61 +241,8 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
 
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
-
-static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  /**
-   * The REPLACE operation contains fields which must be reindexed. This means
-   * that a new document ID needs to be assigned, and as a consequence, all
-   * fields must be reindexed.
-   */
-  RS_ASSERT(!SearchDisk_IsEnabled());
-  int rv = REDISMODULE_ERR;
-  QueryError status = QueryError_Default();
-  Document_Clear(aCtx->doc);
-
-  // Path is not covered and is not relevant
-
-  DocumentType ruleType = sctx->spec->rule->type;
-  if (ruleType == DocumentType_Hash) {
-    rv = Document_LoadSchemaFieldHash(aCtx->doc, sctx, NULL, &status);
-  } else if (ruleType == DocumentType_Json) {
-    rv = Document_LoadSchemaFieldJson(aCtx->doc, sctx, NULL, &status);
-  }
-  if (rv != REDISMODULE_OK) {
-    // Add error to the spec global stats
-    IndexError_AddQueryError(&sctx->spec->stats.indexError, &status, aCtx->doc->docKey);
-    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-    AddDocumentCtx_Free(aCtx);
-    QueryError_ClearError(&status);
-    return 1;
-  }
-
-  // Keep hold of the new fields.
-  Document_MakeStringsOwner(aCtx->doc);
-  int rc = AddDocumentCtx_SetDocument(aCtx, sctx->spec);
-  RS_LOG_ASSERT(rc == 0, "SetDocument cannot fail on a document reloaded from the schema");
-  return 0;
-}
-
-static int handlePartialUpdate(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  // Handle partial update of fields
-  if (aCtx->stateFlags & ACTX_F_INDEXABLES) {
-    return AddDocumentCtx_ReplaceMerge(aCtx, sctx);
-  } else {
-    // No indexable fields are updated, we can just update the metadata.
-    // Quick update just updates the score, payload and sortable fields of the document.
-    // Thus full-reindexing of the document is not required
-    AddDocumentCtx_UpdateNoIndex(aCtx, sctx);
-    return 1;
-  }
-}
-
 void AddDocumentCtx_Submit(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, uint32_t options) {
   aCtx->options = options;
-  if ((aCtx->options & DOCUMENT_ADD_PARTIAL) && handlePartialUpdate(aCtx, sctx)) {
-    return;
-  }
 
   // We actually modify (!) the strings in the document, so we always require
   // ownership
@@ -1172,96 +1101,6 @@ done:
   DMD_Return(dmd);
   IndexSpec_Unlock(sctx->spec);
   return rc;
-}
-
-static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  RS_ASSERT(!SearchDisk_IsEnabled());
-#define BAIL(s)                                            \
-  do {                                                     \
-    QueryError_SetError(&aCtx->status, QUERY_ERROR_CODE_GENERIC, s); \
-    goto done;                                             \
-  } while (0)
-
-  RSDocumentMetadata *md = NULL;
-  Document *doc = aCtx->doc;
-  t_docId docId = IndexSpec_GetDocIdByKeyR(sctx->spec, sctx->redisCtx, doc->docKey);
-  if (docId == 0) {
-    BAIL("Couldn't load old document");
-  }
-  // Assumes we are under write lock
-  md = (RSDocumentMetadata *)DocTable_Borrow(&sctx->spec->docs, docId);
-  if (!md) {
-    BAIL("Couldn't load document metadata");
-  }
-  // Update the score
-  md->score = doc->score;
-  // Set the payload if needed
-  if (doc->payload) {
-    DocTable_SetPayload(&sctx->spec->docs, md, doc->payload, doc->payloadSize);
-  }
-
-  if (aCtx->stateFlags & ACTX_F_SORTABLES) {
-    FieldSpecDedupeArray dedupes = {0};
-    // Update sortables if needed
-    for (int i = 0; i < doc->numFields; i++) {
-      DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
-      if (fs == NULL || !FieldSpec_IsSortable(fs)) {
-        continue;
-      }
-
-      if (dedupes[fs->index]) {
-        BAIL(DUP_FIELD_ERRSTR);
-      }
-
-      dedupes[fs->index] = 1;
-
-      int idx = fs->sortIdx;
-      if (idx < 0) continue;
-
-      if (!RSSortingVector_Length(&md->sortVector)) {
-        md->sortVector = RSSortingVector_New(sctx->spec->numSortableFields);
-      }
-
-      RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
-
-      switch (fs->types) {
-        case INDEXFLD_T_FULLTEXT:
-        case INDEXFLD_T_TAG:
-        case INDEXFLD_T_GEO: {
-          const char* str = RedisModule_StringPtrLen(f->text, NULL);
-          bool is_normalized = (fs->options & FieldSpec_UNF) != 0;
-          if (is_normalized) {
-              RSSortingVector_PutStr(&md->sortVector, idx, str);
-          } else {
-              if (!RSSortingVector_PutStrNormalize(&md->sortVector, idx, str, &aCtx->status)) {
-                BAIL("Invalid UTF8");
-              }
-          }
-
-          break;
-        }
-        case INDEXFLD_T_NUMERIC: {
-          double numval;
-          if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
-            BAIL("Could not parse numeric index value");
-          }
-          RSSortingVector_PutNum(&md->sortVector, idx, numval);
-          break;
-        }
-        default:
-          BAIL("Unsupported sortable type");
-          break;
-      }
-    }
-  }
-
-done:
-  DMD_Return(md);
-  if (aCtx->donecb) {
-    aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);
-  }
-  AddDocumentCtx_Free(aCtx);
 }
 
 DocumentField *Document_GetField(Document *d, const char *fieldName) {

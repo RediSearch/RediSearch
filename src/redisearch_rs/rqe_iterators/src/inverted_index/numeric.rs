@@ -395,11 +395,7 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
-where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
-{
+impl<'query, Rf: Ref, R, E, RA> ProfilePrint for RawNumeric<'query, Rf, R, E, RA> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"NUMERIC");
         let term_str = format!(
@@ -810,7 +806,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 }
 
-impl ProfilePrint for NumericIteratorVariant<'_> {
+impl<Rf: Ref> ProfilePrint for RawNumericIteratorVariant<'_, Rf> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         match self {
             Self::Unfiltered(it) => it.print_profile(map, ctx),

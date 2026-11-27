@@ -304,9 +304,6 @@ struct FieldIndexerData;
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
 
-// The content has indexable fields
-#define ACTX_F_INDEXABLES 0x08
-
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 

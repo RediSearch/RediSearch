@@ -21,7 +21,6 @@ use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
     RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     interop::RQEIteratorWrapper,
-    intersection::Intersection,
     profile_print,
     profile_print::ProfilePrint,
     score_bound::{BlockBound, MinCompetitiveScore},
@@ -66,7 +65,8 @@ pub struct CRQEIterator {
     /// 2. [`Self::header`] is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
@@ -150,7 +150,8 @@ impl CRQEIterator {
     /// 2. `header` is an owning pointer, in the same way `Box` owns the
     ///    allocated heap data.
     /// 3. All callbacks are defined (i.e. the function pointers are not NULL),
-    ///    with the exception of `SkipTo` and `ProfileChildren`, which are optional.
+    ///    with the exception of `SkipTo`, `ProfileChildren` and
+    ///    `IntersectionSortWeight`, which are optional.
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     pub unsafe fn new(header: NonNull<QueryIterator>) -> Self {
@@ -170,6 +171,10 @@ impl CRQEIterator {
         debug_assert!(
             self_.Revalidate.is_some(),
             "The `Revalidate` callback is a NULL function pointer"
+        );
+        debug_assert!(
+            self_.Suspend.is_some(),
+            "The `Suspend` callback is a NULL function pointer"
         );
         debug_assert!(
             self_.NumEstimated.is_some(),
@@ -382,77 +387,12 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         self.type_
     }
 
-    fn as_c_iterator(&self) -> Option<&CRQEIterator> {
-        Some(self)
-    }
-
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
-        match self.type_ {
-            IteratorType::Intersect => {
-                // SAFETY:
-                // 1. and 2. `type_ == INTERSECT_ITERATOR` guarantees `self` was produced by
-                //    `RQEIteratorWrapper::boxed_new` with `Intersection<CRQEIterator>` as the
-                //    inner type (`NewIntersectionIterator` is the sole constructor of a C
-                //    wrapped intersection). `as_raw` returns the owning pointer, whose
-                //    provenance spans the whole wrapper; a pointer derived from
-                //    `&QueryIterator` would cover only the header and make the read of the
-                //    wrapped iterator UB.
-                // 3. The borrow ends within this expression, while `self` keeps the iterator
-                //    alive.
-                let n = unsafe {
-                    RQEIteratorWrapper::<Intersection<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner()
-                    .num_children()
-                };
-                1.0 / n.max(1) as f64
-            }
-            IteratorType::Union if prioritize_union_children => {
-                // SAFETY:
-                // 1. and 2. `type_ == Union` guarantees `self` was produced by
-                //    `RQEIteratorWrapper::boxed_new_inner` with `UnionOpaque<CRQEIterator>` as
-                //    the inner type (`NewUnionIterator` is the sole constructor of a C wrapped
-                //    union). `as_raw` returns the owning pointer, whose provenance spans the
-                //    whole wrapper; a pointer derived from `&QueryIterator` would cover only
-                //    the header and make the read of the wrapped iterator UB.
-                // 3. The borrow ends within this expression, while `self` keeps the iterator
-                //    alive.
-                let n = unsafe {
-                    RQEIteratorWrapper::<super::UnionOpaque<'_, CRQEIterator>>::ref_from_header_ptr(
-                        self.as_raw(),
-                    )
-                    .inner()
-                    .num_children_active()
-                };
-                n.max(1) as f64
-            }
-            IteratorType::InvIdxNumeric => 1.0,
-            IteratorType::InvIdxTerm => 1.0,
-            IteratorType::InvIdxWildcard => 1.0,
-            IteratorType::InvIdxMissing => 1.0,
-            IteratorType::InvIdxTag => 1.0,
-            IteratorType::Hybrid => 1.0,
-            IteratorType::Union => 1.0,
-            IteratorType::Not => 1.0,
-            IteratorType::NotOptimized => 1.0,
-            IteratorType::Optional => 1.0,
-            IteratorType::OptionalOptimized => 1.0,
-            IteratorType::Wildcard => 1.0,
-            IteratorType::Empty => 1.0,
-            IteratorType::IdListSorted => 1.0,
-            IteratorType::IdListUnsorted => 1.0,
-            IteratorType::MetricSortedById => 1.0,
-            IteratorType::MetricSortedByScore => 1.0,
-            IteratorType::MetricLazySortedById => 1.0,
-            IteratorType::MetricLazySortedByScore => 1.0,
-            IteratorType::Profile => 1.0,
-            IteratorType::Optimus => 1.0,
-            IteratorType::GeoShape => 1.0,
-            IteratorType::Mock => 1.0,
-            IteratorType::SparseVector => 1.0,
-            IteratorType::Max => 1.0,
-        }
+        let Some(callback) = self.IntersectionSortWeight else {
+            return 1.0;
+        };
+        // SAFETY: As in `reports_score_bounds`.
+        unsafe { callback(self.header.as_ptr(), prioritize_union_children) }
     }
 
     fn reports_score_bounds(&self) -> bool {
@@ -600,9 +540,17 @@ impl profile_print::ProfilePrint for CRQEIterator {
 impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
     type Suspended = CRQESuspendedIterator;
 
+    /// Forward the suspension to the wrapped iterator's `Suspend` callback, the only way a Rust
+    /// iterator lowered under a [`CRQEIterator`] leaves its active state.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        // No call into C here: `suspend` may run after the read lock was released, once the
-        // index memory the C callbacks read has been freed.
+        // Not `unwrap_unchecked`: iterators built outside this crate are only trusted to install
+        // `Suspend`.
+        let callback = self
+            .Suspend
+            .expect("The `Suspend` callback is a NULL function pointer");
+        // SAFETY: the handle is unique (consumed by value into `self`), and the callback can be
+        // called per invariant 4. of [`CRQEIterator::header`].
+        unsafe { callback(self.header.as_ptr()) };
         // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
         unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
     }
@@ -610,7 +558,8 @@ impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
 
 /// The suspended form of a [`CRQEIterator`].
 ///
-/// Exposes only the [`RQESuspendedIterator`] API, as every [`RQEIterator`] method calls into C
+/// Exposes only the [`RQESuspendedIterator`] API and
+/// [`ProfilePrint`], as every [`RQEIterator`] method calls into C
 /// callbacks that may read index memory.
 #[repr(transparent)]
 pub struct CRQESuspendedIterator(CRQEIterator);
@@ -667,5 +616,19 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
     fn num_estimated(&self) -> usize {
         // Not a call into C: see the field.
         self.0.num_estimated_snapshot
+    }
+}
+
+/// Printing goes through the iterator's `PrintProfile` callback, as the active form does. That
+/// is sound on a suspended iterator because every such callback reads only query-owned data: a
+/// Rust-wrapped iterator prints whichever form it holds, and C iterators print their own fields
+/// and recurse into their children.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }

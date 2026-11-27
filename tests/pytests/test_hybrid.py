@@ -585,3 +585,21 @@ class testHybridSearch:
             "vector_equivalent": "@vector_hnsw:[VECTOR_RANGE 5 $BLOB]=>{$EPSILON:0.5; $YIELD_DISTANCE_AS: vector_distance}"
         }
         run_test_scenario(self.env, self.index_name, scenario, self.vector_blob)
+
+
+def testHybridBinaryDocumentKeys(env):
+    """Keep full document keys distinct in standalone and coordinator hybrid mergers."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, '{doc}:',
+               'SCHEMA', 'body', 'TEXT', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    vector = np.zeros(2, dtype=np.float32).tobytes()
+    keys = ['{doc}:one\x00suffix', '{doc}:one', '{doc}:one\x00other']
+    for count, key in enumerate(keys, 1):
+        conn.execute_command('HSET', key, 'body', 'needleft', 'v', vector)
+        result = env.cmd('FT.HYBRID', 'idx', 'SEARCH', 'needleft',
+                         'VSIM', '@v', '$B', 'KNN', 2, 'K', count,
+                         'PARAMS', 2, 'B', vector)
+        env.assertEqual(result[1], count, message=result)
+        rows = [dict(zip(row[::2], row[1::2])) for row in result[3]]
+        env.assertEqual(sorted(row['__key'] for row in rows), sorted(keys[:count]))

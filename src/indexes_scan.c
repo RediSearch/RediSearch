@@ -583,9 +583,7 @@ void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
   for (t_fieldIndex i = addedFieldsStart; canBeSelective && i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
     // A sortable field widens every document's sorting vector, and only the full reindex path
-    // rebuilds one. A skipped document keeps a vector sized for the old schema, while
-    // AddDocumentCtx_UpdateNoIndex reallocates only a zero-length vector -- so a later partial
-    // update writing the new sortIdx into a short vector panics in RSSortingVector_Put*.
+    // rebuilds one, so a skipped document would keep a vector sized for the old schema.
     canBeSelective = !FieldSpec_IndexesMissing(fs) && !FieldSpec_IsSortable(fs);
   }
 

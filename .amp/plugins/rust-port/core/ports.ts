@@ -94,10 +94,11 @@ export interface Vcs {
 }
 
 /** Judges a check that exited 0 from its log, or the files it wrote under `root`. */
-export type Judge = (o: {
+export type Judge<X = {}> = (o: {
   check: CheckResult;
   log: string;
   root: string;
+  plan: Plan<X>;
 }) => Promise<Pick<CheckResult, 'problem' | 'report'>> | Pick<CheckResult, 'problem' | 'report'>;
 
 /** What a project brings: its stages, layout, rules, runners, judges, reviewers and hooks. */
@@ -120,7 +121,7 @@ export interface Profile<X = {}> {
   testRunners: string[];
   /** Whether a reproduction command only runs tests with one of {@link testRunners}. */
   isTestCommand(command: string): boolean;
-  judges: Record<string, Judge>;
+  judges: Record<string, Judge<X>>;
   reviewers: Reviewer[];
   /** What the plan gets wrong about the repository at `base`, once it is well formed. */
   checkPlan?(plan: Plan<X>, o: { root: string; vcs: Vcs; base: string }): Promise<string[]>;
