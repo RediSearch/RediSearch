@@ -113,6 +113,7 @@ impl NumericRangeTree {
         // therefore possibly several ranges.
         self.has_multivalued_docs |= doc_id == self.last_doc_id;
         self.last_doc_id = doc_id;
+        self.dense_values.take();
 
         // The one place the encoder's lossy step is applied. Everything below —
         // routing, bounds, cardinality, split medians — works on the value the index

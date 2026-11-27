@@ -68,13 +68,36 @@ pub(crate) fn eval<'index>(
         node.num_children() <= 1,
         "a vector node has at most one (filter) child"
     );
-    let child = if node.num_children() == 0 {
-        None
+    let (child, numeric_plan) = if node.num_children() == 0 {
+        (None, ffi::NumericKnnPlan_NumericKnnLegacy)
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing. The offset requirement is
         // not inherited; see `OffsetRequirement`.
-        Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
+        let filter = if config.experimental_numeric_knn {
+            crate::numeric_knn::try_plan(ctx, node.as_ref().child(0), vq)
+        } else {
+            None
+        };
+        // SAFETY: the query evaluation context keeps the request timeout live
+        // for the resulting tree, including the iterator created below.
+        let timeout = filter
+            .as_ref()
+            .map(|_| unsafe { ctx.build_timeout_context() });
+        let regular = eval_node(ctx, node.child_mut(0), config)?;
+        match (filter, timeout) {
+            (Some(filter), Some(timeout)) => {
+                let plan = filter.execution_hint();
+                (
+                    Some(filter.into_iterator(regular, timeout).into_c_iterator()),
+                    plan,
+                )
+            }
+            _ => (
+                Some(regular.into_c_iterator()),
+                ffi::NumericKnnPlan_NumericKnnLegacy,
+            ),
+        }
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
@@ -85,6 +108,7 @@ pub(crate) fn eval<'index>(
             ctx.as_non_null().as_ptr(),
             vq,
             child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+            numeric_plan,
         )
     };
 

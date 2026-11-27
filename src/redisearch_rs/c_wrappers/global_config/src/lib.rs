@@ -58,6 +58,9 @@ config_accessors! {
     /// minimum server.
     server_version() -> c_int = serverVersion;
 
+    /// Whether opt-in experiments may participate in query planning.
+    unstable_features() -> bool = enableUnstableFeatures;
+
     /// The cap on the number of results `FT.AGGREGATE` may return
     /// (`MAXAGGREGATERESULTS`).
     max_aggregate_results() -> usize = maxAggregateResults;
@@ -74,6 +77,12 @@ config_accessors! {
     /// configuration, which the module tracks through the config-change event rather than
     /// through `FT.CONFIG`.
     hide_user_data_from_log() -> bool = hideUserDataFromLog;
+}
+
+/// Whether the numeric filtered-KNN decision tree is enabled.
+pub fn numeric_knn_decision_tree() -> bool {
+    // SAFETY: the C accessor has no inputs and reads an atomic flag.
+    unsafe { ffi::RSConfig_NumericKnnDecisionTreeEnabled() }
 }
 
 /// The name of the configured default scorer (`DEFAULT_SCORER`), or [`None`] when unset.

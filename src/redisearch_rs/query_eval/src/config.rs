@@ -40,6 +40,8 @@ pub struct Config {
     /// Minimum number of children for a union iterator to use a heap-based
     /// implementation instead of a flat linear scan.
     pub min_union_iter_heap: usize,
+    /// Whether the experimental numeric filter planner is enabled.
+    pub experimental_numeric_knn: bool,
 }
 
 impl Default for Config {
@@ -61,6 +63,7 @@ impl Default for Config {
             min_term_prefix,
             max_prefix_expansions,
             min_union_iter_heap,
+            experimental_numeric_knn: false,
         }
     }
 }

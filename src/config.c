@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "config.h"
+#include <stdatomic.h>
 
 #include <string.h>
 #include <limits.h>
@@ -40,6 +41,27 @@
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+
+static atomic_bool numericKnnDecisionTree;
+
+bool RSConfig_NumericKnnDecisionTreeEnabled(void) {
+  return atomic_load_explicit(&numericKnnDecisionTree, memory_order_relaxed);
+}
+
+static int get_numeric_knn_decision_tree(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  return RSConfig_NumericKnnDecisionTreeEnabled();
+}
+
+static int set_numeric_knn_decision_tree(const char *name, int value, void *privdata,
+                                         RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(privdata);
+  REDISMODULE_NOT_USED(err);
+  atomic_store_explicit(&numericKnnDecisionTree, value != 0, memory_order_relaxed);
+  return REDISMODULE_OK;
+}
 #define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
@@ -2769,6 +2791,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-_numeric-knn-decision-tree", 0, REDISMODULE_CONFIG_UNPREFIXED,
+      get_numeric_knn_decision_tree, set_numeric_knn_decision_tree, NULL, NULL))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

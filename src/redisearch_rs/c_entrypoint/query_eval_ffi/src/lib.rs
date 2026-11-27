@@ -49,6 +49,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
         min_term_prefix: iterators.min_term_prefix,
         max_prefix_expansions: iterators.max_prefix_expansions as usize,
         min_union_iter_heap: iterators.min_union_iter_heap as usize,
+        experimental_numeric_knn: global_config::numeric_knn_decision_tree()
+            && global_config::unstable_features(),
     }
 }
 

@@ -313,6 +313,8 @@ typedef int (*RSConfigExternalTrigger)(RSConfig *);
 
 // global config extern references
 extern RSConfig RSGlobalConfig;
+
+bool RSConfig_NumericKnnDecisionTreeEnabled(void);
 extern RSConfigOptions RSGlobalConfigOptions;
 extern RedisModuleString *config_ext_load;
 extern RedisModuleString *config_friso_ini;

@@ -14,9 +14,110 @@
 #include "vecsim/query_result_definitions.h"
 #include "vecsim/utils/vec_utils.h"
 #include "vecsim/algorithms/hnsw/visited_nodes_handler.h"
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
+#include <optional>
+#include <utility>
 
 using spaces::dist_func_t;
+
+template <typename DistType>
+class HNSWBatchFrontier : private vecsim_stl::min_priority_queue<DistType, idType> {
+    using Queue = vecsim_stl::min_priority_queue<DistType, idType>;
+    using Candidate = std::pair<DistType, idType>;
+
+    vecsim_stl::vector<Candidate> deferred;
+    std::optional<Candidate> split;
+    size_t partition_size;
+
+    void partition() {
+        auto &heap = this->c;
+        const size_t keep = std::exchange(partition_size, 0);
+        if (std::any_of(heap.begin(), heap.end(),
+                        [](const Candidate &item) { return std::isnan(item.first); })) {
+            return;
+        }
+        auto pivot = heap.begin() + keep;
+        std::nth_element(heap.begin(), pivot, heap.end());
+        split = *pivot;
+        deferred.assign(pivot, heap.end());
+        heap.erase(pivot, heap.end());
+        std::make_heap(heap.begin(), heap.end(), this->comp);
+    }
+
+    void restoreDeferred() {
+        auto &heap = this->c;
+        if (heap.empty()) {
+            heap.swap(deferred);
+        } else {
+            heap.insert(heap.end(), deferred.begin(), deferred.end());
+            deferred.clear();
+        }
+        std::make_heap(heap.begin(), heap.end(), this->comp);
+        split.reset();
+    }
+
+public:
+    HNSWBatchFrontier(const std::shared_ptr<VecSimAllocator> &allocator, size_t ef)
+        : Queue(allocator), deferred(allocator), partition_size(std::min(ef, size_t{16384}) * 2) {}
+
+    bool empty() const { return Queue::empty() && deferred.empty(); }
+
+    const Candidate &top() {
+        if (Queue::empty()) {
+            restoreDeferred();
+        }
+        return Queue::top();
+    }
+
+    using Queue::pop;
+
+    void emplace(DistType distance, idType id) {
+        const Candidate item{distance, id};
+        if (split) {
+            if (std::isnan(distance)) {
+                restoreDeferred();
+            } else if (item >= *split) {
+                // Deferred candidates are all later than the active partition. They only need
+                // heap ordering if a subsequent scan exhausts the active partition.
+                deferred.push_back(item);
+                return;
+            }
+        }
+        Queue::emplace(distance, id);
+        if (partition_size != 0 && this->c.size() >= partition_size * 2) {
+            partition();
+        }
+    }
+};
+
+template <typename DistType>
+class HNSWBatchExtras : public vecsim_stl::min_priority_queue<DistType, labelType> {
+    using Queue = vecsim_stl::min_priority_queue<DistType, labelType>;
+
+public:
+    using Queue::Queue;
+
+    bool hasOrderedDistances() const {
+        return std::none_of(this->c.begin(), this->c.end(),
+                            [](const auto &item) { return std::isnan(item.first); });
+    }
+
+    auto takeEntries() {
+        // Keep the empty vector's allocator valid for inserts during the next scan.
+        typename Queue::container_type entries(this->c.getAllocator());
+        this->c.swap(entries);
+        return entries;
+    }
+
+    template <typename Iterator>
+    void appendEntries(Iterator begin, Iterator end) {
+        this->c.insert(this->c.end(), begin, end);
+        std::make_heap(this->c.begin(), this->c.end(), this->comp);
+    }
+};
 
 template <typename DataType, typename DistType>
 class HNSW_BatchIterator : public VecSimBatchIterator {
@@ -26,17 +127,16 @@ protected:
     tag_t visited_tag;                 // Used to mark nodes that were scanned.
     idType entry_point;                // Internal id of the node to begin the scan from.
     bool depleted;
+    bool prefetch_batch_vectors;
     size_t ef; // EF Runtime value for this query.
 
-    // Data structure that holds the search state between iterations.
-    template <typename Identifier>
-    using candidatesMinHeap = vecsim_stl::min_priority_queue<DistType, Identifier>;
-
+    // Search state retained between batches.
     DistType lower_bound;
-    candidatesMinHeap<labelType> top_candidates_extras;
-    candidatesMinHeap<idType> candidates;
+    HNSWBatchExtras<DistType> top_candidates_extras;
+    HNSWBatchFrontier<DistType> candidates;
 
     VecSimQueryReply_Code scanGraphInternal(candidatesLabelsMaxHeap<DistType> *top_candidates);
+    void enqueueNeighborsWithLookahead(const ElementLevelData &neighbors);
     candidatesLabelsMaxHeap<DistType> *scanGraph(VecSimQueryReply_Code *rc);
     virtual inline void prepareResults(VecSimQueryReply *rep,
                                        candidatesLabelsMaxHeap<DistType> *top_candidates,
@@ -73,29 +173,67 @@ HNSW_BatchIterator<DataType, DistType>::HNSW_BatchIterator(
     std::shared_ptr<VecSimAllocator> allocator)
     : VecSimBatchIterator(query_vector, queryParams ? queryParams->stopCtx : nullptr,
                           std::move(allocator)),
-      index(index), depleted(false), top_candidates_extras(this->allocator),
-      candidates(this->allocator) {
+      index(index), depleted(false),
+      prefetch_batch_vectors(queryParams && queryParams->hnswRuntimeParams.prefetchBatchVectors),
+      ef(queryParams && queryParams->hnswRuntimeParams.efRuntime > 0
+             ? queryParams->hnswRuntimeParams.efRuntime
+             : index->getEf()),
+      top_candidates_extras(this->allocator),
+      candidates(this->allocator, prefetch_batch_vectors ? ef : 0) {
 
     this->entry_point = INVALID_ID; // temporary until we store the entry point to level 0.
     // Use "fresh" tag to mark nodes that were visited along the search in some iteration.
     this->visited_list = index->getVisitedList();
     this->visited_tag = this->visited_list->getFreshTag();
-
-    if (queryParams && queryParams->hnswRuntimeParams.efRuntime > 0) {
-        this->ef = queryParams->hnswRuntimeParams.efRuntime;
-    } else {
-        this->ef = this->index->getEf();
-    }
 }
 
 /******************** Implementation **************/
 
 template <typename DataType, typename DistType>
+void HNSW_BatchIterator<DataType, DistType>::enqueueNeighborsWithLookahead(
+    const ElementLevelData &neighbors) {
+    // Stage only new neighbors so high local graph overlap does not waste the vector prefetches.
+    // Distances and heap insertion still follow the adjacency order, including ties.
+    constexpr size_t lookahead = 8;
+    const bool prefetch_wide_vector = index->getStoredDataSize() >= 256;
+    struct Neighbor {
+        idType id;
+        const char *data;
+    };
+    std::array<Neighbor, lookahead> pending;
+    for (linkListSize position = 0; position < neighbors.numLinks;) {
+        size_t count = 0;
+        for (; position < neighbors.numLinks && count < lookahead; ++position) {
+            const idType id = neighbors.links[position];
+            if (position + 1 < neighbors.numLinks) {
+                __builtin_prefetch(visited_list->getElementsTags() + neighbors.links[position + 1]);
+            }
+            if (hasVisitedNode(id)) {
+                continue;
+            }
+            visitNode(id);
+            const char *data = index->getDataByInternalId(id);
+            __builtin_prefetch(data);
+            if (prefetch_wide_vector) {
+                __builtin_prefetch(data + 64);
+                __builtin_prefetch(data + 128);
+                __builtin_prefetch(data + 192);
+            }
+            pending[count++] = {id, data};
+        }
+        for (size_t i = 0; i < count; ++i) {
+            const auto &[id, data] = pending[i];
+            const DistType distance = index->calcDistanceForQuery(data, getQueryBlob());
+            candidates.emplace(distance, id);
+        }
+    }
+}
+
+template <typename DataType, typename DistType>
 VecSimQueryReply_Code HNSW_BatchIterator<DataType, DistType>::scanGraphInternal(
     candidatesLabelsMaxHeap<DistType> *top_candidates) {
     while (!candidates.empty()) {
-        DistType curr_node_dist = candidates.top().first;
-        idType curr_node_id = candidates.top().second;
+        const auto [curr_node_dist, curr_node_id] = candidates.top();
 
         __builtin_prefetch(this->index->getGraphDataByInternalId(curr_node_id));
         __builtin_prefetch(this->index->getMetaDataAddress(curr_node_id));
@@ -117,7 +255,9 @@ VecSimQueryReply_Code HNSW_BatchIterator<DataType, DistType>::scanGraphInternal(
         auto *node_graph_data = this->index->getGraphDataByInternalId(curr_node_id);
         this->index->lockNodeLinks(curr_node_id);
         ElementLevelData &node_level_data = this->index->getElementLevelData(node_graph_data, 0);
-        if (node_level_data.numLinks > 0) {
+        if (prefetch_batch_vectors) {
+            enqueueNeighborsWithLookahead(node_level_data);
+        } else if (node_level_data.numLinks > 0) {
 
             // Pre-fetch first candidate tag address.
             __builtin_prefetch(visited_list->getElementsTags() + node_level_data.links[0]);
@@ -262,6 +402,7 @@ void HNSW_BatchIterator<DataType, DistType>::reset() {
     this->visited_tag = this->visited_list->getFreshTag();
     this->lower_bound = std::numeric_limits<DistType>::infinity();
     // Clear the queues.
-    this->candidates = candidatesMinHeap<idType>(this->allocator);
-    this->top_candidates_extras = candidatesMinHeap<labelType>(this->allocator);
+    this->candidates =
+        HNSWBatchFrontier<DistType>(this->allocator, prefetch_batch_vectors ? ef : 0);
+    this->top_candidates_extras = HNSWBatchExtras<DistType>(this->allocator);
 }
