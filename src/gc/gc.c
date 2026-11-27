@@ -24,6 +24,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "rs_wall_clock.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 GilGate gcGilGate_g = GIL_GATE_INIT;
@@ -82,18 +83,57 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
+long long GC_TimerDelayMs(long long intervalMs, unsigned long draw) {
+  if (intervalMs <= 0) {
+    return 0;
+  }
+  const long long maxIntervalMs = LLONG_MAX / 2;
+  if (intervalMs > maxIntervalMs) {
+    intervalMs = maxIntervalMs;
+  }
+  // Randomness avoids congestion by GCs from different shards. Both terms are at most half the
+  // range, so the sum cannot overflow.
+  return intervalMs + (long long)(draw % (unsigned long)intervalMs);
+}
+
+static uint64_t GC_ClockNowMs(void) {
+  return rs_wall_clock_convert_ns_to_ms(rs_wall_clock_now_ns());
+}
+uint64_t (*GC_NowMs)(void) = GC_ClockNowMs;
+
+// Arms the timer for the next step toward `deadlineMs`, keeping the deadline for the step's
+// callback while it lies further than one module timer can wait.
+static RedisModuleTimerID GCContext_ArmStep(GCContext* gc, uint64_t deadlineMs, uint64_t nowMs) {
+  const bool shortOfDeadline =
+      deadlineMs > nowMs && deadlineMs - nowMs > (uint64_t)RS_MAX_TIMER_DELAY_MS;
+  gc->stepDeadlineMs = shortOfDeadline ? deadlineMs : 0;
+  return RedisModule_CreateTimer(RSDummyContext, RS_TimerDelayToDeadlineMs(deadlineMs, nowMs),
+                                 timerCallback, gc);
+}
+
 long long GCContext_NextPeriodMs(const GCContext* gc, long long intervalMs) {
   // Spread forks and disk compactions of indexes and shards that would otherwise start together.
   // In-memory thread cycles fork nothing, and the pool already bounds how many run at once.
-  bool inMemoryThread = !gc->diskGC && RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
-  return !inMemoryThread && intervalMs > 0 ? intervalMs + rand() % intervalMs : intervalMs;
+  const bool inMemoryThread =
+      !gc->diskGC && RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+  if (inMemoryThread) {
+    return GC_TimerDelayMs(intervalMs, 0);
+  }
+  // The jitter needs no strong randomness; Redis's generator is just the one at hand.
+  unsigned long draw;
+  RedisModule_GetRandomBytes((unsigned char*)&draw, sizeof(draw));
+  return GC_TimerDelayMs(intervalMs, draw);
 }
 
 static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, GCContext_NextPeriodMs(gc, intervalMs), timerCallback, gc);
+  const uint64_t now = GC_NowMs();
+  // Cannot wrap: the delay is under LLONG_MAX, and the monotonic clock is far below the rest of
+  // the uint64_t range.
+  const uint64_t delay = (uint64_t)GCContext_NextPeriodMs(gc, intervalMs);
+  return GCContext_ArmStep(gc, now + delay, now);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
@@ -230,6 +270,15 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
 
   if (!gc->enabled || GCContext_IsSchedulingPaused(gc)) {
     return;  // the resume path re-arms
+  }
+  // A step short of the deadline, not a new arm: the deadline carries over. A dropped index
+  // skips the rest, so the run that frees this context comes now.
+  if (gc->stepDeadlineMs && gc->callbacks.indexExists(gc->gcCtx)) {
+    gc->timerID = GCContext_ArmStep(gc, gc->stepDeadlineMs, GC_NowMs());
+    if (gc->timerID == 0) {
+      RedisModule_Log(RSDummyContext, "warning", "GC did not schedule next collection");
+    }
+    return;
   }
   if (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) {
     // If slave traffic is not allowed it means that there is a state machine running

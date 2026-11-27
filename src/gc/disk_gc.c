@@ -247,6 +247,16 @@ static long long getIntervalMsCb(void *ctx) {
   return GC_IntervalSecToMs(gc->intervalSec);
 }
 
+static bool indexExistsCb(void *ctx) {
+  const DiskGC *gc = ctx;
+  StrongRef ref = WeakRef_Promote(gc->index);
+  if (!StrongRef_Get(ref)) {
+    return false;
+  }
+  StrongRef_Release(ref);
+  return true;
+}
+
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   RS_LOG_ASSERT(SearchDisk_IsEnabled(), "Disk GC is not enabled");
   RS_LOG_ASSERT(SearchDisk_IsInitialized(), "Search Disk is not initialized");
@@ -272,6 +282,7 @@ DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getIntervalMs = getIntervalMsCb;
+  callbacks->indexExists = indexExistsCb;
   callbacks->onDelete = deleteCb;
   callbacks->onWrite = writeCb;
   callbacks->onUpdate = updateCb;
