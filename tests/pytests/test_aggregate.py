@@ -1101,6 +1101,37 @@ def testContains(env):
                                                                  ['t', 'abba'], \
                                                                  ['t', 'abbabb']]))
 
+@skip(cluster=True)
+def testStringFunctionsWithEmbeddedNul(env):
+    """Search and compare complete HASH values, including NUL bytes in either argument."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'marker', 'TAG').ok()
+    cases = [
+        (b'a\x00b', b'b', 1, 0),
+        (b'a\x00b', b'a\x00c', 0, 0),
+        (b'ab', b'ab\x00c', 0, 0),
+        (b'a\x00b', b'a\x00b', 1, 1),
+        (b'a\x00b', b'a\x00', 1, 1),
+        (b'a\x00ba\x00b', b'a\x00b', 2, 1),
+        (b'a\x00b', b'\x00b', 1, 0),
+        (b'\x00\x00\x00', b'\x00\x00', 2, 1),
+        (b'a\x00b\x00', b'\x00', 2, 0),
+        (b'ab', b'ab\x00', 0, 0),
+        (b'a\x00b', b'', 4, 1),
+        (b'', b'\x00', 0, 0),
+        (b'', b'', 1, 1),
+        (b'aaaa', b'aa', 3, 1),
+    ]
+    for value, needle, count, prefix in cases:
+        conn.execute_command('HSET', 'doc', 'marker', 'test', 'value', value, 'needle', needle)
+        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@value', '@needle',
+                      'APPLY', 'contains(@value,@needle)', 'AS', 'count',
+                      'APPLY', 'startswith(@value,@needle)', 'AS', 'prefix',
+                      'GROUPBY', 2, '@count', '@prefix')
+        env.assertEqual(res, [1, ['count', str(count), 'prefix', str(prefix)]],
+                        message=repr((value, needle)))
+
+
 def testStrLen(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
