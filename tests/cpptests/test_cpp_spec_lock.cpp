@@ -103,6 +103,19 @@ TEST_F(SpecLockTest, SuppressedUnlockKeepsOuterLockUntilExplicitRelease) {
   EXPECT_FALSE(IndexSpec_IsLocked(&spec));
 }
 
+// Unlock sites suspend the query iterator only when the lock is really released.
+TEST_F(SpecLockTest, UnlockWillReleaseOnlyWhenHeldAndNotSuppressed) {
+  EXPECT_FALSE(IndexSpec_UnlockWillRelease(&spec));
+  IndexSpec_LockRead(&spec);
+  EXPECT_TRUE(IndexSpec_UnlockWillRelease(&spec));
+  IndexSpec_SuppressUnlock(&spec);
+  EXPECT_FALSE(IndexSpec_UnlockWillRelease(&spec));
+  IndexSpec_AllowUnlock(&spec);
+  EXPECT_TRUE(IndexSpec_UnlockWillRelease(&spec));
+  IndexSpec_Unlock(&spec);
+  EXPECT_FALSE(IndexSpec_UnlockWillRelease(&spec));
+}
+
 TEST_F(SpecLockTest, ContextCleanupOnAnotherThreadCannotUnlockOwner) {
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(nullptr, &spec);
   IndexSpec_LockRead(&spec);

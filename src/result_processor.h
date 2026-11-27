@@ -91,6 +91,12 @@ struct RLookup;
 // into result_processor_rs.h which is included above.
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
+/**
+ * Suspend the root query iterator of this pipeline before its spec lock is released. A no-op
+ * when the pipeline has no `RP_INDEX` root (coordinator pipelines) or the next unlock will not
+ * release the lock.
+ */
+void QITR_SuspendRootIterator(QueryProcessingCtx *qctx);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 

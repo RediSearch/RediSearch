@@ -4489,6 +4489,10 @@ bool IndexSpec_IsReadLocked(const IndexSpec *sp) {
   return lock_state.spec == sp && lock_state.state == SPEC_LOCK_READ;
 }
 
+bool IndexSpec_UnlockWillRelease(const IndexSpec *sp) {
+  return IndexSpec_IsLocked(sp) && !lock_state.unlock_suppressed;
+}
+
 void IndexSpec_AssertLockNotHeld(void) {
   RS_LOG_ASSERT(lock_state.state == SPEC_LOCK_UNSET, "spec lock must not be held");
 }

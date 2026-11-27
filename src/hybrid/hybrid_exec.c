@@ -962,6 +962,9 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   }
 
   if (sctx->spec->diskSpec || depleteInBackground) {
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      QITR_SuspendRootIterator(AREQ_QueryProcessingCtx(hreq->requests[i]));
+    }
     IndexSpec_Unlock(sctx->spec);
   }
 

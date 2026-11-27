@@ -97,7 +97,17 @@ static bool blockedClientTimedOut(void *arg) {
  * downstream.
  *******************************************************************************************************************/
 
-static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
+/**
+ * Release the spec read lock, suspending `it` first if the lock is really released: an iterator
+ * whose lock stays held (never taken on disk, or suppressed by a hybrid scope) is not revalidated
+ * before its next read, so it must stay active.
+ */
+static int UnlockSpec_and_ReturnRPResult(QueryIterator *it, RedisSearchCtx *sctx,
+                                         int result_status) {
+  RS_ASSERT(it != NULL);
+  if (IndexSpec_UnlockWillRelease(sctx->spec)) {
+    it->Suspend(it);
+  }
   IndexSpec_Unlock(sctx->spec);
   return result_status;
 }
@@ -167,6 +177,18 @@ readCandidate(QueryIterator *it, bool withThreshold, const QueryProcessingCtx *q
   // TODO(MOD-21193): once the metadata of a candidate is read, compare its exact score with the
   // threshold to count reads caused by bound quantization.
   return rc;
+}
+
+void QITR_SuspendRootIterator(QueryProcessingCtx *qctx) {
+  if (!qctx->rootProc || qctx->rootProc->type != RP_INDEX) {
+    return;
+  }
+  RPQueryIterator *root = (RPQueryIterator *)qctx->rootProc;
+  // See `UnlockSpec_and_ReturnRPResult`.
+  if (!IndexSpec_UnlockWillRelease(root->sctx->spec)) {
+    return;
+  }
+  root->iterator->Suspend(root->iterator);
 }
 
 /****
@@ -470,12 +492,13 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
   // Handle spec lock and revalidation
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+    // A timed-out revalidation replaced (and freed) the iterator `it` still points to.
+    return UnlockSpec_and_ReturnRPResult(self->iterator, sctx, RS_RESULT_STOPPED);
   }
   if (revalidateOutcome == REVALIDATE_ABORTED && self->failOnRevalidateAbort) {
     QueryError_SetWithoutUserDataFmt(base->parent->err, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                                      "Index changed before the query started; retry");
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_ERROR);
+    return UnlockSpec_and_ReturnRPResult(self->iterator, sctx, RS_RESULT_ERROR);
   }
   bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
@@ -496,16 +519,16 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
   while (1) {
     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_STOPPED);
     }
 
     if (!needToValidateCurrent) {
       IteratorStatus rc = readCandidate(it, withThreshold, base->parent);
       switch (rc) {
         case ITERATOR_EOF:
-          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+          return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_EOF);
         case ITERATOR_STOPPED:
-          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+          return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_STOPPED);
         default:
           RS_ASSERT(rc == ITERATOR_OK);
       }
@@ -545,7 +568,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
   // but the timeout is answered defensively, so that a disk spec which one day does revalidate
   // reports the timeout instead of reading past it as end-of-results.
   if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+    // A timed-out revalidation replaced (and freed) the iterator `it` still points to.
+    return UnlockSpec_and_ReturnRPResult(self->iterator, sctx, RS_RESULT_STOPPED);
   }
 
   // Always update it after revalidation as iterator may have been replaced
@@ -561,7 +585,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
   while (1) {
     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_STOPPED);
     }
 
     // Free the previous deep-copied IndexResult if any
@@ -574,7 +598,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
     int refillResult = refillQueueUsingIterator(self, withThreshold, isProfiled);
     if (refillResult == RS_RESULT_STOPPED) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_STOPPED);
     }
 
     // Step 1b: Submit any queued results to async pool (keep pipeline full)
@@ -613,12 +637,12 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
     // blocking poll.
     if (index_poll_timeout_ms > 0 && QueryRequestLimits_IsTimedOutExact(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_STOPPED);
     }
 
     // Step 4: Check if we're completely done
     if (IndexResultAsyncRead_IsIterationComplete(&self->async, it->atEOF, pendingCount)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+      return UnlockSpec_and_ReturnRPResult(it, sctx, RS_RESULT_EOF);
     }
 
     // Loop back to serve results (I/O for next batch is already running)
@@ -755,7 +779,8 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
   (void)res;
-  return UnlockSpec_and_ReturnRPResult(((RPQueryIterator *)base)->sctx, RS_RESULT_STOPPED);
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  return UnlockSpec_and_ReturnRPResult(self->iterator, self->sctx, RS_RESULT_STOPPED);
 }
 
 void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
@@ -1742,6 +1767,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
 
+  QITR_SuspendRootIterator(rp->parent);
   // First, we verify that we unlocked the spec before we lock Redis.
   IndexSpec_Unlock(sctx->spec);
 
@@ -2445,6 +2471,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self) {
 
   // A sub-pipeline that stops before its query iterator reaches EOF leaves the
   // iterator's read lock held on this pool thread.
+  QITR_SuspendRootIterator(self->base.parent);
   IndexSpec_Unlock(self->depletingThreadCtx->spec);
 }
 
