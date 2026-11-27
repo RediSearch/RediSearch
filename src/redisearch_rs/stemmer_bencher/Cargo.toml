@@ -1,0 +1,25 @@
+[package]
+name = "stemmer_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "stemming"
+harness = false
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+criterion.workspace = true
+ffi.workspace = true
+language.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+stemmer.workspace = true
+workspace_hack.workspace = true
