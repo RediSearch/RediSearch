@@ -2298,6 +2298,7 @@ dependencies = [
  "sorting_vector_ffi",
  "sparse_vector_index_ffi",
  "spellcheck_dictionary_ffi",
+ "stemmer_ffi",
  "stopwords_ffi",
  "string_utils_ffi",
  "syn 2.0.118",
@@ -3160,6 +3161,21 @@ dependencies = [
  "redis_mock",
  "redisearch_rs",
  "stemmer",
+ "workspace_hack",
+]
+
+[[package]]
+name = "stemmer_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "cheadergen",
+ "ffi",
+ "language_ffi",
+ "redis_mock",
+ "redisearch_rs",
+ "stemmer",
+ "stemmer_ffi",
  "workspace_hack",
 ]
 

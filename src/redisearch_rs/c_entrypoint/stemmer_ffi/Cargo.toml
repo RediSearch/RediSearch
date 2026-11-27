@@ -1,0 +1,31 @@
+[package]
+name = "stemmer_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+test = false
+bench = false
+
+[lints]
+workspace = true
+
+[features]
+unittest = []
+
+[dependencies]
+cheadergen.workspace = true
+ffi.workspace = true
+language_ffi = { path = "../language_ffi" }
+stemmer.workspace = true
+workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
+redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }
+stemmer_ffi = { path = ".", features = ["unittest"] }
