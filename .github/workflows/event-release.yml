@@ -274,7 +274,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
       - name: Get boto3
-        run: pip install boto3
+        run: pip install --upgrade boto3
       - name: Set Version Artifacts
         env:
           # Snapshots are named after the branch they were built from (event-deploy-snapshots.yml), never after a tag.
