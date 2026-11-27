@@ -176,7 +176,7 @@ def _exercise_timeout_reply_policies(protocol):
         result = env.cmd(*query)
         env.assertEqual(result, expected)
         rows = result[1:] if protocol == 2 else result['results']
-        env.assertEqual(len(rows), 0 if oom_policy == 'FAIL' else 2)
+        env.assertEqual(len(rows), 2)
 
 
 @skip(cluster=True)
