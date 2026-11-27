@@ -432,3 +432,45 @@ def test_highlight_after_multi_value_json_field_small_slop():
     res = env.cmd('FT.SEARCH', 'idx', '@title:hello', 'RETURN', '1', 'title',
                   'HIGHLIGHT', 'FIELDS', '1', 'title')
     env.assertEqual(_docs(res), {'doc:1': {'title': '<b>hello</b> big world'}})
+
+
+@skip(cluster=True)
+def test_highlight_with_optimized_numeric_sortby(env):
+    """WITHOUTCOUNT and DIALECT 4 optimize a single numeric SORTBY by reading
+    only each match's numeric value, which carries no term offsets. HIGHLIGHT
+    and SUMMARIZE must keep the full index result, the results must stay in
+    sort order, and a filter on the sort field must still apply."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'body', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
+    prefix = 'one two three four five six seven eight nine ten quick'
+    for i in range(1000):
+        # Only odd documents match, so a non-matching one between hits is skipped. The match
+        # sits past the start of the body, so a summary needs its offset to find it.
+        body = f'{prefix} brown fox {i}' if i % 2 else f'lazy dog {i}'
+        conn.hset(f'doc:{i}', mapping={'body': body, 'n': i})
+
+    def expected(ids, body):
+        res = [len(ids)]
+        for i in ids:
+            res += [f'doc:{i}', ['n', str(i), 'body', body(i)]]
+        return res
+
+    def highlighted(i):
+        return f'{prefix} <b>brown</b> fox {i}'
+
+    sortby = ['SORTBY', 'n', 'ASC', 'LIMIT', '0', '3']
+    highlight = ['HIGHLIGHT', 'FIELDS', '1', 'body']
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown', *sortby, 'WITHOUTCOUNT', *highlight)
+    env.assertEqual(res, expected([1, 3, 5], highlighted))
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown @n:[2 999]', *sortby, 'WITHOUTCOUNT', *highlight)
+    env.assertEqual(res, expected([3, 5, 7], highlighted))
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown', *sortby, *highlight, 'DIALECT', '4')
+    env.assertEqual(res, expected([1, 3, 5], highlighted))
+
+    res = env.cmd('FT.SEARCH', 'idx', 'brown', *sortby, 'WITHOUTCOUNT',
+                  'SUMMARIZE', 'FIELDS', '1', 'body', 'FRAGS', '1', 'LEN', '3')
+    env.assertEqual(res, expected([1, 3, 5], lambda i: 'brown fox... '))
