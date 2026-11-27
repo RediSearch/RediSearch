@@ -74,8 +74,8 @@ typedef struct {
   DiskASMImportStats stats;
   // The participating indexes, frozen when the overlay ends. All have a specId of at most
   // frozenMaxSpecId: specIds only grow, so an index created later, even under a reused name, is
-  // never swept. TODO(MOD-20203): make FT.CREATE during an import wait for it to end, so such an
-  // index gets the imported keys.
+  // never swept; its backfill waits for the import to end instead
+  // (DiskASM_ImportRebuild_DefersBackfill).
   arrayof(WeakRef) specs;
   uint64_t frozenMaxSpecId;
   // The attempt ended while the sweep ran: the sweep stops and frees the import. Read by the sweep
@@ -90,6 +90,17 @@ static DiskASMImport *activeImport = NULL;
 static DiskASMImportStats lastEnded;
 static DiskASMImportPhase lastEndedPhase;
 static bool anyEnded = false;
+// The active import's frozen specId once its overlay ended, or UINT64_MAX. Written under the GIL,
+// read by reindex threads without it.
+static uint64_t backfillDeferredAboveSpecId = UINT64_MAX;
+
+static void deferBackfillAbove(uint64_t specId) {
+  __atomic_store_n(&backfillDeferredAboveSpecId, specId, __ATOMIC_RELEASE);
+}
+
+bool DiskASM_ImportRebuild_DefersBackfill(uint64_t specId) {
+  return specId > __atomic_load_n(&backfillDeferredAboveSpecId, __ATOMIC_ACQUIRE);
+}
 
 static RedisModuleSlotRangeArray *copySlots(const RedisModuleSlotRangeArray *slots) {
   size_t size = sizeof(*slots) + slots->num_ranges * sizeof(slots->ranges[0]);
@@ -125,6 +136,7 @@ static void fail(DiskASMImport *imp, const char *error) {
 static void detach(DiskASMImportPhase endPhase) {
   DiskASMImport *imp = activeImport;
   activeImport = NULL;
+  deferBackfillAbove(UINT64_MAX);
   lastEnded = imp->stats;
   lastEndedPhase = endPhase;
   lastEnded.gateHeld = false;
@@ -286,6 +298,7 @@ void DiskASM_ImportRebuild_OnOverlayEnd(RedisModuleCtx *ctx) {
   // keys belong to.
   imp->specs = array_new(WeakRef, 1);
   Indexes_ForEachSpec(freezeSpec, imp);
+  deferBackfillAbove(imp->frozenMaxSpecId);
 
   imp->phase = DISK_ASM_IMPORT_SCANNING;
   RedisModule_Log(ctx, "notice",

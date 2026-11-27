@@ -51,6 +51,8 @@ void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 void ReindexPool_AddImportTask(void (*task)(void *), void *arg);
 void ReindexPool_ThreadPoolDestroy();
 void ReindexPool_ThreadPoolDrain();
+// Whether the main thread is joining the reindex pool at shutdown. Lock-free.
+bool ReindexPool_IsJoining(void);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
