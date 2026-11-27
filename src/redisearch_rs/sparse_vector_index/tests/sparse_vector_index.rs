@@ -27,6 +27,8 @@ use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RQEValidateStatus,
     ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
 };
+#[cfg(not(miri))]
+use rqe_iterators_test_utils::assert_suspended_prints_as_active;
 use rqe_iterators_test_utils::{
     ContractChecker, MockContext, ResumeOutcomeExt, revalidate_via_resume,
 };
@@ -861,4 +863,17 @@ fn resume_follows_a_compacted_posting_list() {
     drop(it);
     // SAFETY: as in `resume_drops_a_dimension_gc_removed`.
     drop(unsafe { Box::from_raw(index_ptr) });
+}
+
+/// `FT.PROFILE` prints a suspended iterator without resuming it, and sees the
+/// same profile as the active one.
+// The reply mock uses extern static items, which miri cannot run.
+#[cfg(not(miri))]
+#[test]
+fn suspended_iterator_prints_the_active_profile() {
+    let index = index_of(SparseMetric::InnerProduct, &[(1, vec![(1, 1.0), (2, 1.0)])]);
+    // Dimension 3 has no posting list.
+    let query = ip(&[(1, 1.0), (2, 1.0), (3, 1.0)]);
+    let it = Box::new(iter(&index, &query, 10).unwrap());
+    assert_suspended_prints_as_active(it);
 }

@@ -310,6 +310,46 @@ mod not_miri {
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
+        /// The suspended form can no longer read the live count, so it reports the
+        /// one cached at its last resume: an index that grew while the iterator was
+        /// suspended must not see its estimate fall back to the construction-time count.
+        #[test]
+        fn tag_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+            let test = TagRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let constructed = it.num_estimated();
+            let suspended = it.suspend();
+
+            // The lock is released while the iterator is suspended, so the index may grow.
+            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+            // fresh, larger one.
+            DocIdsOnly::from_mut_opaque(test.test.context.tag_inverted_index())
+                .add_record(
+                    &RSIndexResult::build_term()
+                        .doc_id(23)
+                        .field_mask(RS_FIELDMASK_ALL)
+                        .build(),
+                )
+                .expect("failed to add record");
+
+            let guard = test.test.context.spec_read();
+            let ResumeOutcome::Ok(it) = suspended
+                .resume(&guard)
+                .expect("resume should not fail in this test")
+            else {
+                panic!("resume should find the iterator where it was");
+            };
+            assert_eq!(it.num_estimated(), constructed + 1);
+
+            let suspended = it.suspend();
+            assert_eq!(
+                RQESuspendedIterator::num_estimated(&*suspended),
+                constructed + 1
+            );
+        }
+
         #[test]
         fn tag_revalidate_basic() {
             let test = TagRevalidateTest::new(10);

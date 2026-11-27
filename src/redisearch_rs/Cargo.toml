@@ -48,6 +48,8 @@ members = [
     "term_dictionary",
     "term_suffix_index",
     "timeout",
+    "toksep",
+    "toksep_bencher",
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
@@ -181,6 +183,7 @@ term_dictionary = { path = "./term_dictionary" }
 term_suffix_index = { path = "./term_suffix_index" }
 thin_vec = { path = "./thin_vec" }
 timeout = { path = "timeout" }
+toksep = { path = "./toksep" }
 top_k = { path = "./top_k" }
 tracing_assert = { path = "./tracing_assert" }
 vecsim = { path = "./c_wrappers/vecsim" }

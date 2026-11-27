@@ -294,6 +294,16 @@ impl<'index> SteerableChild<'index> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for SteerableChild<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"STEERABLE", map);
+    }
+}
+
 impl<'index> RQEIterator<'index> for SteerableChild<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.positioned {
@@ -527,6 +537,28 @@ fn resume_preserves_box_address() {
         &*active as *const _ as usize, addr_before,
         "resume must reuse the allocation",
     );
+}
+
+/// `FT.PROFILE` prints the tree after the query has suspended it, so a suspended
+/// top-k must hand its source the same child subtree the active one does.
+#[cfg(not(miri))]
+#[test]
+fn a_suspended_top_k_prints_the_profile_of_its_active_form() {
+    let mut it = Box::new(TopKIterator::new(
+        source_over(&[1, 2]),
+        IdList::<true>::new(vec![1, 2]),
+        NonZeroUsize::new(2).unwrap(),
+        Ascending,
+    ));
+    assert_eq!(it.read().unwrap().expect("expected doc").doc_id, 1);
+    let suspended = rqe_iterators_test_utils::assert_suspended_prints_as_active(it);
+
+    insta::assert_debug_snapshot!(suspended, @r#"
+    {
+      "Type": "MOCK SCORE SOURCE",
+      "Child iterator": {"Type": "ID-LIST-SORTED"}
+    }
+    "#);
 }
 
 /// A type-erased child crosses the suspend boundary through a vtable swap, not a

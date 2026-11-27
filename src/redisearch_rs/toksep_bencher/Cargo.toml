@@ -1,0 +1,18 @@
+[package]
+name = "toksep_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[[bench]]
+name = "scanning"
+harness = false
+
+[lints]
+workspace = true
+
+[dependencies]
+criterion.workspace = true
+toksep.workspace = true
+workspace_hack.workspace = true
