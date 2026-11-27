@@ -12,7 +12,7 @@
 use index_result::{RSIndexResult, RawBorrowedAggregateResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
-use std::ptr::NonNull;
+use std::{cmp::Reverse, collections::BinaryHeap, ops::ControlFlow, ptr::NonNull};
 
 use crate::composite::FreeSuspendedShell;
 use crate::union::{
@@ -62,6 +62,14 @@ pub struct RawUnionHeap<'query, Rf: Ref, I, const QUICK_EXIT: bool> {
     result: RawIndexResult<'query, Rf>,
     /// Min-heap of `(doc_id, child_index)`.
     heap: DocIdMinHeap,
+    /// Scratch for [`PivotingUnion::visit_live_children_in_order`]: the heap slots next in line,
+    /// as `(doc_id, heap slot)`. Kept between calls only to reuse its allocation.
+    ///
+    /// `None` until the union is first read under a score threshold: only the thresholded read
+    /// path walks the heap in order, and a union that is never read that way never needs it.
+    ///
+    /// [`PivotingUnion::visit_live_children_in_order`]: crate::composite::PivotingUnion::visit_live_children_in_order
+    pivot_frontier: Option<BinaryHeap<Reverse<(DocId, usize)>>>,
 }
 
 /// Alias for an [`Active`] [`RawUnionHeap`] — the only instantiation with an
@@ -88,6 +96,7 @@ const _: () = {
     assert!(offset_of!(A, is_eof) == offset_of!(S, is_eof));
     assert!(offset_of!(A, result) == offset_of!(S, result));
     assert!(offset_of!(A, heap) == offset_of!(S, heap));
+    assert!(offset_of!(A, pivot_frontier) == offset_of!(S, pivot_frontier));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -180,6 +189,7 @@ where
                 is_eof: true,
                 result: RSIndexResult::build_union(0).build(),
                 heap: DocIdMinHeap::new(),
+                pivot_frontier: None,
             };
         }
 
@@ -190,6 +200,7 @@ where
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
             heap: DocIdMinHeap::with_capacity(num_children),
+            pivot_frontier: None,
         }
     }
 
@@ -440,15 +451,16 @@ where
                 if child.at_eof() {
                     continue;
                 }
-                match child.skip_to(doc_id)? {
-                    Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) => {
-                        self.heap.push(r.doc_id, idx);
-                    }
-                    None => {
-                        self.num_active -= 1;
-                    }
+                if let Some(SkipToOutcome::Found(r) | SkipToOutcome::NotFound(r)) =
+                    child.skip_to(doc_id)?
+                {
+                    self.heap.push(r.doc_id, idx);
                 }
             }
+            // Derived rather than decremented, as in `initialize_children`: a child already at EOF
+            // is skipped above and must not count, and a `revalidate` before this first call may
+            // have counted only the children its own heap rebuild kept.
+            self.num_active = self.heap.len();
             Ok(usize::MAX)
         } else {
             self.advance_lagging_children(doc_id)
@@ -802,6 +814,120 @@ where
             self.children.len().max(1) as f64
         } else {
             1.0
+        }
+    }
+
+    fn reports_score_bounds(&self) -> bool {
+        crate::composite::all_report_score_bounds(&self.children)
+    }
+
+    fn current_max_score(&self) -> f64 {
+        if self.is_eof {
+            return f64::INFINITY;
+        }
+        let doc_id = self.last_doc_id();
+        // A full union stands on its heap's minimum after every move, so the children on it are
+        // found by the same pruned descent `build_aggregate_result` uses, not by a scan of every
+        // child: `union_read_with_threshold` asks once per candidate. A quick-exit union can
+        // leave children behind it, below that minimum, and so takes the scan.
+        if !QUICK_EXIT && self.heap.peek().is_some_and(|min| min.doc_id == doc_id) {
+            let mut sum = 0.0;
+            for_each_contributor(self.heap.as_slice(), doc_id, |child_idx| {
+                sum += self.children[child_idx].current_max_score();
+            });
+            return crate::composite::scale_by_weight(sum, self.result.weight);
+        }
+        // A superset of the children in the aggregate result: a quick-exit union keeps only the
+        // first one, and the bound only loosens.
+        crate::composite::summed_max_score(
+            self.children
+                .iter()
+                .filter(|child| child.last_doc_id() == doc_id),
+            self.result.weight,
+        )
+    }
+
+    fn current_block_bound(&self) -> Option<crate::score_bound::BlockBound> {
+        if self.is_eof || self.last_doc_id() == 0 {
+            return None;
+        }
+        // The same children the pivot reads, so an enclosing window and this union's own pivot
+        // agree on which children bound the block.
+        crate::composite::summed_block_bound(
+            crate::composite::PivotingUnion::live_children(self),
+            crate::composite::PivotingUnion::score_weight(self),
+        )
+    }
+
+    fn read_with_threshold(
+        &mut self,
+        min_competitive_score: crate::score_bound::MinCompetitiveScore,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        crate::composite::union_read_with_threshold(self, min_competitive_score)
+    }
+}
+
+impl<'index, I, const QUICK_EXIT: bool> crate::composite::PivotingUnion<'index>
+    for UnionHeap<'index, I, QUICK_EXIT>
+where
+    I: RQEIterator<'index>,
+{
+    type Child = I;
+
+    fn live_children<'a>(&'a self) -> impl Iterator<Item = &'a I>
+    where
+        I: 'a,
+    {
+        self.children.iter().filter(|child| !child.at_eof())
+    }
+
+    fn score_weight(&self) -> f64 {
+        self.result.weight
+    }
+
+    /// Walks the heap array best-first, so visiting `k` children costs `O(k log k)` rather than a
+    /// rescan of every child per position.
+    ///
+    /// The heap holds exactly the live children, each under its current position, once it is
+    /// populated: every move of a child goes through it. Before that, on the first read after
+    /// construction or [`rewind`](RQEIterator::rewind), it holds fewer entries than
+    /// [`num_active`](Self::num_children_active) counts, and the walk rescans the children
+    /// instead.
+    fn visit_live_children_in_order(&mut self, mut visit: impl FnMut(&I) -> ControlFlow<()>) {
+        let entries = self.heap.as_slice();
+        if entries.len() != self.num_active {
+            let children = &self.children;
+            crate::composite::visit_in_order_by_rescan(
+                || children.iter().filter(|child| !child.at_eof()),
+                visit,
+            );
+            return;
+        }
+        // A min-heap's slots in doc-id order: a slot is next once its parent has been visited,
+        // and its children never sort below it.
+        let frontier = self.pivot_frontier.get_or_insert_with(BinaryHeap::new);
+        frontier.clear();
+        if let Some(root) = entries.first() {
+            frontier.push(Reverse((root.doc_id, 0)));
+        }
+        while let Some(Reverse((_, slot))) = frontier.pop() {
+            let entry = entries[slot];
+            let child = &self.children[entry.child_idx];
+            debug_assert!(
+                entry.doc_id == child.last_doc_id() && !child.at_eof(),
+                "the heap entry of child {} is stale: {} vs {}",
+                entry.child_idx,
+                entry.doc_id,
+                child.last_doc_id(),
+            );
+            if visit(child).is_break() {
+                return;
+            }
+            for next in [2 * slot + 1, 2 * slot + 2] {
+                if let Some(e) = entries.get(next) {
+                    frontier.push(Reverse((e.doc_id, next)));
+                }
+            }
         }
     }
 }
@@ -1209,6 +1335,7 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             is_eof: self.is_eof,
             result: self.result,
             heap: self.heap,
+            pivot_frontier: self.pivot_frontier,
         }
     }
 }

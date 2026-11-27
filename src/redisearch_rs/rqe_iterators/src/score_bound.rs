@@ -25,6 +25,15 @@ pub struct BlockBound {
     pub max_score: f64,
 }
 
+impl BlockBound {
+    /// Whether the block reaches `doc_id`, for a caller that stands at or before `doc_id`. A
+    /// block that does not bounds nothing at `doc_id`: the iterator's next block is unknown.
+    #[inline(always)]
+    pub const fn covers(&self, doc_id: DocId) -> bool {
+        doc_id <= self.last_doc_id
+    }
+}
+
 /// A score that a candidate must reach to enter the results, as handed to
 /// [`RQEIterator::read_with_threshold`].
 ///
