@@ -15,6 +15,7 @@
 #include "util/arr.h"
 #include "gtest/gtest.h"
 #include "index_utils.h"
+#include "spec.h"
 
 #include <climits>
 #include <vector>
@@ -314,6 +315,87 @@ TEST_F(TagIndexTest, testTokenizeViaPreprocess) {
     ASSERT_EQ(array_len(fdata.tags), 0u);
     TagIndex_FreePreprocessedData(fdata.tags);
   }
+}
+
+// Saves `isFlex` and restores it when the scope ends, so a failed assertion can't leak it.
+struct FlexScope {
+  explicit FlexScope(bool flex) : saved(isFlex) { isFlex = flex; }
+  ~FlexScope() { isFlex = saved; }
+  bool saved;
+};
+
+TEST_F(TagIndexTest, testPreprocessReturnsEachValueOnce) {
+  FlexScope flex(true);
+  const auto noOpts = (FieldSpecOptions)0;
+  const auto folded = (TagFieldFlags)0;
+
+  // Exact, case-folded, and whitespace-trimmed repeats in one scalar value.
+  {
+    const char *e[] = {"a", "b"};
+    checkPreprocessCStr(',', folded, noOpts, "a,b,a, a ,A,B", e, 2);
+  }
+  // Case-sensitive fields keep values that differ only by case.
+  {
+    const char *e[] = {"a", "A"};
+    checkPreprocessCStr(',', TagField_CaseSensitive, noOpts, "a,A,a", e, 2);
+  }
+  // A RedisModuleString value goes through the same path.
+  {
+    FieldSpec fs = makeTagFieldSpec(',', folded, noOpts);
+    DocumentField df{};
+    df.unionType = FLD_VAR_T_RMS;
+    df.text = RedisModule_CreateString(NULL, "x,X,y,x", 7);
+    const char *e[] = {"x", "y"};
+    checkPreprocess(fs, df, /*expectedRet=*/1, e, 2);
+    RedisModule_FreeString(NULL, df.text);
+  }
+  // Repeats across array elements, with the separator and with the JSON default separator.
+  {
+    FieldSpec fs = makeTagFieldSpec(',', folded, noOpts);
+    DocumentField df{};
+    df.unionType = FLD_VAR_T_ARRAY;
+    const char *vals[] = {"red,green", "Red", "blue,green"};
+    df.multiVal = (char **)vals;
+    df.arrayLen = 3;
+    const char *e[] = {"red", "green", "blue"};
+    checkPreprocess(fs, df, /*expectedRet=*/1, e, 3);
+  }
+  {
+    FieldSpec fs = makeTagFieldSpec(TAG_FIELD_DEFAULT_JSON_SEP, folded, noOpts);
+    DocumentField df{};
+    df.unionType = FLD_VAR_T_ARRAY;
+    const char *vals[] = {"Hello", "world", "hello"};
+    df.multiVal = (char **)vals;
+    df.arrayLen = 3;
+    const char *e[] = {"hello", "world"};
+    checkPreprocess(fs, df, /*expectedRet=*/1, e, 2);
+  }
+
+  // INDEXEMPTY: no NULL entry when the value does not end in a separator, and
+  // repeated empty values collapse to one "".
+  {
+    const char *e[] = {"red"};
+    checkPreprocessCStr(',', folded, FieldSpec_IndexEmpty, "red", e, 1);
+  }
+  {
+    const char *e[] = {"red", ""};
+    checkPreprocessCStr(',', folded, FieldSpec_IndexEmpty, "red,", e, 2);
+  }
+  {
+    const char *e[] = {""};
+    checkPreprocessCStr(',', folded, FieldSpec_IndexEmpty, "", e, 1);
+  }
+  {
+    const char *e[] = {"", "red"};
+    checkPreprocessCStr(',', folded, FieldSpec_IndexEmpty, ",red,,RED,", e, 2);
+  }
+}
+
+// Memory indexes keep the tokenized list as is; their posting writes already ignore a repeat.
+TEST_F(TagIndexTest, testPreprocessKeepsRepeatsInMemory) {
+  FlexScope flex(false);
+  const char *e[] = {"a", "b", "a", "a"};
+  checkPreprocessCStr(',', (TagFieldFlags)0, (FieldSpecOptions)0, "a,b,a,A", e, 4);
 }
 
 TEST_F(TagIndexTest, testOpenReaderEdgeCases) {
