@@ -228,6 +228,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     .minMemoryBudgetPercentage = RSGlobalConfig.diskMinMemoryBudgetPercentage,
     .wbmBudgetPerIndexMB = RSGlobalConfig.diskWbmBudgetPerIndexMB,
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
+    .vectorCompactMinRuns = RSGlobalConfig.diskVectorCompactMinRuns,
+    .vectorCompactMinBytes = RSGlobalConfig.diskVectorCompactMinBytes,
   };
   disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
                              RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
@@ -760,6 +762,12 @@ bool SearchDisk_VectorIndexHasData(void *vecIndex, bool takeLocks) {
   return disk->vector.vectorIndexHasData(vecIndex, takeLocks);
 }
 
+bool SearchDisk_VectorIndexIsBackgroundIdle(void *vecIndex) {
+  RS_ASSERT(disk && vecIndex);
+  RS_ASSERT(disk->vector.vectorIndexIsBackgroundIdle);
+  return disk->vector.vectorIndexIsBackgroundIdle(vecIndex);
+}
+
 bool SearchDisk_SaveVectorIndexToRDB(void *vecIndex, RedisModuleIO *rdb, bool takeLocks) {
   RS_ASSERT(disk && vecIndex && rdb);
   RS_ASSERT(disk->vector.saveVectorIndexToRDB);
@@ -888,6 +896,12 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
 bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   return disk->index.compactNonGcStorage(index);
+}
+
+DiskVectorCompactResult SearchDisk_CompactVectorStorage(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && index);
+  RS_ASSERT(disk->index.compactVectorStorage);
+  return disk->index.compactVectorStorage(index);
 }
 
 void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {

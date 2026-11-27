@@ -278,6 +278,10 @@ typedef struct {
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
   // rather than raising it later.
   int diskMaxOpenFiles;
+  // The size gate the disk backend applies before compacting vector storage (see
+  // `compactVectorStorage`). Load-time only; lowered by tests.
+  size_t diskVectorCompactMinRuns;
+  size_t diskVectorCompactMinBytes;
   // Concurrent async document-metadata reads a single query iterator keeps in flight.
   unsigned int diskAsyncReadPoolSize;
   // Index results a query queues ahead of submission, as a multiple of
@@ -486,6 +490,11 @@ static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte"
 // and caps 75-138 up to 128, plus fixed files and a directory handle per column family. 138 is the top of a rounding
 // step, where the reservation is closest to what an index can hold.
 #define DISK_MAX_OPEN_FILES_MIN 138
+#define DEFAULT_DISK_VECTOR_COMPACT_MIN_RUNS 3
+// A single sorted run has nothing to merge.
+#define DISK_VECTOR_COMPACT_MIN_RUNS_MIN 2
+#define DISK_VECTOR_COMPACT_MIN_RUNS_MAX 1024
+#define DEFAULT_DISK_VECTOR_COMPACT_MIN_BYTES (64 * 1024 * 1024)
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
@@ -567,6 +576,8 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .requestConfigParams.diskScoreSkippingQuery = true,                        \
     .diskSq8Enabled = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
+    .diskVectorCompactMinRuns = DEFAULT_DISK_VECTOR_COMPACT_MIN_RUNS,          \
+    .diskVectorCompactMinBytes = DEFAULT_DISK_VECTOR_COMPACT_MIN_BYTES,        \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
     .fallbackToMainThreadWhenBlockClientUnavailable = true,                    \

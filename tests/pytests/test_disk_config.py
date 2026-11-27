@@ -11,8 +11,8 @@ import tempfile
 from common import *
 
 """
-Tests for the search-disk-drop-read-cache, search-disk-use-direct-reads and
-search-_disk-statistics module configs.
+Tests for the search-disk-drop-read-cache, search-disk-use-direct-reads,
+search-_disk-statistics and search-_disk-vector-compact-min-* module configs.
 
 These configs control SpeedB OS page-cache behaviour for disk indexes:
   - search-disk-drop-read-cache: whether to drop the OS read cache after each read
@@ -139,4 +139,45 @@ def test_disk_sq8_config_defaults_and_runtime_update():
         env.expect('CONFIG', 'SET', 'search-disk-sq8-enabled', value).ok()
         env.expect('CONFIG', 'GET', 'search-disk-sq8-enabled').equal(
             ['search-disk-sq8-enabled', value])
+    env.stop()
+
+
+
+VECTOR_COMPACT_DEFAULTS = {
+    'search-_disk-vector-compact-min-runs': '3',
+    'search-_disk-vector-compact-min-bytes': str(64 * 1024 * 1024),
+}
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_vector_compact_configs_are_hidden_immutable_defaults():
+    """The vector-compaction gate defaults to 3 runs and 64 MiB, cannot change at runtime, and is
+    not listed by CONFIG GET *."""
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    visible = env.cmd('CONFIG', 'GET', '*')
+    for name, default in VECTOR_COMPACT_DEFAULTS.items():
+        env.expect('CONFIG', 'GET', name).equal([name, default])
+        env.assertNotContains(name, visible)
+        env.expect('CONFIG', 'SET', name, '2').error()
+        env.expect('CONFIG', 'GET', name).equal([name, default])
+    env.stop()
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_vector_compact_configs_set_at_load_time():
+    """Tests lower the gate at load time; like search-_disk-statistics, these configs have no legacy
+    module-argument alias."""
+    conf_path = os.path.join(tempfile.mkdtemp(), 'disk_vector_compact.conf')
+    with open(conf_path, 'w') as f:
+        f.write('search-_disk-vector-compact-min-runs 2\n')
+        f.write('search-_disk-vector-compact-min-bytes 0\n')
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=conf_path)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-_disk-vector-compact-min-runs').equal(
+        ['search-_disk-vector-compact-min-runs', '2'])
+    env.expect('CONFIG', 'GET', 'search-_disk-vector-compact-min-bytes').equal(
+        ['search-_disk-vector-compact-min-bytes', '0'])
     env.stop()
