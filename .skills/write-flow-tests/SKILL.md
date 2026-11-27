@@ -75,6 +75,28 @@ dependent — a wall-clock `TIMEOUT`, a sleep, a race with background indexing o
 prefer a deterministic hook instead; grep `_FT.DEBUG` in `tests/pytests/` for what exists,
 and check the one you pick reaches the code path under test.
 
+## Main-thread liveness under worker locks
+
+When a change adds or alters a worker path that holds a lock the main thread also takes (the GIL,
+the IndexSpec lock, or a disk-mode lock), test that the main thread does not wait on the worker
+where the design says it should not:
+
+- Park the worker at such a point — after it releases the lock, or while it holds only what the
+  main thread should not need — with `debug_cmd(), 'SYNC_POINT', 'ARM', <name>, <ms>`, and poll
+  `SYNC_POINT IS_WAITING <name>` until it parks. A new `SyncPoint_Wait` goes under
+  `#ifdef ENABLE_ASSERT`, like the existing ones. Where the design lets the worker keep the lock
+  but yield to a waiting writer, release through a `SyncPoint_WaitUntil` predicate instead.
+- From a `daemon=True` thread, issue `PING` (GIL) or a write to a key the index covers (spec or
+  disk lock), and `join` it with a timeout shorter than `<ms>`. A regression then fails the join,
+  and the auto-release frees the main thread instead of wedging the server — a blocked main
+  thread can never run a `SIGNAL`.
+- `SYNC_POINT SIGNAL <name>` and `CLEAR` in a `finally`. Sync points exist only in `ENABLE_ASSERT`
+  builds: guard a test function that takes `env` with `@require_enable_assert`, and a class or a
+  test that builds its own `Env` with `skipIfNoEnableAssert(env)`.
+
+`TestNoDeadlockQueryWithConcurrentWriter` in `test_blocked_client_timeout.py` follows this pattern,
+releasing through a `SyncPoint_WaitUntil` predicate.
+
 ## Deprecated commands
 
 - Do not use `FT.ADD` — use `HSET` via `conn.execute_command('HSET', ...)` instead.
