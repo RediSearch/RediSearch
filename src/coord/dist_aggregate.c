@@ -62,7 +62,7 @@
 #include "rules.h"
 #include "search_ctx.h"
 #include "spec.h"
-#include "special_case_ctx.h"
+#include "knn_context.h"
 #include "util/arr/arr.h"
 #include "util/references.h"
 #include "vector_index.h"
@@ -106,7 +106,7 @@ typedef struct {
 // withCountErrorCb). Once it reaches the iterator's shard count, the
 // WITHCOUNT total is fully known. Written and read only on the IO thread.
 //
-// `bc`, `areq`, `spec_ref`, and `knnSpecialCtx` carry the deferred-execution
+// `bc`, `areq`, `spec_ref`, and `knn` carry the deferred-execution
 // context on the async WITHCOUNT path. They are set in dispatchAggregateDeferred
 // before MR_StartIterator and consumed by executeAggregateDeferred after the
 // IO thread posts the handoff. The AREQ's reader ref on the iterator keeps
@@ -138,11 +138,11 @@ typedef struct {
   RedisModuleBlockedClient *bc;
   AREQ *areq;
   WeakRef spec_ref;                // weak ref; re-promoted in executeAggregateDeferred
-  specialCaseCtx *knnSpecialCtx;   // freed by executeAggregateDeferred
+  knnContext *knn;                 // freed by executeAggregateDeferred
 } AggregateIteratorContext;
 
 // Free the AggregateIteratorContext. Deferred-execution fields (bc, areq,
-// spec_ref, knnSpecialCtx) are owned by executeAggregateDeferred.
+// spec_ref, knn) are owned by executeAggregateDeferred.
 static void aggregateIteratorContext_Free(void *ptr) {
   AggregateIteratorContext *ctx = (AggregateIteratorContext *)ptr;
   RS_ASSERT(ctx);
@@ -373,7 +373,7 @@ static void executeAggregateDeferred(void *arg) {
   AREQ *r = iterCtx->areq;
   RedisModuleBlockedClient *bc = iterCtx->bc;
   WeakRef weak_ref = iterCtx->spec_ref;
-  specialCaseCtx *knnCtx = iterCtx->knnSpecialCtx;
+  knnContext *knnCtx = iterCtx->knn;
 
   // Re-promote the WeakRef that the dispatcher stashed in iterCtx. The spec may
   // have been dropped while first-reply collection was running (FT.DROPINDEX,
@@ -445,7 +445,7 @@ static void executeAggregateDeferred(void *arg) {
     CurrentThread_ClearIndexSpec();
     IndexSpecRef_Release(spec_ref);
   }
-  SpecialCaseCtx_Free(knnCtx);
+  KnnContext_Free(knnCtx);
   WeakRef_Release(weak_ref);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   void *privdata = RedisModule_BlockClientGetPrivateData(bc);
@@ -465,14 +465,14 @@ static inline int getProfileArgs(ProfileOptions profileOptions) {
 }
 
 // Extract a scalar KNN snapshot for SHARD_K_RATIO optimization if applicable.
-// Reads the parsed VectorQuery on the main thread (while specialCaseCtx is
+// Reads the parsed VectorQuery on the main thread (while knnContext is
 // still alive) and copies the fields the IO-thread command modifier needs
 // into outSnapshot. Returns true if the snapshot is populated.
-static bool extractKnnOptimizationContext(specialCaseCtx *knnCtx, ProfileOptions profileOptions,
+static bool extractKnnOptimizationContext(knnContext *knnCtx, ProfileOptions profileOptions,
                                           AggregateKnnContext *outSnapshot) {
   RS_ASSERT(outSnapshot != NULL);
 
-  const KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
+  const KNNVectorQuery *knn_query = &knnCtx->queryNode->vn.vq->knn;
   double ratio = knn_query->shardWindowRatio;
 
   if (ratio >= MAX_SHARD_WINDOW_RATIO) {
@@ -771,7 +771,7 @@ int parseProfileArgs(RedisModuleString **argv, int argc, AREQ *r) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                               IndexSpec *sp, specialCaseCtx **knnCtx_ptr, size_t numShards,
+                               IndexSpec *sp, knnContext **knnCtx_ptr, size_t numShards,
                                QueryError *status) {
   AREQ_AddRequestFlags(r, QEXEC_F_IS_AGGREGATE | QEXEC_F_IS_COORDINATOR);
   rs_wall_clock_init(&r->profileClocks.initClock);
@@ -810,7 +810,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->profile = printAggProfile;
 
   unsigned int dialect = r->base.reqConfig.dialectVersion;
-  specialCaseCtx *knnCtx = NULL;
+  knnContext *knnCtx = NULL;
 
   if(dialect >= 2) {
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
@@ -819,7 +819,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     const char *query = AREQ_Query(r, &queryLen);
     if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(query, queryLen, r->searchopts.params, dialect, status);
+      knnCtx = prepareOptionalKnnContext(query, queryLen, r->searchopts.params, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -827,7 +827,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
         // the root (which is first plan step to be executed after the root).
-        AGPLN_AddKNNArrangeStep(AREQ_AGGPlan(r), knnCtx->knn.k, knnCtx->knn.fieldName);
+        AGPLN_AddKNNArrangeStep(AREQ_AGGPlan(r), knnCtx->k, knnCtx->fieldName);
       }
     }
   }
@@ -893,7 +893,7 @@ static int executePlan(AREQ *r, StrongRef spec_ref, RedisModule_Reply *reply,
 }
 
 static void DistAggregateCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *strong_ref,
-                                  specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply) {
+                                  knnContext *knnCtx, AREQ *r, RedisModule_Reply *reply) {
 
   RS_ASSERT(r != NULL);  // the dispatcher allocates the request shell on the main thread
 
@@ -916,7 +916,7 @@ cleanup:
   if (sp) {
     IndexSpecRef_Release(*strong_ref);
   }
-  SpecialCaseCtx_Free(knnCtx);
+  KnnContext_Free(knnCtx);
   RedisModule_EndReply(reply);
   return;
 }
@@ -931,9 +931,9 @@ cleanup:
 // the dispatcher's weak ref is transferred to iterCtx. On failure: status is
 // set and the caller cleans up via DistAggregateCleanups (which still owns r,
 // knnCtx, and the refs).
-static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
-                                     specialCaseCtx *knnCtx, StrongRef strong_ref,
-                                     RedisModule_Reply *reply, QueryError *status) {
+static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch, knnContext *knnCtx,
+                                     StrongRef strong_ref, RedisModule_Reply *reply,
+                                     QueryError *status) {
   RS_LOG_ASSERT(AREQ_QueryProcessingCtx(r)->rootProc->type == RP_NETWORK,
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
@@ -949,7 +949,7 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   // promotes it back to a StrongRef (or treats the spec as dropped).
   iterCtx->spec_ref = dispatch->spec_ref;
   dispatch->spec_ref = (WeakRef){0};
-  iterCtx->knnSpecialCtx = knnCtx;
+  iterCtx->knn = knnCtx;
 
   // Drop the dispatcher's ctx alias; executeAggregateDeferred creates its own
   // thread-safe ctx on the worker thread.
@@ -986,7 +986,7 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   QueryError *status = &r->base.reply.err;
-  specialCaseCtx *knnCtx = NULL;
+  knnContext *knnCtx = NULL;
 
   size_t numShards = dispatch->numShards;
 
@@ -1019,7 +1019,7 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
     goto err;
   }
 
-  SpecialCaseCtx_Free(knnCtx);
+  KnnContext_Free(knnCtx);
 
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
@@ -1238,7 +1238,7 @@ static void DEBUG_execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **arg
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   IndexSpec *sp = NULL;
-  specialCaseCtx *knnCtx = NULL;
+  knnContext *knnCtx = NULL;
   AREQ_Debug_params debug_params = {0};
   StrongRef strong_ref = {0};
   int debug_argv_count = 0;
@@ -1297,7 +1297,7 @@ static void DEBUG_execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **arg
     goto err;
   }
 
-  SpecialCaseCtx_Free(knnCtx);
+  KnnContext_Free(knnCtx);
 
   IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);

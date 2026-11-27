@@ -110,7 +110,7 @@
 #include "search_ctx.h"
 #include "search_options.h"
 #include "slots_tracker_ffi.h"
-#include "special_case_ctx.h"
+#include "knn_context.h"
 #include "stopwords.h"
 #include "synonym_map.h"
 #include "trie/trie.h"
@@ -2170,18 +2170,9 @@ end:
   return REDISMODULE_OK;
 }
 
-specialCaseCtx* SpecialCaseCtx_New() {
-  specialCaseCtx* ctx = rm_calloc(1, sizeof(specialCaseCtx));
-  return ctx;
-}
-
-void SpecialCaseCtx_Free(specialCaseCtx* ctx) {
+void KnnContext_Free(knnContext *ctx) {
   if (!ctx) return;
-  if(ctx->specialCaseType == SPECIAL_CASE_KNN) {
-    QueryNode_Free(ctx->knn.queryNode);
-  } else if(ctx->specialCaseType == SPECIAL_CASE_SORTBY) {
-    rm_free((void*)ctx->sortby.sortKey);
-  }
+  QueryNode_Free(ctx->queryNode);
   rm_free(ctx);
 }
 
@@ -2194,14 +2185,8 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
   SyncPoint_Wait("CoordSearchRequestFree");
 #endif
   CoordSearchReducer_Free(r);
-  if(r->specialCases) {
-    size_t specialCasesLen = array_len(r->specialCases);
-    for(size_t i = 0; i< specialCasesLen; i ++) {
-      specialCaseCtx* ctx = r->specialCases[i];
-      SpecialCaseCtx_Free(ctx);
-    }
-    array_free(r->specialCases);
-  }
+  KnnContext_Free(r->knn);
+  rm_free((void *)r->sortKey);
   if(r->requiredFields) {
     array_free(r->requiredFields);
   }
@@ -2232,37 +2217,24 @@ int rscParseProfile(searchRequestCtx *req, RedisModuleString **argv) {
   return REDISMODULE_OK;
 }
 
-void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
-  if(!req->specialCases) {
-    req->specialCases = array_new(specialCaseCtx*, 1);
-  }
-  array_append(req->specialCases, knn_ctx);
-  // Default: No SORTBY is given, or SORTBY is given by other field
-  // When first sorting by different field, the topk vectors should be passed to the coordinator heap
-  knn_ctx->knn.shouldSort = true;
-  // We need to get K results from the shards
-  // For example the command request SORTBY text_field LIMIT 2 3
-  // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
+static void setKnnContext(searchRequestCtx *req, knnContext *knn) {
+  req->knn = knn;
+  knn->shouldSort = true;
   long long requestedResultsCount = req->requestedResultsCount;
-  req->requestedResultsCount = MAX(knn_ctx->knn.k, requestedResultsCount);
-  if(array_len(req->specialCases) > 1) {
-    specialCaseCtx* optionalSortCtx = req->specialCases[0];
-    if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
-      if ((req->sortAscending || req->limit == 0) &&
-          strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0) {
-        // Ascending distance already selects nearest K. Count-only requests need no selection.
-        knn_ctx->knn.shouldSort = false;
-        // The requested results should be at most K
-        req->requestedResultsCount = MIN(knn_ctx->knn.k, requestedResultsCount);
-      }
-    }
+  req->requestedResultsCount = MAX(knn->k, requestedResultsCount);
+  if (req->sortKey && (req->sortAscending || req->limit == 0) &&
+      strcmp(req->sortKey, knn->fieldName) == 0) {
+    // Ascending distance already selects nearest K. Count-only requests need no selection.
+    knn->shouldSort = false;
+    req->requestedResultsCount = MIN(knn->k, requestedResultsCount);
   }
 }
 
-// Prepare a TOPK special case, return a context with the required KNN fields if query is
+// Return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status) {
+knnContext *prepareOptionalKnnContext(const char *query_string, size_t query_len, dict *params,
+                                      uint dialectVersion, QueryError *status) {
   QueryNode* queryNode = NULL;
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
@@ -2303,11 +2275,11 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
-    specialCaseCtx *ctx = SpecialCaseCtx_New();
-    ctx->knn.k = k;
-    ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
-    ctx->knn.queryNode = queryNode;  // take ownership
-    ctx->specialCaseType = SPECIAL_CASE_KNN;
+    knnContext *ctx = rm_calloc(1, sizeof(*ctx));
+    ctx->k = k;
+    ctx->fieldName =
+        queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
+    ctx->queryNode = queryNode;  // take ownership
     return ctx;
   }
 
@@ -2335,7 +2307,8 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   req->base.args.queryOffset = argvOffset++;
   req->limit = 10;
   req->offset = 0;
-  req->specialCases = NULL;
+  req->knn = NULL;
+  req->sortKey = NULL;
   req->requiredFields = NULL;
   req->withSortby = false;
   req->format = QEXEC_FORMAT_DEFAULT;
@@ -2427,7 +2400,6 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   }
   req->requestedResultsCount = req->limit + req->offset;
 
-  // Handle SORTBY special case
   if (AC_IsInitialized(&sortbyArgs) && sortbyArgs.argc >= 1) {
     req->withSortby = true;
     // Get the sort field name
@@ -2435,11 +2407,7 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
     if (!sortKey) {
       return REDISMODULE_ERR;
     }
-    // Create sortby context
-    specialCaseCtx *ctx = SpecialCaseCtx_New();
-    ctx->specialCaseType = SPECIAL_CASE_SORTBY;
-    ctx->sortby.sortKey = rm_strdup(sortKey);
-    ctx->sortby.asc = true;
+    req->sortKey = rm_strdup(sortKey);
     req->sortAscending = true;
 
     // Check for ASC/DESC - the sortbyArgs.objs points to the field name,
@@ -2454,15 +2422,9 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
       size_t orderLen;
       const char *order = RedisModule_StringPtrLen(argv[sortFieldIdx + 1], &orderLen);
       if (orderLen == 4 && !strncasecmp(order, "DESC", 4)) {
-        ctx->sortby.asc = false;
         req->sortAscending = false;
       }
     }
-
-    if (!req->specialCases) {
-      req->specialCases = array_new(specialCaseCtx*, 1);
-    }
-    array_append(req->specialCases, ctx);
   }
 
   // Parse DIALECT
@@ -2487,7 +2449,7 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
           return REDISMODULE_ERR;
         }
       }
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(query, queryLen, params, dialect, status);
+      knnContext *knnCtx = prepareOptionalKnnContext(query, queryLen, params, dialect, status);
       if (params) {
         Param_DictFree(params);
       }
@@ -2495,7 +2457,7 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
         return REDISMODULE_ERR;
       }
       if (knnCtx != NULL) {
-        setKNNSpecialCase(req, knnCtx);
+        setKnnContext(req, knnCtx);
       }
     }
   }
@@ -2507,43 +2469,16 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
     }
   }
 
-  // Populate required fields from special cases (for SORTBY, KNN, etc.)
-  if (req->specialCases) {
-    size_t specialCasesLen = array_len(req->specialCases);
-    size_t offset = 0;
-    for (size_t i = 0; i < specialCasesLen; i++) {
-      specialCaseCtx *ctx = req->specialCases[i];
-      switch (ctx->specialCaseType) {
-        case SPECIAL_CASE_SORTBY: {
-          // Sort by is always the first case.
-          RS_ASSERT(i == 0);
-          if (req->requiredFields == NULL) {
-            req->requiredFields = array_new(const char *, 1);
-          }
-          array_append(req->requiredFields, ctx->sortby.sortKey);
-          // Sortkey is the first required key value to return
-          ctx->sortby.offset = 0;
-          offset++;
-          break;
-        }
-        case SPECIAL_CASE_KNN: {
-          // Before requesting for a new field, see if it is not the sortkey.
-          if (i > 0 && req->specialCases[0]->specialCaseType == SPECIAL_CASE_SORTBY &&
-              !strcmp(req->specialCases[0]->sortby.sortKey, ctx->knn.fieldName)) {
-            // We have already requested this field, we will not append it.
-            ctx->knn.offset = 0;
-            break;
-          }
-          // Fall back into appending new required field.
-          if (req->requiredFields == NULL) {
-            req->requiredFields = array_new(const char *, 1);
-          }
-          array_append(req->requiredFields, ctx->knn.fieldName);
-          ctx->knn.offset = offset++;
-          break;
-        }
-        default:
-          break;
+  // SORTBY precedes a distinct KNN distance in shard replies.
+  if (req->sortKey || req->knn) {
+    req->requiredFields = array_new(const char *, 2);
+    if (req->sortKey) array_append(req->requiredFields, req->sortKey);
+    if (req->knn) {
+      if (req->sortKey && !strcmp(req->sortKey, req->knn->fieldName)) {
+        req->knn->offset = 0;
+      } else {
+        req->knn->offset = array_len(req->requiredFields);
+        array_append(req->requiredFields, req->knn->fieldName);
       }
     }
   }
@@ -3222,25 +3157,14 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 
   cmd->protocol = MRSearchCtx_GetCommandProtocol(req->fanout);
 
-  // Handle KNN with shard ratio optimization for both multi-shard and standalone
-  if (req->specialCases) {
-    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
-      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
-        specialCaseCtx* knnCtx = req->specialCases[i];
-        KNNVectorQuery *knn_query = &knnCtx->knn.queryNode->vn.vq->knn;
-        double ratio = knn_query->shardWindowRatio;
-
-        // Apply optimization only if ratio is valid and < 1.0 (ratio = 1.0 means no optimization)
-        if (ratio < MAX_SHARD_WINDOW_RATIO) {
-          // Calculate effective K based on deployment mode
-          size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
-          // No modification needed if K values are the same
-          if (knn_query->k == effectiveK) break;
-          // Modify the command to replace KNN k (shards will ignore $SHARD_K_RATIO)
-          modifyKNNCommand(cmd, 2 + req->profileArgs, knn_query->k, effectiveK,
-                           knn_query->k_token_pos, knn_query->k_token_len);
-        }
-        break; // Only handle KNN context
+  if (req->knn) {
+    KNNVectorQuery *knn_query = &req->knn->queryNode->vn.vq->knn;
+    double ratio = knn_query->shardWindowRatio;
+    if (ratio < MAX_SHARD_WINDOW_RATIO) {
+      size_t effectiveK = calculateEffectiveK(knn_query->k, ratio, NumShards);
+      if (knn_query->k != effectiveK) {
+        modifyKNNCommand(cmd, 2 + req->profileArgs, knn_query->k, effectiveK,
+                         knn_query->k_token_pos, knn_query->k_token_len);
       }
     }
   }
