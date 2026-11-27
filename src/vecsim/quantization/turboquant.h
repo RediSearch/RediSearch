@@ -10,6 +10,8 @@
 
 #include "vecsim/quantization/turboquant_kernels.h"
 #include "vecsim/quantization/turboquant_rotation.h"
+#include "vecsim/spaces/functions/AVX2_FMA.h"
+#include "vecsim/spaces/functions/AVX512F.h"
 #include "vecsim/utils/vecsim_stl.h"
 #include <algorithm>
 #include <cassert>
@@ -20,6 +22,9 @@
 #include <random>
 #include <span>
 #include <stdexcept>
+#if defined(CPU_FEATURES_ARCH_X86_64)
+#include "cpuinfo_x86.h"
+#endif
 
 namespace vecsim::quantization {
 
@@ -137,6 +142,23 @@ class TurboQuant {
             bits_ == 2 ? turboquant_detail::packedDot<2> : turboquant_detail::packedDot<3>;
         stored_pair_dot_ =
             bits_ == 2 ? turboquant_detail::packedPairDot<2> : turboquant_detail::packedPairDot<3>;
+#if defined(CPU_FEATURES_ARCH_X86_64)
+        [[maybe_unused]] const auto features = cpu_features::GetX86Info().features;
+#ifdef OPT_AVX512F
+        if (features.avx512f) {
+            packed_dot_ = spaces::Choose_TQ_FP32_IP_implementation_AVX512F(bits_);
+            stored_pair_dot_ = spaces::Choose_TQ_TQ_IP_implementation_AVX512F(bits_);
+            return;
+        }
+#endif
+#ifdef OPT_AVX2_FMA
+        if (features.avx2 && features.fma3) {
+            packed_dot_ = spaces::Choose_TQ_FP32_IP_implementation_AVX2_FMA(bits_);
+            stored_pair_dot_ = spaces::Choose_TQ_TQ_IP_implementation_AVX2_FMA(bits_);
+            return;
+        }
+#endif
+#endif
 #if defined(CPU_FEATURES_ARCH_AARCH64) && defined(__ARM_NEON)
         if (cpu_features::GetAarch64Info().features.asimd) {
             packed_dot_ = bits_ == 2 ? turboquant_detail::packedDotNEON<2>
