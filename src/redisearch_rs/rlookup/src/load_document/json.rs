@@ -17,7 +17,7 @@ use crate::{
 use lending_iterator::LendingIterator;
 use redis_json_api::{JsonPath, JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::ptr::{self, NonNull};
 use value::{SharedValue, Value};
 
@@ -27,15 +27,32 @@ enum CachedJsonPath {
     Broken,
     DocumentKey,
     Path(JsonPath),
+    StringPath(CString),
 }
 
-/// Owns the compiled [`JsonPath`]s for one load operation, in field-load order.
+impl CachedJsonPath {
+    fn evaluate<'a>(
+        &'a self,
+        value: &'a JsonValueRef<'_>,
+    ) -> Option<redis_json_api::ResultsIter<'a>> {
+        match self {
+            Self::Path(path) => {
+                // SAFETY: the borrow of the cache keeps the compiled path alive through iteration.
+                unsafe { value.get_with_path(path) }
+            }
+            Self::StringPath(path) => value.get(path),
+            Self::Broken | Self::DocumentKey => None,
+        }
+    }
+}
+
+/// Owns compiled [`JsonPath`]s or fallback strings for one load operation, in field-load order.
 pub struct JsonPathCache {
     paths: Vec<CachedJsonPath>,
 }
 
 impl JsonPathCache {
-    /// Classifies each field as a compiled [`JsonPath`], a document key, or a broken path.
+    /// Classifies fields and compiles their paths unless built with the legacy API.
     ///
     /// # Safety
     ///
@@ -50,6 +67,9 @@ impl JsonPathCache {
             .map(|path| match path {
                 Some(path) if path == UNDERSCORE_KEY => CachedJsonPath::DocumentKey,
                 Some(path) if path.to_bytes().starts_with(b"$") => {
+                    if redis_json_api::LEGACY_API {
+                        return CachedJsonPath::StringPath(path.to_owned());
+                    }
                     // SAFETY: the caller keeps the path bytes alive throughout the cache's lifetime.
                     unsafe { JsonPath::parse_no_error_msg(path, api) }
                         .map_or(CachedJsonPath::Broken, CachedJsonPath::Path)
@@ -107,11 +127,11 @@ impl<'a> JsonDocumentFormat<'a> {
 
     fn load_root(&self, key_name: &RedisString) -> Result<SharedValue, LoadAllError> {
         let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-        let CachedJsonPath::Path(path) = self.path_cache.get(0) else {
-            return Err(LoadAllError::JsonRootMissing);
-        };
-        // SAFETY: the cache owns the path throughout iteration.
-        let iter = unsafe { json_root.get_with_path(path) }.ok_or(LoadAllError::JsonRootMissing)?;
+        let iter = self
+            .path_cache
+            .get(0)
+            .evaluate(&json_root)
+            .ok_or(LoadAllError::JsonRootMissing)?;
         // Unlike per-field loading, an absent root is a document-level failure.
         json_iter_to_value(self.ctx, iter, self.api_version)?.ok_or(LoadAllError::JsonRootMissing)
     }
@@ -199,9 +219,8 @@ impl FieldLoader for JsonFieldLoader<'_> {
             CachedJsonPath::DocumentKey => {
                 dst_row.write_key(key, SharedValue::new_string(self.key_name.to_vec()));
             }
-            CachedJsonPath::Path(path) => {
-                // SAFETY: the cache owns the path throughout iteration.
-                if let Some(iter) = unsafe { self.value.get_with_path(path) }
+            path @ (CachedJsonPath::Path(_) | CachedJsonPath::StringPath(_)) => {
+                if let Some(iter) = path.evaluate(&self.value)
                     && let Ok(Some(value)) = json_iter_to_value(self.ctx, iter, self.api_version)
                 {
                     dst_row.write_key(key, value);

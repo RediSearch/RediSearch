@@ -45,6 +45,9 @@ pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER.cast_signed();
 /// Latest API version (V10).
 pub const LATEST_API_VERSION: i32 = 10;
 
+/// Whether this build accepts providers below [`LATEST_API_VERSION`].
+pub const LEGACY_API: bool = MIN_API_VERSION < LATEST_API_VERSION;
+
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";
 
