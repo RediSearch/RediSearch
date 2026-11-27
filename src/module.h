@@ -102,12 +102,11 @@ static inline bool IS_SST_RDB_LOADING(RedisModuleCtx *ctx) {
 // Forward declaration of searchReducerCtx
 struct searchReducerCtx;
 
-typedef struct {
+typedef struct searchRequestCtx {
   QueryRequest base;
 
-  /* Owns the initial reference to the shared context. Dispatch, fanout and reducer retain it
-   * separately because request cleanup after UnblockClient can precede their final release. */
-  struct MRCtx *mrctx;
+  struct MRSearchCtx *fanout;
+  struct RPSearchReply *replySource;
   /* Owns a weak reference so queued dispatch can promote the original index for prefix
    * preparation without keeping a dropped index alive. */
   WeakRef spec_ref;
