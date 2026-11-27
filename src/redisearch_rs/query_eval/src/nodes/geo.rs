@@ -15,7 +15,11 @@ use query_error::QueryErrorCode;
 use rqe_iterators::build_geo_range_iterator;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext};
+use crate::{
+    Config, Evaluated, QueryEvalContext,
+    constant_leaf_bound::ConstantLeaf,
+    disk::{constant_bound_for, with_constant_bound},
+};
 
 /// `QN_GEO` — a geo-radius filter on a geo field.
 ///
@@ -72,6 +76,7 @@ pub(crate) fn eval<'index>(
     // (`QueryEvalContext` invariants 1/2). `SearchDiskHandle::new` yields `None`
     // for the null (in-memory) case.
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
+        let max_score = constant_bound_for(ctx, config, &disk, ConstantLeaf::Numeric);
         let view = NonNull::new(ctx.sctx().diskQueryView)
             .expect("query.sctx.diskQueryView is null for a disk-backed geo query");
         // SAFETY: `gf` is valid and, during single-threaded evaluation,
@@ -84,7 +89,7 @@ pub(crate) fn eval<'index>(
         // a disk index is in use; `field_index` belongs to the geo node's field
         // spec; `view` is the disk read view taken at query start.
         return match unsafe { disk.new_geo_iterator(gf_ref, field_index, view) } {
-            Ok(it) => Some(Evaluated::RustLeaf(it)),
+            Ok(it) => Some(Evaluated::RustLeaf(with_constant_bound(it, max_score))),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
                 // error rather than silently returning empty results.

@@ -37,6 +37,7 @@ pub use query_types::{expanders, scorers};
 use scorers::{BuiltInScorer, RequestedScorer};
 
 mod config;
+pub mod constant_leaf_bound;
 mod disk;
 mod expansion;
 mod nodes;

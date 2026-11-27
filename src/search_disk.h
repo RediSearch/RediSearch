@@ -267,6 +267,13 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
                           size_t offsetsLen);
 
 /**
+ * @brief At least the score of every document indexed so far; see `IndexDiskAPI.maxDocScore`.
+ *
+ * @param index Pointer to the index
+ */
+double SearchDisk_GetMaxDocScore(RedisSearchDiskIndexSpec *index);
+
+/**
  * @brief Index multiple tag values for a document
  *
  * @param ctx Redis module context for BigModule APIs

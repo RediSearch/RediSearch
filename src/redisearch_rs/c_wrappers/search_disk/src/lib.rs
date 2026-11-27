@@ -54,6 +54,15 @@ impl SearchDiskHandle {
         unsafe { ffi::SearchDisk_GetMaxDocId(self.0.as_ptr()) }
     }
 
+    /// At least the score of every document indexed so far, or [`f64::INFINITY`] when the index
+    /// cannot tell. It never decreases while the index is open.
+    pub fn max_doc_score(&self) -> f64 {
+        // SAFETY: by the invariant established in `new`, the wrapped pointer is
+        // a valid `RedisSearchDiskIndexSpec`, which is exactly what
+        // `SearchDisk_GetMaxDocScore` requires.
+        unsafe { ffi::SearchDisk_GetMaxDocScore(self.0.as_ptr()) }
+    }
+
     /// Build a numeric filter iterator backed by this on-disk index.
     ///
     /// Consumes the handle and delegates to the registered enterprise numeric

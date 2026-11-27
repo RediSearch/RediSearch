@@ -37,6 +37,7 @@ pub mod boxed;
 pub mod c2rust;
 mod composite;
 pub mod config;
+pub mod constant_bound;
 pub mod deferred;
 pub mod empty;
 pub mod expiration_checker;
@@ -73,6 +74,7 @@ pub use boxed::{
     TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
+pub use constant_bound::ConstantBound;
 pub use empty::Empty;
 pub use expiration_checker::{ExpirationChecker, FieldExpirationChecker, NoOpChecker};
 pub use geo_shape::{GeoShape, MemTracker, NoTracker};
