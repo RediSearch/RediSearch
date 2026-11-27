@@ -2302,6 +2302,7 @@ dependencies = [
  "syn 2.0.118",
  "term_dictionary_ffi",
  "term_suffix_index_ffi",
+ "toksep_ffi",
  "toml",
  "trie_rdb_ffi",
  "triemap_ffi",
@@ -2642,6 +2643,7 @@ dependencies = [
  "query_error",
  "redis-module",
  "redis_mock",
+ "redis_reply",
  "rlookup",
  "rqe_core",
  "rqe_iterators",
@@ -2682,6 +2684,7 @@ dependencies = [
  "slots_tracker_ffi",
  "sorting_vector_ffi",
  "sparse_vector_index_ffi",
+ "toksep_ffi",
  "triemap_ffi",
  "ttl_table_ffi",
  "types_ffi",
@@ -3416,6 +3419,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "toksep"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "toksep_bencher"
+version = "0.0.1"
+dependencies = [
+ "criterion",
+ "toksep",
+ "workspace_hack",
+]
+
+[[package]]
+name = "toksep_ffi"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "toksep",
+ "workspace_hack",
+]
+
+[[package]]
 name = "toml"
 version = "0.9.12+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3462,6 +3491,7 @@ dependencies = [
  "ffi",
  "index_result",
  "index_spec",
+ "insta",
  "inverted_index",
  "itertools 0.15.0",
  "redis_mock",

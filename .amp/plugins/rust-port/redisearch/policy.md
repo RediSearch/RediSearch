@@ -1,16 +1,38 @@
 # Port worker policy: RediSearch
 
-You port one C module to Rust as the two stacked PRs `port-c-module` describes.
+You port one C module to Rust as three stacked PRs: one that pins the C's behavior with flow
+tests, then the two `port-c-module` describes.
 
-| Stage  | Deliverable                                | Published as            |
-| ------ | ------------------------------------------ | ----------------------- |
-| `rust` | The Rust PR of `port-c-module`'s _Two PRs_ | PR into the base branch |
-| `swap` | The swap PR of `port-c-module`'s _Two PRs_ | PR stacked on `rust`    |
+| Stage      | Deliverable                                                         | Published as             |
+| ---------- | ------------------------------------------------------------------- | ------------------------ |
+| `coverage` | Flow tests for the module's coverage gaps; assertions for dead code | PR into the base branch  |
+| `rust`     | The Rust PR of `port-c-module`'s _Two PRs_                          | PR stacked on `coverage` |
+| `swap`     | The swap PR of `port-c-module`'s _Two PRs_                          | PR stacked on `rust`     |
 
-How to port is in the skills: read `port-c-module`, `rust-review`, `rust-docs-guidelines` and
-`rust-tests-guidelines` before planning. Load only these four, and only once each, even after a
-compaction: the plugin and your checks replace `open-pr`, `adversarial-review`, `verify`,
-`build`, `lint` and the `run-*` skills.
+How to port is in the skills: read `port-c-module`, `rust-review`, `rust-docs-guidelines`,
+`rust-tests-guidelines`, `check-flow-coverage`, `improve-flow-coverage` and `write-flow-tests`
+before planning. Load only these seven, and only once each, even after a compaction: the plugin
+and your checks replace `open-pr`, `adversarial-review`, `verify`, `build`, `lint` and the
+`run-*` skills.
+
+## Coverage before planning
+
+Before calling `port_plan`, run `check-flow-coverage` on the module's `.c` files. Its gaps decide
+the `coverage` stage, the first: it follows `improve-flow-coverage` without asking which gaps to
+address. Every testable gap gets a flow test asserting what the command returns, and every
+unreachable defensive path an assertion, or an LCOV exclusion where it frees resources.
+Disk-only and API-only paths stay as they are, and so does code only a cluster or the
+coordinator runs: the coverage measures standalone runs, and an assertion compiles out of release
+builds, so asserting a path a cluster reaches breaks it there. The stage changes no reachable
+behavior: it adds tests, assertions and exclusions, and nothing else. Its claim's `test` check
+replaces the skill's verification step: the plugin reports the module's coverage on the PR and
+fails the check when the run wrote no fresh coverage of a module source.
+
+Each flow test the stage adds pins C behavior the Rust must keep, so cite it in `contract` with
+stage `coverage`; the `rust` and `swap` claims then run it too. A divergence's test shows the
+Rust's behavior, so cite it at `rust` or later. The `coverage` PR opens only when the stage
+improves coverage: when the module has no gap to close, cite no test at `coverage` and claim the
+base revision itself. The stage is then skipped, and `rust` opens straight into the base branch.
 
 ## The plan
 
@@ -18,9 +40,18 @@ compaction: the plugin and your checks replace `open-pr`, `adversarial-review`, 
 states the C behavior in `c` and the Rust behavior in `rust`. Two fields are a port's own:
 
 - **`module`:** the C files being ported, sources and headers; `swap` deletes them.
-- **`symbols`:** every function the module's headers declare, with the Rust item that replaces
-  it, which `swap` exports under the C function's own name. The plugin reads the headers on the
-  base branch and rejects a plan that leaves one out.
+- **`symbols`:** every function the module's headers declare, with either the `rust` item that
+  replaces it or a `retired` reason when the swap removes the function. A replacement is
+  exported under the C function's own name; a retired function must not be declared in a
+  generated header. The plugin reads the headers on the base branch and rejects a plan that
+  leaves one out. Retire test-only APIs rather than adding exports for them, and migrate any
+  required test coverage to Rust.
+- **`replacedTests`:** every C and C++ test the swap deletes, as its `path` and `name`, with `by`:
+  the `path` and `name` of a test the contract or divergences cite that covers it instead. A
+  gtest is named `Suite.name`, a C test by the function its `TESTFUNC` or `MU_RUN_TEST`
+  registers. The plugin rejects a test the base branch does not define, one outside the swap's
+  `paths`, and a `by` the plan does not cite. Only the swap deletes C tests, and only those it
+  lists. Leave it empty when no C test goes.
 
 The plugin rejects a test named for its artifact (`contract`, `ABI`, `boundary`, `compat`).
 Name each crate a stage changes in its `paths`, files or directories that hold at most one
@@ -38,7 +69,7 @@ ticked.
   "contract": [
     {
       "behavior": "An unknown unit fails with `Unknown distance unit`.",
-      "tests": [{ "path": "tests/pytests/test_geo.py", "name": "testUnits", "stage": "rust" }],
+      "tests": [{ "path": "tests/pytests/test_geo.py", "name": "testUnits", "stage": "coverage" }],
     },
   ],
   "divergences": [
@@ -51,9 +82,23 @@ ticked.
     },
   ],
   "symbols": [{ "c": "GeoFilter_Validate", "rust": "geo::RadiusFilter::new" }],
+  "replacedTests": [
+    {
+      "path": "tests/cpptests/test_cpp_geo.cpp", // in the swap's paths
+      "name": "GeoTest.units",
+      "by": { "path": "tests/pytests/test_geo.py", "name": "testUnits" },
+    },
+  ],
   "structure": "shared structure, dependencies, and the handoff between the stages",
   "interfaces": "names, types, ownership and signatures swap depends on",
   "stages": {
+    "coverage": {
+      "deliverable": "...",
+      "paths": ["src/geo_index.c", "tests/pytests/test_geo.py"],
+      "checks": [{ "kind": "test", "command": "./build.sh RUN_PYTEST COV=1" }],
+      "title": "...",
+      "body": "...",
+    },
     "rust": {
       "deliverable": "...",
       "paths": [
@@ -81,7 +126,8 @@ ticked.
       "body": "...",
     },
     "swap": {
-      /* checks: test, miri, lint, and mutants if it adds Rust that is not an export */
+      /* paths: the FFI crate and the files of replacedTests; checks: test, miri, lint, and
+         mutants if it adds Rust that is not an export */
     },
   },
 }
@@ -93,8 +139,11 @@ Make the checks catch what CI would, as `port-c-module`'s _Verify as CI Does_ de
 `CLAIM_BASE` and `CLAIM_CANDIDATE` as the mutants diff range.
 
 - **`test`:** the Rust tests of the crates you touch, and the Python and C tests the contract
-  names.
-- **`miri`** (every stage): the tests of every crate the stage adds or changes. A test nextest
+  names. In `coverage`, every flow test with coverage, `./build.sh RUN_PYTEST COV=1` without
+  `TEST=` or `QUICK=1`, since a subset reports gaps the suite does not have; add
+  `./build.sh RUN_UNIT_TESTS DEBUG=1` when an assertion guards code the C unit tests reach, since
+  only a debug build compiles assertions in. `coverage` has no other check.
+- **`miri`** (`rust` and `swap`): the tests of every crate the stage adds or changes. A test nextest
   reports as `SLOW` fails the check.
 - **`mutants`** (`rust`, and `swap` if it adds Rust that is not an `unsafe extern` export). A
   run that finds no mutants fails, because it covers nothing.
@@ -108,9 +157,10 @@ Make the checks catch what CI would, as `port-c-module`'s _Verify as CI Does_ de
 ## House rules and the swap
 
 The house rules are `rust-review`'s, and a new crate needs `port-c-module`'s lint block. A swap
-claim is rejected until it meets the plan's `symbols`: every Rust replacement defined, every C
-function exported under its own name in a generated header, every `module` file deleted, and no
-C ABI export left that only tests call.
+claim is rejected until it meets the plan's `symbols` and `replacedTests`: every Rust
+replacement defined and exported under its C name in a generated header, every retired function
+absent from generated headers, every `module` file deleted, every replaced test and no other C
+test deleted, and no C ABI export left that only tests call.
 
 ## CI
 

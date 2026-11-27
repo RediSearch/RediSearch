@@ -63,6 +63,15 @@ where
     state: WrapperState<'index, I>,
 }
 
+/// Borrow of whichever form of the iterator a [`RQEIteratorWrapper`] currently
+/// holds, returned by [`RQEIteratorWrapper::state`].
+pub(crate) enum InnerState<'a, A, S> {
+    /// The wrapper holds the active iterator, valid for reads and positioning.
+    Active(&'a A),
+    /// The wrapper holds the suspended iterator, which holds no index references.
+    Suspended(&'a S),
+}
+
 /// Whether an [`RQEIteratorWrapper`]'s iterator is active or suspended.
 enum WrapperState<'index, I>
 where
@@ -138,6 +147,22 @@ where
     /// Mutably borrow the iterator. Panics if it is suspended.
     pub fn inner_mut(&mut self) -> &mut I {
         self.state.active_mut()
+    }
+
+    /// Borrow whichever form of the iterator is live, for callbacks C may invoke
+    /// while the iterator is suspended, such as `FT.PROFILE` printing.
+    ///
+    /// Only read query-owned data through the suspended form: it holds no index
+    /// references. Reading and positioning go through [`inner_mut`](Self::inner_mut),
+    /// which panics on a suspended wrapper.
+    pub(crate) fn state(&self) -> InnerState<'_, I, I::Suspended> {
+        match &self.state {
+            WrapperState::Active(active) => InnerState::Active(active),
+            WrapperState::Suspended(suspended) => InnerState::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
     }
 
     /// Point the header's `current` at the iterator's
@@ -235,6 +260,7 @@ where
                 CurrentMaxScore: Some(current_max_score::<I>),
                 CurrentBlockBound: Some(current_block_bound::<I>),
                 ReadWithThreshold: Some(read_with_threshold::<I>),
+                IntersectionSortWeight: Some(intersection_sort_weight::<I>),
             },
             state: WrapperState::Active(Box::new(inner)),
         });
@@ -473,8 +499,7 @@ pub fn mock_revalidate_timeout() -> bool {
     MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
 }
 
-/// `Suspend` C callback, called right before the spec read lock is released. Panics if the
-/// iterator is already suspended.
+/// `Suspend` C callback, called right before the spec read lock is released.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -483,6 +508,10 @@ where
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
     // an iterator it owns. 3. C frees the iterator before the index data it borrows.
     let wrapper = unsafe { wrapper_from_callback::<'_, 'index, I>(base) };
+    // An emptied wrapper still panics in `take_active`.
+    if matches!(wrapper.state, WrapperState::Suspended(_)) {
+        return;
+    }
     let active = wrapper.state.take_active();
     let suspended = <I as RQEIteratorBoxed>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
@@ -578,6 +607,9 @@ where
     wrapper.sync_header_from_active();
 }
 
+/// `NumEstimated` C callback. Returns the inner iterator's estimate in whichever
+/// typestate it is in, so FT.PROFILE introspection works after the iterator has
+/// been suspended at the unlock site.
 extern "C" fn num_estimated<'index, I>(base: *const QueryIterator) -> usize
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -590,7 +622,10 @@ where
             NonNull::new(base.cast_mut()).expect("`base` must not be null"),
         )
     };
-    wrapper.state.active_ref().num_estimated()
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_estimated(),
+        InnerState::Suspended(it) => it.num_estimated(),
+    }
 }
 
 extern "C" fn reports_score_bounds<'index, I: RQEIteratorBoxed<'index> + 'index>(
@@ -619,6 +654,26 @@ extern "C" fn current_max_score<'index, I: RQEIteratorBoxed<'index> + 'index>(
         )
     };
     wrapper.state.active_ref().current_max_score()
+}
+
+/// Panics while the iterator is suspended, like [`num_estimated`]: an intersection reads its
+/// children's weights only while it is being built, and a child being built into a tree is active.
+extern "C" fn intersection_sort_weight<'index, I: RQEIteratorBoxed<'index> + 'index>(
+    base: *const QueryIterator,
+    prioritize_union_children: bool,
+) -> f64 {
+    debug_assert!(base.is_aligned());
+    // SAFETY: 1. and 2. by invariant 1. of [`RQEIteratorWrapper`]. 3. C frees the iterator
+    // before the index data it borrows.
+    let wrapper = unsafe {
+        RQEIteratorWrapper::<'index, I>::ref_from_header_ptr(
+            NonNull::new(base.cast_mut()).expect("`base` must not be null"),
+        )
+    };
+    wrapper
+        .state
+        .active_ref()
+        .intersection_sort_weight(prioritize_union_children)
 }
 
 extern "C" fn current_block_bound<'index, I: RQEIteratorBoxed<'index> + 'index>(
@@ -740,7 +795,12 @@ unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIteratorBoxed<'i
     let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
     // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
     let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
-    wrapper.inner().print_profile(map, ctx);
+    // `FT.PROFILE` prints the tree after the root iterator was suspended at the
+    // unlock site.
+    match wrapper.state() {
+        InnerState::Active(it) => it.print_profile(map, ctx),
+        InnerState::Suspended(it) => it.print_profile(map, ctx),
+    }
 }
 
 /// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.

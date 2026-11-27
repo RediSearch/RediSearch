@@ -172,6 +172,12 @@ export const stageOrder = (job: Job): Stage[] => Object.keys(job.plan.stages);
 export const previousStage = (job: Job, stage: Stage): Stage | undefined =>
   stageOrder(job)[stageOrder(job).indexOf(stage) - 1];
 
+/** Whether the stage was admitted with nothing to change, as its base. */
+export function unchanged(job: Job, stage: Stage): boolean {
+  const admission = job.admitted[stage];
+  return !!admission && admission.candidate === admission.base;
+}
+
 /** A stage stays admitted while the plan and the admitted stage it was built on are unchanged. */
 export function isAdmitted(job: Job, stage: Stage): boolean {
   const admission = job.admitted[stage];

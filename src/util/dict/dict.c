@@ -63,6 +63,7 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "obfuscation/hidden.h"
+#include "buffer/buffer.h"
 
 uint64_t stringsHashFunction(const void *key){
     return RS_dictGenHashFunction(key, strlen((char*)key));
@@ -128,6 +129,25 @@ void* hiddenNameKeyDup(void *privdata, const void *key){
 void* redisStringsKeyDup(void *privdata, const void *key){
   const RedisModuleString* keyStr = key;
   return (void*)RedisModule_HoldString(NULL, (RedisModuleString*)keyStr);
+}
+
+uint64_t rstringHashFunction(const void *key) {
+  const RString *str = key;
+  return dictGenHashFunction(str->s, str->n);
+}
+
+int rstringKeyCompare(void *privdata, const void *left, const void *right) {
+  const RString *a = left, *b = right;
+  return a->n == b->n && memcmp(a->s, b->s, a->n) == 0;
+}
+
+void *rstringKeyDup(void *privdata, const void *key) {
+  const RString *src = key;
+  RString *copy = rm_malloc(sizeof(*copy) + src->n);
+  char *bytes = (char *)(copy + 1);
+  memcpy(bytes, src->s, src->n);
+  *copy = (RString){.s = bytes, .n = src->n};
+  return copy;
 }
 
 static void stringsListValDestructor(void *privdata, void *val) {
