@@ -850,7 +850,7 @@ TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
 }
 
 TEST_F(DiskSlotTrimTest, CompactAllRequiresSuccessfulGcAndReportsIncompleteCompaction) {
-  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *) {
+  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *, bool) {
     return ++state.nonGcCompactions == 2;
   };
   auto invoke = [&] {
@@ -1512,7 +1512,7 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
   static RedisModuleCmdFunc reply;
   static void *replyData;
   static std::string replyText;
-  static bool compactionAccepted, backendPaused;
+  static bool compactionAccepted, backendPaused, docTableCompacted, forwardedDocTableCompacted;
   static size_t gcCalls, compactions;
   struct RestoreHooks {
     decltype(RedisModule_CreateSubcommand) create = RedisModule_CreateSubcommand;
@@ -1543,6 +1543,7 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
     }
   } restore;
   gcCalls = compactions = 0;
+  docTableCompacted = forwardedDocTableCompacted = false;
   replyData = nullptr;
   RedisModule_GetContextFlagsAll = [] { return 0; };
   RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
@@ -1569,12 +1570,14 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
     return REDISMODULE_OK;
   };
   RedisModule_ReplyWithError = RedisModule_ReplyWithSimpleString;
-  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *) {
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     ++gcCalls;
+    stats->doc_table_compacted = docTableCompacted;
     return DISK_GC_RUN_OK;
   };
-  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *) {
+  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *, bool gcCompactedDocTable) {
     ++compactions;
+    forwardedDocTableCompacted = gcCompactedDocTable;
     return compactionAccepted;
   };
   api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return backendPaused; };
@@ -1608,12 +1611,16 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
     return replyText;
   };
   compactionAccepted = true;
+  docTableCompacted = true;
   EXPECT_EQ(invoke(), "DONE");
   EXPECT_EQ(gcCalls, 1u);
   EXPECT_EQ(compactions, 1u);
+  EXPECT_TRUE(forwardedDocTableCompacted);
   compactionAccepted = false;
+  docTableCompacted = false;
   EXPECT_NE(invoke().find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(compactions, 2u);
+  EXPECT_FALSE(forwardedDocTableCompacted);
   EXPECT_NE(invoke(false, true).find("COMPACT_ALL did not complete"), std::string::npos);
   EXPECT_EQ(gcCalls, 2u);
   EXPECT_EQ(compactions, 2u);
