@@ -1065,3 +1065,11 @@ TEST_F(FP16TieredTest, getElementNeighbors) {
     HNSWParams params = {.dim = 4, .M = 20};
     get_element_neighbors(params);
 }
+
+// The HNSW neighbor scan returns exactly the brute-force results; see the helper for coverage.
+TEST(FP16NeighborScanTest, matchesBruteForce) {
+    runNeighborScanMatchesBruteForceTest<float16, float>(VecSimType_FLOAT16, [](std::mt19937 &gen) {
+        return vecsim_types::FP32_to_FP16(
+            float(std::uniform_real_distribution<double>(-1.0, 1.0)(gen)));
+    });
+}
