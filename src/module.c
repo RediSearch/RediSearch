@@ -379,7 +379,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryAST qast = {0};
   int distanceArgPos = 0;
   long long distance = DEFAULT_LEV_DISTANCE;
-  int nextPos = 0;
+  int termsArgPos = argvOffset;
   bool fullScoreInfo = false;
   SpellCheckCtx scCtx;
 
@@ -408,7 +408,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   includeDict = array_new(const char *, DICT_INITIAL_SIZE);
   excludeDict = array_new(const char *, DICT_INITIAL_SIZE);
 
-  if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, 0))) {
+  if ((distanceArgPos = RMUtil_ArgExists("DISTANCE", argv, argc, argvOffset))) {
     if (distanceArgPos + 1 >= argc) {
       RedisModule_ReplyWithError(ctx, "DISTANCE arg is given but no DISTANCE comes after");
       goto end;
@@ -422,13 +422,13 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }  // LCOV_EXCL_LINE
 
-  while ((nextPos = RMUtil_ArgExists("TERMS", argv, argc, nextPos + 1))) {
-    if (nextPos + 2 >= argc) {
+  while ((termsArgPos = RMUtil_ArgExists("TERMS", argv, argc, termsArgPos))) {
+    if (termsArgPos + 2 >= argc) {
       RedisModule_ReplyWithError(ctx, "TERM arg is given but no TERM params comes after");
       goto end;
     }
-    const char *operation = RedisModule_StringPtrLen(argv[nextPos + 1], NULL);
-    const char *dictName = RedisModule_StringPtrLen(argv[nextPos + 2], NULL);
+    const char *operation = RedisModule_StringPtrLen(argv[termsArgPos + 1], NULL);
+    const char *dictName = RedisModule_StringPtrLen(argv[termsArgPos + 2], NULL);
     if (strcasecmp(operation, "INCLUDE") == 0) {
       array_append(includeDict, (char *)dictName);
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
@@ -437,12 +437,13 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RedisModule_ReplyWithError(ctx, "bad format, exclude/include operation was not given");
       goto end;
     }
+    ++termsArgPos;
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
 
-  if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
+  if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, argvOffset)) {
     fullScoreInfo = true;
   }
 

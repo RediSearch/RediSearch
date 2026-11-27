@@ -75,6 +75,28 @@ def testSpellCheckOnExistingTerm(env):
     waitForIndex(env, 'idx')
     env.expect('ft.spellcheck', 'idx', 'name').equal([])
 
+def testSpellCheckOptionKeywordsAsQuery(env):
+    """Option keywords in the query are spellchecked in standalone and on shards."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT', 'NOSTEM').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', '{spellcheck}:1', 'body', 'distance terms fullscoreinfo')
+
+    for query in ('distance', 'DISTANCE', 'terms', 'fullscoreinfo'):
+        env.expect('FT.SPELLCHECK', 'idx', query).equal([])
+    env.expect('FT.SPELLCHECK', 'idx', 'distance', 'DISTANCE', 2).equal([])
+    env.expect('FT.SPELLCHECK', 'idx', 'distance', 'DISTANCE').error().contains(
+        'DISTANCE arg is given but no DISTANCE comes after')
+    env.expect('FT.SPELLCHECK', 'idx', 'distan', 'DISTANCE', 2).equal(
+        [['TERM', 'distan', [['1', 'distance']]]])
+
+def testSpellCheckOptionKeywordAsIndex(env):
+    """An index named after an option is still a positional argument."""
+    env.expect('FT.CREATE', 'distance', 'ON', 'HASH', 'SCHEMA', 'body', 'TEXT').ok()
+    with env.getClusterConnectionIfNeeded() as conn:
+        conn.execute_command('HSET', '{spellcheck}:1', 'body', 'hello')
+
+    env.expect('FT.SPELLCHECK', 'distance', 'hello').equal([])
+
 def testSpellCheckWithIncludeDict(env):
     env.cmd('ft.dictadd', 'dict', 'name3', 'name4', 'name5')
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'name', 'TEXT', 'body', 'TEXT')
