@@ -277,7 +277,9 @@ static void MRCommand_appendVsim(MRCommand *xcmd, RedisModuleString **argv,
 // coordinator's resolved scoring parameters. All scoring arguments are emitted
 // explicitly with a positive, even argument count and YIELD_SCORE_AS (when
 // present) counted inside the block, so shards of any version parse it and never
-// fall back on their own (possibly different) defaults.
+// fall back on their own (possibly different) defaults. Fusion runs on the
+// coordinator, so RRF WEIGHTS are not forwarded, and two LINEAR WEIGHTS go out as
+// ALPHA and BETA: a shard without WEIGHTS support accepts both.
 static void MRCommand_appendCombine(MRCommand *xcmd, const HybridCombineWireParams *cp) {
   RS_ASSERT(cp != NULL);
   if (!cp->scoringCtx) {

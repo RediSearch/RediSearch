@@ -8,11 +8,13 @@
 */
 #include <string.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <strings.h>
 
 #include "hybrid_callbacks.h"
 #include "hybrid/hybrid_scoring.h"
+#include "config.h"
 #include "query_error_ffi.h"
 #include "util/arg_parser.h"
 #include "hybrid/parse/hybrid_optional_args.h"
@@ -21,6 +23,17 @@
 #include "rmalloc.h"
 #include "rmutil/args.h"
 #include "search_options.h"
+
+static bool sliceHasWeights(const ArgsCursor *slice) {
+  ArgsCursor rest = *slice;
+  while (!AC_IsAtEnd(&rest)) {
+    if (AC_AdvanceIfMatch(&rest, "WEIGHTS")) {
+      return true;
+    }
+    AC_Advance(&rest);
+  }
+  return false;
+}
 
 static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const char *clause, QueryError* status) {
   unsigned int count = 0;
@@ -31,18 +44,57 @@ static inline bool getVarArgsForClause(ArgsCursor* ac, ArgsCursor* target, const
   } else if (rc != AC_OK) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid %s argument count, error: %s", clause, AC_Strerror(rc));
     return false;
-  } else if (count % 2 != 0) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
-    return false;
   }
 
   rc = AC_GetSlice(ac, target, count);
+  const bool hasWeights = rc == AC_OK && sliceHasWeights(target);
+  // WEIGHTS is unstable surface. Checked here, before anything else in the block is parsed, so a
+  // request that uses it gets the gate's error whatever else is wrong with it, on every node.
+  if (hasWeights && !RSGlobalConfig.enableUnstableFeatures) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "`WEIGHTS` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. "
+                        "Enable it with `CONFIG SET search-enable-unstable-features yes`");
+    return false;
+  }
+  // Every argument is a key/value pair except `WEIGHTS <n> <w1> ... <wn>`, which takes n + 2.
+  if (count % 2 != 0 && !hasWeights) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "%s expects pairs of key value arguments, argument count must be an even number", clause);
+    return false;
+  }
   if (rc == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %u but provided only %u", clause, count, AC_NumRemaining(ac));
     return false;
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Bad arguments", " in %s: %s", clause, AC_Strerror(rc));
     return false;
+  }
+  return true;
+}
+
+typedef enum { WEIGHTS_ANY_SIGN, WEIGHTS_NON_NEGATIVE } WeightsSign;
+
+// Read `WEIGHTS <n> <w1> ... <wn>`, already sliced to its n values, into `out`: one finite weight
+// per subquery, in command order. getVarArgsForClause has already applied the unstable gate.
+static bool parseWeights(ArgsCursor *weights, double *out, size_t numSubqueries, WeightsSign sign,
+                         QueryError *status) {
+  const size_t given = AC_NumRemaining(weights);
+  if (given != numSubqueries) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "WEIGHTS expects one weight per subquery: %zu given, %zu "
+                                     "expected", given, numSubqueries);
+    return false;
+  }
+  for (size_t i = 0; i < numSubqueries; i++) {
+    if (AC_GetDouble(weights, &out[i], 0) != AC_OK || !isfinite(out[i])) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Invalid WEIGHTS value: expected a finite number");
+      return false;
+    }
+    if (sign == WEIGHTS_NON_NEGATIVE && out[i] < 0) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Invalid WEIGHTS value: RRF weights cannot be negative");
+      return false;
+    }
   }
   return true;
 }
@@ -71,6 +123,8 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
   // Define the required arguments
   ArgParser_AddDouble(parser, "ALPHA", "Alpha weight value", &alphaValue);
   ArgParser_AddDouble(parser, "BETA", "Beta weight value", &betaValue);
+  ArgsCursor weights = {0};
+  ArgParser_AddSubArgs(parser, "WEIGHTS", "One weight per subquery", &weights, 1, -1);
   // Legacy (counted) form of YIELD_SCORE_AS: accepted inside the method argument
   // count for backward compatibility. The positional form (after the method
   // block) is handled in handleCombine.
@@ -93,6 +147,18 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
 
   bool hasAlpha = ArgParser_WasParsed(parser, "ALPHA");
   bool hasBeta = ArgParser_WasParsed(parser, "BETA");
+  if (ArgParser_WasParsed(parser, "WEIGHTS")) {
+    // ALPHA and BETA are the two-subquery spelling of WEIGHTS, so only one of them may be given.
+    if (hasAlpha || hasBeta) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX,
+                          "WEIGHTS cannot be combined with ALPHA or BETA");
+    } else if (parseWeights(&weights, linearCtx->linearWeights, linearCtx->numWeights,
+                            WEIGHTS_ANY_SIGN, status)) {
+      linearCtx->window = windowValue;
+    }
+    ArgParser_Free(parser);
+    return;
+  }
   if (hasAlpha ^ hasBeta) { // all or none of ALPHA and BETA must be present
     if (hasAlpha) {
       QueryError_SetError(status, QUERY_ERROR_CODE_SYNTAX, "Missing value for BETA");
@@ -112,7 +178,8 @@ static void parseLinearClause(ArgsCursor *ac, HybridLinearContext *linearCtx,
 }
 
 static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *hasExplicitWindow,
-                          RSSearchOptions *searchOpts, QueryError *status) {
+                         ArgsCursor *weights, bool *hasWeights,
+                         RSSearchOptions *searchOpts, QueryError *status) {
   *hasExplicitWindow = false;
   ArgsCursor rrf = {0};
   if (!getVarArgsForClause(ac, &rrf, "RRF", status)) {
@@ -136,6 +203,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
                     ARG_OPT_DEFAULT_INT, HYBRID_DEFAULT_WINDOW,
                     ARG_OPT_RANGE, 1LL, LLONG_MAX,
                     ARG_OPT_END);
+  ArgParser_AddSubArgs(parser, "WEIGHTS", "One weight per subquery", weights, 1, -1);
   // Legacy (counted) form of YIELD_SCORE_AS: accepted inside the method argument
   // count for backward compatibility. The positional form (after the method
   // block) is handled in handleCombine.
@@ -149,6 +217,7 @@ static bool parseRRFArgs(ArgsCursor *ac, double *constant, int *window, bool *ha
     return false;
   }
   *hasExplicitWindow = ArgParser_WasParsed(parser, "WINDOW");
+  *hasWeights = ArgParser_WasParsed(parser, "WEIGHTS");
   ArgParser_Free(parser);
   return true;
 }
@@ -173,8 +242,8 @@ static void parseCombineYieldScoreClause(ArgsCursor *ac, HybridParseContext *ctx
   *ctx->reqFlags |= QEXEC_F_SEND_SCORES_AS_FIELD;
 }
 
-static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx,
-                            RSSearchOptions *searchOpts, QueryError *status) {
+static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx, size_t numSubqueries,
+                           RSSearchOptions *searchOpts, QueryError *status) {
   // RRF 4 CONSTANT 6 WINDOW 20 ...
   //     ^
   // RRF LIMIT
@@ -183,9 +252,21 @@ static void parseRRFClause(ArgsCursor *ac, HybridRRFContext *rrfCtx,
   double constantValue = HYBRID_DEFAULT_RRF_CONSTANT;
   int windowValue = HYBRID_DEFAULT_WINDOW;
   bool hasExplicitWindow = false;
+  ArgsCursor weights = {0};
+  bool hasWeights = false;
 
-  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, searchOpts, status)) {
+  if (!parseRRFArgs(ac, &constantValue, &windowValue, &hasExplicitWindow, &weights, &hasWeights,
+                    searchOpts, status)) {
     return;
+  }
+  if (hasWeights) {
+    // Owned by the scoring context from here, so it is freed on an error too.
+    rrfCtx->weights = rm_calloc(numSubqueries, sizeof(double));
+    rrfCtx->numWeights = numSubqueries;
+    // A negative weight would rank a document an arm returned below one it did not return.
+    if (!parseWeights(&weights, rrfCtx->weights, numSubqueries, WEIGHTS_NON_NEGATIVE, status)) {
+      return;
+    }
   }
 
   // Store the parsed values
@@ -226,7 +307,7 @@ void handleCombine(ArgParser *parser, const void *value, void *user_data) {
     combineCtx->linearCtx.numWeights = numWeights;
     parseLinearClause(ac, &combineCtx->linearCtx, ctx->searchopts, status);
   } else if (parsedScoringType == HYBRID_SCORING_RRF) {
-    parseRRFClause(ac, &combineCtx->rrfCtx, ctx->searchopts, status);
+    parseRRFClause(ac, &combineCtx->rrfCtx, numWeights, ctx->searchopts, status);
   }
   if (QueryError_HasError(status)) {
     return;

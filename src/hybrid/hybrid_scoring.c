@@ -34,7 +34,9 @@
  * ranks (i.e., higher relevance) contribute more.
  *
  * Formula:
- *     RRF_score = Σ (1 / (constant + rank_i)) for all i where has_rank[i] is true
+ *     RRF_score = Σ (w_i / (constant + rank_i)) for all i where has_rank[i] is true
+ *
+ * - w_i is the subquery's WEIGHTS entry, 1 when WEIGHTS was not given.
  *
  * - ranks[i] is assumed to be 1-based (i.e., 1 is the best rank).
  * - If a document is not ranked by system i, has_rank[i] should be false.
@@ -51,10 +53,14 @@ double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, con
 
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_RRF);
 
+    const double *weights = scoringCtx->rrfCtx.weights;
+    const size_t numWeights = scoringCtx->rrfCtx.numWeights;
+    RS_ASSERT(!weights || numWeights == num_sources);
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_rank[i]) {
-            score += 1.0 / (scoringCtx->rrfCtx.constant + ranks[i]);
+            const double weight = weights && i < numWeights ? weights[i] : 1.0;
+            score += weight / (scoringCtx->rrfCtx.constant + ranks[i]);
         }
     }
     return score;
@@ -161,9 +167,13 @@ static sds appendRRFFinalScoreTerms(sds buf, const HybridScoringContext *scoring
                                     const double *ranks, const bool *has_rank,
                                     size_t num_sources) {
   const double k = scoringCtx->rrfCtx.constant;
+  const double *weights = scoringCtx->rrfCtx.weights;
   for (size_t i = 0; i < num_sources; i++) {
     if (i > 0) buf = sdscat(buf, " + ");
     if (has_rank[i]) {
+      if (weights && i < scoringCtx->rrfCtx.numWeights) {
+        buf = sdscatprintf(buf, "%.4f * ", weights[i]);
+      }
       buf = sdscatprintf(buf, "1 / (constant %.2f + rank %.0f)", k, ranks[i]);
     } else {
       buf = sdscatprintf(buf, "0 [%s: no match]", sourceLabelForIndex(i));
@@ -216,8 +226,19 @@ char *HybridScoring_FormatHybridScoreNode(const HybridScoringContext *scoringCtx
   RS_ASSERT(scoringCtx);
   char *buf = NULL;
   if (scoringCtx->scoringType == HYBRID_SCORING_RRF) {
-    rm_asprintf(&buf, "Hybrid score (RRF: window=%zu, constant=%.2f)",
-                scoringCtx->rrfCtx.window, scoringCtx->rrfCtx.constant);
+    const HybridRRFContext *rrf = &scoringCtx->rrfCtx;
+    sds s = sdscatprintf(sdsempty(), "Hybrid score (RRF: window=%zu, constant=%.2f", rrf->window,
+                         rrf->constant);
+    if (rrf->weights) {
+      s = sdscat(s, ", weights=[");
+      for (size_t i = 0; i < rrf->numWeights; i++) {
+        s = sdscatprintf(s, i ? ", %.4f" : "%.4f", rrf->weights[i]);
+      }
+      s = sdscat(s, "]");
+    }
+    s = sdscat(s, ")");
+    buf = rm_strdup(s);
+    sdsfree(s);
   } else {
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
     const double *w = scoringCtx->linearCtx.linearWeights;
@@ -244,7 +265,7 @@ void HybridScoringContext_Free(HybridScoringContext *hybridCtx) {
             }
             break;
         case HYBRID_SCORING_RRF:
-            // RRF context doesn't have dynamically allocated members
+            rm_free(hybridCtx->rrfCtx.weights);
             break;
         default:
             RS_ASSERT(0); // Shouldn't get here

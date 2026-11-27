@@ -2228,3 +2228,29 @@ TEST_F(ParseHybridTest, testSparseVsimArm) {
   testErrorCode(args, QUERY_ERROR_CODE_INVAL, "SPARSEVECTOR is unavailable");
   RSGlobalConfig.enableUnstableFeatures = unstable;
 }
+
+// COMBINE RRF ... WEIGHTS stores one weight per subquery on the RRF context; without it the
+// context carries none, which weighs every subquery 1.
+TEST_F(ParseHybridTest, testCombineRRFWeights) {
+  const bool unstable = RSGlobalConfig.enableUnstableFeatures;
+  RSGlobalConfig.enableUnstableFeatures = true;
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                      "$BLOB", "COMBINE", "RRF", "6", "WEIGHTS", "2", "2", "0.5", "WINDOW", "7",
+                      "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  parseCommand(args);
+  const HybridRRFContext *rrf = &result.hybridParams->scoringCtx->rrfCtx;
+  ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_RRF);
+  ASSERT_TRUE(rrf->weights != nullptr);
+  EXPECT_EQ(rrf->numWeights, HYBRID_REQUEST_NUM_SUBQUERIES);
+  EXPECT_DOUBLE_EQ(rrf->weights[0], 2.0);
+  EXPECT_DOUBLE_EQ(rrf->weights[1], 0.5);
+  EXPECT_EQ(rrf->window, 7);
+
+  RMCK::ArgvList plain(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                       "$BLOB", "COMBINE", "RRF", "2", "WINDOW", "7",
+                       "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+  recreateHybridRequest(plain);
+  parseCommand(plain);
+  EXPECT_TRUE(result.hybridParams->scoringCtx->rrfCtx.weights == nullptr);
+  RSGlobalConfig.enableUnstableFeatures = unstable;
+}

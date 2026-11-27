@@ -167,7 +167,7 @@ No two-arm dense query changes in its syntax, its results, its shard command or 
 - **Gate.** A sparse field can be created only with `ENABLE_UNSTABLE_FEATURES`, and since the flag can be turned off later, a `VSIM` arm on one checks it on every query, as `[SPARSE $q]` does in `FT.SEARCH`. The N-arm count, a repeated `VSIM` and `WEIGHTS` are also new surface, so they go behind the same gate until they graduate.
 - **New coordinator, old shard, phase 1.** The old shard rejects a `SPARSEVECTOR` field in `VSIM` ("Expected a VECTOR field"), and the coordinator returns that error.
 - **New coordinator, old shard, phase 2.** The old shard rejects a count other than 2 ("FT.HYBRID currently supports only two subqueries"). A two-arm query goes out in the old form, with the same 6-element mapping reply.
-- **COMBINE forwarding.** The coordinator always forwards a legacy counted `COMBINE` so all shards use the same window. Fusion happens on the coordinator, so `WEIGHTS` is left out of the forwarded clause. Old shards then accept two-arm weighted queries. *To verify in the WEIGHTS PR:* nothing on the shard reads the weights.
+- **COMBINE forwarding.** The coordinator always forwards a legacy counted `COMBINE` so all shards use the same window. Fusion happens on the coordinator: shards only return each arm's cursor, and nothing on the shard reads the weights. So RRF `WEIGHTS` are left out of the forwarded clause, and two LINEAR weights go out as `ALPHA` and `BETA`. Old shards then accept two-arm weighted queries.
 - **Persistence.** None. Nothing in this design touches RDB or the index format.
 
 ## Plan
