@@ -477,6 +477,7 @@ class BlockedLeaf {
     };
     base.Revalidate = [](QueryIterator *, IndexSpec *) { return VALIDATE_OK; };
     base.Free = [](QueryIterator *it) { delete self(it); };
+    base.Suspend = Default_Suspend;
     base.ReportsScoreBounds = [](const QueryIterator *) { return true; };
     base.CurrentMaxScore = [](const QueryIterator *it) {
       return self(it)->positioned() ? self(it)->blocks[self(it)->block].score : INFINITY;
