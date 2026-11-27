@@ -42,21 +42,49 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
+/**
+ * Per-row memory checkpoint for replaying the rows a finished pipeline buffered. On true the
+ * caller stops replaying; the query OOM warning is then set in `err`. Never an error: the reply
+ * has started. A no-op under ON_OOM FAIL (StoredResults_StopBeforeReply decided) and once the
+ * request was memory-stopped while buffering.
+ */
+bool StoredResults_ShouldStop(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                              QueryError *err);
+
+/**
+ * Exact memory check under ON_OOM FAIL right before the header of a reply that replays buffered
+ * rows: a reply that has started cannot become an error. On a stop `err` gets the OOM error and the
+ * replay must not start. Checks nothing under RETURN (StoredResults_ShouldStop cuts per row), nor
+ * after a blocked-client timeout, whose callback owns the reply.
+ */
+bool StoredResults_StopBeforeReply(struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
+                                   QueryError *err);
+
+/**
+ * Per-row memory stop check of the loops that read a pipeline's rows (the inline reply loops and
+ * AggregateResults), on `qctx`'s limits. The reply grows the client output buffer, which only the
+ * memory ratio sees, so this is a reply loop's only memory check. On true `rc` is
+ * RS_RESULT_STOPPED, mapped by the caller (ApplyOomStop). An OOM stop under ON_OOM RETURN does not
+ * end the loop: the rows the stages already hold still come, `qctx`'s row source is ended
+ * (RP_EndRowSourceOnStop), and the clock deadline is read here since those rows read nothing
+ * upstream.
+ */
+bool PipelineRead_ShouldStop(struct QueryProcessingCtx *qctx, int *rc);
+
 void destroyResults(SearchResult **results);
 
-// TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
-// on QueryProcessingCtx; the AREQ back-pointer is a temporary plumbing
-// shortcut for the main-thread RETURN-STRICT abort signal.
+/**
+ * Buffers the pipeline's rows until EOF, an error, the result limit or a stop. A stop returns the
+ * rows buffered so far with RS_RESULT_STOPPED in `rc`. `areq` is only for the debug pause.
+ */
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
   const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
-  // AREQ for the request being executed; consulted by AggregateResults (and
-  // its debug pause loop) to observe the request timeout. NULL on paths without
-  // a single owning AREQ (e.g. hybrid).
-  // TODO: migrate to a borrowed atomic flag on QueryProcessingCtx.
+  // AREQ for the request being executed; its debug pause loop releases itself
+  // on the request timeout. A subquery AREQ on hybrid.
   struct AREQ *areq;
 } CommonPipelineCtx;
 

@@ -180,6 +180,36 @@ TEST_F(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
   ASSERT_EQ(runDepleterToCompletion(&mockUpstream, n_docs), RS_RESULT_STOPPED);
 }
 
+TEST_F(RPSafeDepleterTest, RPSafeDepleter_BlockedClientTimeoutEndsTheDrain) {
+  // A blocked-client timeout raised mid-drain ends the drain at the next row boundary: a filled
+  // sorter yields its heap without checking it, and the timeout callback waits for the drain.
+  struct TimingOutUpstream : public MockUpstream {
+    QueryRequestLimits *limits;
+    int timeoutAt;
+
+    TimingOutUpstream(int max_docs, QueryRequestLimits *limits, int timeoutAt)
+        : MockUpstream(max_docs, RS_RESULT_EOF), limits(limits), timeoutAt(timeoutAt) {
+      this->Next = NextFn;
+    }
+
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      auto *self = static_cast<TimingOutUpstream *>(rp);
+      int rc = MockUpstream::NextFn(rp, res);
+      if (rc == RS_RESULT_OK && self->count == self->timeoutAt) {
+        QueryRequestLimits_MarkTimedOut(self->limits);
+      }
+      return rc;
+    }
+  };
+
+  QueryRequestLimits_BeginCycle(timeouts[0], QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  const int timeoutAt = 3;
+  TimingOutUpstream upstream(100, timeouts[0], timeoutAt);
+
+  ASSERT_EQ(runDepleterToCompletion(&upstream, timeoutAt), RS_RESULT_STOPPED);
+  ASSERT_EQ(upstream.count, timeoutAt);
+}
+
 TEST_F(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
   // Tests cross-safe-depleter condition variable signaling: when one safe depleter finishes,
   // it signals the shared condition variable, waking up other safe depleters that return

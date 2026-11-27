@@ -66,6 +66,8 @@ struct MockUpstream : public ResultProcessor {
     : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
 
     this->Next = NextFn;
+    // Not part of a pipeline: the merger reads an upstream's pipeline context only when set.
+    this->parent = nullptr;
     documentMetadata.reserve(50);
 
     // If no custom docIds provided, generate sequential ones

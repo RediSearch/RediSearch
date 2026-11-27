@@ -120,11 +120,11 @@ bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
   return memoryStops(limits, isPressureAtThisCall());
 }
 
-int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                                      QueryError *err) {
-  RS_ASSERT(timeout);
-  if (!QueryMemory_CheckpointExact(timeout) || oomPolicy != OomPolicy_Fail ||
-      !QueryRequestLimits_IsMemoryStopped(timeout)) {
+  RS_ASSERT(limits);
+  if (!QueryMemory_CheckpointExact(limits) || oomPolicy != OomPolicy_Fail ||
+      !QueryRequestLimits_IsMemoryStopped(limits)) {
     return REDISMODULE_OK;
   }
   QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);

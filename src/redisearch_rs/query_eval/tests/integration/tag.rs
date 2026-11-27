@@ -654,6 +654,17 @@ impl TagFixture {
             unsafe {
                 (*context.qctx().as_ptr()).reqFlags |= QEFlags::from(flag).bits();
             }
+            // A hybrid subquery's expansions run the memory checkpoint, which needs the request's
+            // limits; an unarmed timeout attaches them without a deadline.
+            if matches!(opts.timeout, Timeout::NoTimeout) {
+                context.set_search_time(
+                    ffi::timespec {
+                        tv_sec: 0,
+                        tv_nsec: 0,
+                    },
+                    true,
+                );
+            }
         }
 
         // SAFETY: `context.qctx()` returns a valid, exclusively-owned

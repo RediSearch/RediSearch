@@ -31,20 +31,21 @@ use crate::{QueryEvalContext, disk};
 /// by an expansion can add up to real memory before the build checkpoint runs.
 ///
 /// Only the stop is requested: the build checkpoint after the evaluation turns it into
-/// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
-/// FT.AGGREGATE take part: FT.EXPLAIN never runs its plan, and the hybrid reply does not map an
-/// OOM stop yet.
+/// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH,
+/// FT.AGGREGATE and the two FT.HYBRID subqueries take part: FT.EXPLAIN never runs its plan.
 pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
-    if !ctx
-        .req_flags()
-        .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
-    {
+    if !ctx.req_flags().intersects(
+        QEFlag::IsSearch
+            | QEFlag::IsAggregate
+            | QEFlag::IsHybridSearchSubquery
+            | QEFlag::IsHybridVectorAggregateSubquery,
+    ) {
         return false;
     }
-    let timeout = ctx.sctx().limits;
-    // SAFETY: `timeout` is the request's own, which FT.SEARCH and FT.AGGREGATE set on the search
-    // context before evaluating.
-    unsafe { ffi::QueryMemory_CheckpointExtern(timeout) }
+    let limits = ctx.sctx().limits;
+    // SAFETY: `limits` is the request's own, which AREQ_ApplyContext sets on the search context
+    // before evaluating.
+    unsafe { ffi::QueryMemory_CheckpointExtern(limits) }
 }
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
