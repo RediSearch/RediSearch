@@ -871,10 +871,9 @@ where
 
 // `RawInvIndIterator` is always reached through an owning iterator that prints
 // the real `FT.PROFILE` type, never on its own; this impl exists only to satisfy
-// the `ProfilePrint` supertrait of `RQESuspendedIterator`, and is not reached in
-// practice. It is limited to the suspended form so the active one cannot print a
-// placeholder by mistake.
-impl<R, E, RA> crate::profile_print::ProfilePrint for RawInvIndIterator<'_, Suspended, R, E, RA> {
+// the `ProfilePrint` bound every iterator form carries, and is not reached in
+// practice.
+impl<Rf: Ref, R, E, RA> crate::profile_print::ProfilePrint for RawInvIndIterator<'_, Rf, R, E, RA> {
     fn print_profile(
         &self,
         map: &mut redis_reply::MapBuilder<'_>,

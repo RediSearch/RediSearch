@@ -848,7 +848,7 @@ pub mod via_resume {
     /// test basic revalidation functionality - should return `VALIDATE_OK` when index is valid
     pub fn revalidate_basic<'a, I>(test: &'a RevalidateTest, it: Box<I>)
     where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         let guard = test.context.spec_read();
         let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
@@ -863,7 +863,7 @@ pub mod via_resume {
     /// test revalidation functionality when iterator is at EOF
     pub fn revalidate_at_eof<'a, I>(test: &'a RevalidateTest, mut it: Box<I>)
     where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         // Read all documents to reach EOF
         while let Some(_record) = it.read().expect("failed to read") {}
@@ -887,7 +887,7 @@ pub mod via_resume {
         mut it: Box<I>,
         ii: &mut InvertedIndex<E>,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         // Read all documents to reach EOF
         while let Some(_record) = it.read().expect("failed to read") {}
@@ -921,7 +921,7 @@ pub mod via_resume {
         it: Box<I>,
         ii: &mut NumericIndex,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         match ii {
             NumericIndex::Uncompressed(ii) => revalidate_at_eof_after_gc(test, it, ii.inner_mut()),
@@ -935,7 +935,7 @@ pub mod via_resume {
         it: Box<I>,
         ii: &mut NumericIndex,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         match ii {
             NumericIndex::Uncompressed(ii) => {
@@ -953,7 +953,7 @@ pub mod via_resume {
         it: Box<I>,
         ii: &mut InvertedIndex<E>,
     ) where
-        I: RQEIteratorBoxed<'a> + 'a,
+        I: RQEIteratorBoxed<'a> + rqe_iterators::profile_print::ProfilePrint + 'a,
     {
         let guard = test.context.spec_read();
         let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)

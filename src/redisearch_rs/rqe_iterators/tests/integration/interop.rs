@@ -320,6 +320,30 @@ fn suspend_and_resume_leave_the_iterator_where_c_cached_it() {
     );
 }
 
+/// The query evaluator lowers its Rust leaves to C type-erased, so the wrapper's
+/// in-place guarantee has to hold for the erased form too, on every outcome.
+#[rstest]
+#[case::ok(MockRevalidateResult::Ok, ValidateStatus_VALIDATE_OK)]
+#[case::aborted(MockRevalidateResult::Abort, ValidateStatus_VALIDATE_ABORTED)]
+#[case::timed_out(MockRevalidateResult::TimedOut, ValidateStatus_VALIDATE_TIMEOUT)]
+fn a_type_erased_iterator_lowered_to_c_resumes_in_place(
+    #[case] outcome: MockRevalidateResult,
+    #[case] expected: ValidateStatus,
+) {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    mock.data().set_revalidate_result(outcome);
+
+    let it = RQEIteratorWrapper::boxed_new(TypeErasedRQEIterator::new(Box::new(mock))).as_ptr();
+    // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
+    // spec the iterator is revalidated against. `boxed_new` populates every callback.
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+
+    assert_eq!(status, expected);
+}
+
 /// Number of times [`count_num_estimated_calls`] was invoked.
 static NUM_ESTIMATED_CALLS: AtomicUsize = AtomicUsize::new(0);
 

@@ -776,8 +776,8 @@ impl ProfilePrint for SuspendedSparseVectorIterator<'_> {
 }
 
 // A dimension is never profiled on its own: its `SparseVectorIterator` prints
-// the whole union. This impl only satisfies the `ProfilePrint` bounds of
-// `RQESuspendedIterator`.
+// the whole union. This impl only satisfies the `ProfilePrint` bound every
+// iterator form carries.
 impl<P: ProfilePrint> ProfilePrint for RawDimensionIterator<P> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.it.print_profile(map, ctx);
