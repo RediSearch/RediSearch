@@ -1,0 +1,14 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "DEBUG",
+          "SLEEP",
+          "60"
+        ]
+      }
+    }
+  ]
+}

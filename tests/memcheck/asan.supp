@@ -3,3 +3,7 @@
 leak:DetectClusterType
 leak:moduleLoadInternalModules
 leak:moduleOnLoad
+
+# macOS allocates a thread's thread-local storage through dyld on first use and
+# frees it only when the thread exits; Redis's background threads never do.
+leak:_tlv_get_addr

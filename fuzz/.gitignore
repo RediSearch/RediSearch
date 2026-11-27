@@ -1,0 +1,4 @@
+/target/
+# What `fuzz` and `reduce` write to the directory they run in.
+corpus/
+findings/

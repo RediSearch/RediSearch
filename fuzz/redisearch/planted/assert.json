@@ -1,0 +1,49 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "create",
+        "index": "i0",
+        "prefix": "d0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "tag"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "d0:1",
+          "f0",
+          "red"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "d0:2",
+          "f0",
+          "blue"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "FT.DROPINDEX",
+          "i0",
+          "DD"
+        ]
+      }
+    }
+  ]
+}

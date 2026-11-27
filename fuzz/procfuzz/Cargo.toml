@@ -1,0 +1,16 @@
+[package]
+name = "procfuzz"
+version = "0.0.1"
+edition = "2024"
+description = "Building blocks for coverage-guided fuzzing of programs run against a process"
+publish = false
+license-file = "../../LICENSE.txt"
+
+[dependencies]
+clap.workspace = true
+log.workspace = true
+memmap2.workspace = true
+nix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

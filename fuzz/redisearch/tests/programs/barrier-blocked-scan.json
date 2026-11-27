@@ -1,0 +1,44 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "doc:1",
+          "t",
+          "hello"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "_FT.DEBUG",
+          "BG_SCAN_CONTROLLER",
+          "SET_PAUSE_BEFORE_SCAN",
+          "true"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "create",
+        "index": "i1",
+        "prefix": "doc:",
+        "fields": [
+          {
+            "name": "t",
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    }
+  ]
+}

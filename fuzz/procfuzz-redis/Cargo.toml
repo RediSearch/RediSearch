@@ -1,0 +1,11 @@
+[package]
+name = "procfuzz-redis"
+version = "0.0.1"
+edition = "2024"
+description = "Redis servers and their modules as procfuzz systems"
+publish = false
+license-file = "../../LICENSE.txt"
+
+[dependencies]
+procfuzz.workspace = true
+serde.workspace = true

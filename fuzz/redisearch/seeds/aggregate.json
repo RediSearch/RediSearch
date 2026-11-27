@@ -1,0 +1,171 @@
+{
+  "ops": [
+    {
+      "op": {
+        "op": "create",
+        "index": "i0",
+        "prefix": "d0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "text"
+          },
+          {
+            "name": "f1",
+            "type": "numeric",
+            "sortable": true
+          },
+          {
+            "name": "f2",
+            "type": "tag"
+          }
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "populate",
+        "prefix": "d0:",
+        "fields": [
+          {
+            "name": "f0",
+            "type": "text"
+          },
+          {
+            "name": "f1",
+            "type": "numeric"
+          },
+          {
+            "name": "f2",
+            "type": "tag"
+          }
+        ],
+        "n": 200,
+        "seed": 2
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "aggregate",
+        "index": "i0",
+        "query": "all",
+        "pipeline": [
+          "GROUPBY",
+          "1",
+          "@f2",
+          "REDUCE",
+          "COUNT",
+          "0",
+          "AS",
+          "count",
+          "REDUCE",
+          "SUM",
+          "1",
+          "@f1",
+          "AS",
+          "sum",
+          "SORTBY",
+          "2",
+          "@count",
+          "DESC"
+        ],
+        "cursor": {
+          "slot": 0,
+          "count": 3
+        }
+      }
+    },
+    {
+      "op": {
+        "op": "cursor_read",
+        "slot": 0,
+        "count": 2
+      }
+    },
+    {
+      "op": {
+        "op": "cursor_read",
+        "slot": 0
+      }
+    },
+    {
+      "op": {
+        "op": "aggregate",
+        "index": "i0",
+        "query": {
+          "term": "hello"
+        },
+        "pipeline": [
+          "LOAD",
+          "1",
+          "@f1",
+          "APPLY",
+          "@f1 * 2",
+          "AS",
+          "doubled",
+          "FILTER",
+          "@doubled > 100",
+          "LIMIT",
+          "0",
+          "5"
+        ],
+        "cursor": {
+          "slot": 1,
+          "count": 2
+        }
+      }
+    },
+    {
+      "op": {
+        "op": "cursor_del",
+        "slot": 1
+      }
+    },
+    {
+      "op": {
+        "op": "alter",
+        "index": "i0",
+        "field": {
+          "name": "f3",
+          "type": "numeric"
+        }
+      }
+    },
+    {
+      "op": {
+        "op": "command",
+        "argv": [
+          "HSET",
+          "d0:1",
+          "f3",
+          "42"
+        ]
+      }
+    },
+    {
+      "op": {
+        "op": "settle"
+      }
+    },
+    {
+      "op": {
+        "op": "query",
+        "index": "i0",
+        "query": {
+          "range": {
+            "field": "f3",
+            "min": {
+              "inclusive": 40
+            },
+            "max": "unbounded"
+          }
+        }
+      }
+    }
+  ]
+}
