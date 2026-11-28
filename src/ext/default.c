@@ -781,6 +781,10 @@ void DefaultExpanderFree(void *p) {
 }
 
 /* Register the default extension */
+bool IsBM25StdScorer(RSScoringFunction scorer) {
+  return scorer == BM25StdScorer;
+}
+
 int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* TF-IDF scorer */

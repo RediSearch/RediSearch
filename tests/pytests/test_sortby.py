@@ -333,3 +333,38 @@ def testSortkeyWithEmbeddedNul(env):
 
     res = env.cmd('FT.SEARCH', 'idx_nul', '*', 'SORTBY', 't', 'ASC', 'WITHSORTKEYS', 'NOCONTENT')
     env.assertEqual(res, [2, 'doc:nul:2', '$a\x00a', 'doc:nul:1', '$a\x00b'])
+
+
+@skip(cluster=True)
+def test_sort_heap_keeps_metadata_across_cursor_reads(env):
+    """The field sorter must retain each winner's original sorting vector across replacement."""
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'term', 'TEXT',
+               'rank', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(12):
+        conn.execute_command('HSET', f'd:{i}', 'term', 'alpha', 'rank', i)
+
+    page, cursor = env.cmd('FT.AGGREGATE', 'idx', 'alpha', 'SORTBY', 2, '@rank', 'DESC',
+                           'MAX', 3, 'LIMIT', 0, 3, 'WITHCURSOR', 'COUNT', 1)
+    env.assertEqual(page[1:], [['rank', '11']])
+    env.assertNotEqual(cursor, 0)
+    for i in (9, 10):
+        conn.execute_command('DEL', f'd:{i}')
+        conn.execute_command('HSET', f'd:{i}', 'term', 'alpha', 'rank', -1)
+    page, _ = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 3)
+    env.assertEqual(page[1:], [['rank', '10'], ['rank', '9']])
+
+
+@skip(cluster=True)
+def test_bm25_heap_preserves_scores_and_fields(env):
+    """Heap admissions and evictions keep the same score and fields as explained scoring."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'term', 'TEXT', 'rank', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(12):
+        conn.execute_command('HSET', f'd:{i}', 'term', 'alpha ' * (i + 1), 'rank', i)
+    query = ['FT.SEARCH', 'idx', 'alpha', 'SCORER', 'BM25STD', 'WITHSCORES',
+             'RETURN', 1, 'rank', 'LIMIT', 0, 3]
+    explained = env.cmd(*query, 'EXPLAINSCORE')
+    expected = list(explained)
+    expected[2::3] = [score for score, _ in explained[2::3]]
+    env.assertEqual(env.cmd(*query), expected)

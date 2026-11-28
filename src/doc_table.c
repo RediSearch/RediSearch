@@ -87,7 +87,7 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
   return NULL;
 }
 
-static RSDocumentMetadata *DocTable_GetVisible(const DocTable *t, t_docId docId) {
+RSDocumentMetadata *DocTable_GetVisible(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (dmd && DocTable_HasPendingDeletions(t) && DocTable_IsDocPendingDeletion(t, dmd)) {
     return NULL;

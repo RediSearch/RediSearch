@@ -14,6 +14,8 @@
 // generated into this header by cheadergen.
 #include "query_types.h"
 
+bool IsBM25StdScorer(RSScoringFunction scorer);
+
 int DefaultExtensionInit(RSExtensionCtx *ctx);
 
 #endif
