@@ -403,6 +403,7 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 *         (errors take priority over timeouts)
 */
+int RPSafeDepleter_CompletedStatus(arrayof(ResultProcessor *) safeDepleters);
 int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**

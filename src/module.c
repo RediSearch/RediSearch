@@ -158,10 +158,6 @@ pthread_mutex_t query_version_tracker_mutex;
 arrayof(int*) asm_sanitizer_allocs;
 #endif
 
-// Dedicated pool for RPSafeDepleter jobs, so they never contend with the
-// `_workers_thpool` queue — e.g. submitting a job after `WORKERS` was set to 0.
-redisearch_thpool_t *depleterPool = NULL;
-
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 

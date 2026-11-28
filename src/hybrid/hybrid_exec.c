@@ -20,6 +20,7 @@
 #include "search_result_ffi.h"
 #include "parse_hybrid.h"
 #include "hybrid_request.h"
+#include "hybrid_executor.h"
 #include "aggregate/aggregate_exec_common.h"
 #include "redismodule.h"
 #include "search_ctx.h"
@@ -920,38 +921,7 @@ int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
     return REDISMODULE_OK;
 }
 
-int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
-    if (req->nrequests == 0) {
-      QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
-      return REDISMODULE_ERR;
-    }
-    arrayof(ResultProcessor*) depleters =
-        collectDepleters(req, backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER, status);
-    if (!depleters) {
-      return REDISMODULE_ERR;
-    }
-
-    // Pause before depletion and publication (hybrid cursors only)
-    debugPauseHybridStoreCursors(req, true);
-
-    // Check if we timed out before depleting. Error returns leave the
-    // sub-cursors unpublished; the container's teardown frees them.
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-      array_free(depleters);
-      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
-      return REDISMODULE_ERR;
-    }
-
-    int rc;
-    if (backgroundDepletion) {
-      rc = RPSafeDepleter_DepleteAll(depleters, status);
-    } else {
-      // Foreground depletion for WORKERS == 0
-      // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
-      rc = RPDepleter_DepleteAll(depleters);
-    }
-    array_free(depleters);
-
+static int finishCursors(HybridRequest *req, RedisModuleCtx *replyCtx, QueryError *status, int rc) {
     // Refresh the background-scan-OOM capture now that depletion is done: the
     // reply path reads only the capture (see finishSendChunkReply_hybrid), so
     // this is its freshest legal read.
@@ -1020,6 +990,41 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     return REDISMODULE_OK;
 }
 
+int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, QueryError *status, bool backgroundDepletion) {
+    if (req->nrequests == 0) {
+      QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC, "No subqueries in hybrid request");
+      return REDISMODULE_ERR;
+    }
+    arrayof(ResultProcessor*) depleters =
+        collectDepleters(req, backgroundDepletion ? RP_SAFE_DEPLETER : RP_DEPLETER, status);
+    if (!depleters) {
+      return REDISMODULE_ERR;
+    }
+
+    // Pause before depletion and publication (hybrid cursors only)
+    debugPauseHybridStoreCursors(req, true);
+
+    // Check if we timed out before depleting. Error returns leave the
+    // sub-cursors unpublished; the container's teardown frees them.
+    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      array_free(depleters);
+      QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
+      return REDISMODULE_ERR;
+    }
+
+    int rc;
+    if (backgroundDepletion) {
+      rc = RPSafeDepleter_DepleteAll(depleters, status);
+    } else {
+      // Foreground depletion for WORKERS == 0
+      // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
+      rc = RPDepleter_DepleteAll(depleters);
+    }
+    array_free(depleters);
+
+    return finishCursors(req, replyCtx, status, rc);
+}
+
 /*
  * Internal function to build the pipeline and execute the hybrid request.
  * This function is used by both the foreground and background execution paths.
@@ -1034,7 +1039,8 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 */
 static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams,
                                    RedisModuleCtx *ctx, RedisSearchCtx *sctx, QueryError *status,
-                                   bool internal, bool depleteInBackground) {
+                                   bool internal, blockedClientHybridCtx *job) {
+  const bool depleteInBackground = job != NULL;
   // Build the pipeline and execute
   bool isCursor = hreq->reqflags & QEXEC_F_IS_CURSOR;
   int rc = REDISMODULE_ERR;
@@ -1097,46 +1103,29 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     unlockSuppressed = true;
   }
 
-  if (!isCursor) {
-    arrayof(ResultProcessor*) depleters = NULL;
-    if (depleteInBackground) {
-      depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
-      if (!depleters) {
+  if (job) {
+    job->depleters = collectDepleters(hreq, RP_SAFE_DEPLETER, status);
+    if (!job->depleters) goto done;
+    if (isCursor) {
+      debugPauseHybridStoreCursors(hreq, true);
+      if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+        QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
         goto done;
       }
-      // The strict timeout callback preempts a loader parked at the GIL gate
-      // only if that loader is linked to the shared gate. Link before any
-      // depleter can run: a sub loader that races past an unlinked check is
-      // invisible to the gate, and the callback then waits for results while
-      // holding the GIL the loader needs — deadlock.
+    } else {
       if (HybridRequest_RequiresThreadsSyncResults(hreq)) {
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
       if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
+    }
+    for (size_t i = 0; i < hreq->nrequests; ++i) RPSafeDepleter_PrepareJob(job->depleters[i]);
+    if (!isCursor && hreq->base.execution) HREQ_PublishOwnedTail(hreq, UINT64_MAX);
 #ifdef ENABLE_ASSERT
-      // Pause after the build released the spec lock and before the depleters start.
-      SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timed_out, hreq);
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timed_out, hreq);
 #endif
-      // Launch all background depletion up front. Completion is the merger's
-      // business: each depleter's Next waits for its own buffer, so the merger
-      // consumes the sub-pipelines in completion order, and the policy-dependent
-      // reply (partial results or timeout error) is the pipeline's as usual.
-      const int startRc = RPSafeDepleter_StartAll(depleters, status);
-      if (startRc == RS_RESULT_ERROR) {
-        array_free(depleters);
-        goto done;
-      }
-    }
+  } else if (!isCursor) {
     HybridRequest_Execute(hreq, ctx, sctx);
-    if (depleters) {
-      // Normally a no-op: the merger ran every depleter to its final rc. On
-      // the pre-merger bails (strict timeout claimed or observed before the
-      // tail started) it drains the launched threads, so the request cannot
-      // be torn down while they still write into the depleters' buffers.
-      RPSafeDepleter_JoinAll(depleters);
-      array_free(depleters);
-    }
-  } else if (HybridRequest_StartCursors(hreq, ctx, status, depleteInBackground) != REDISMODULE_OK) {
+  } else if (HybridRequest_StartCursors(hreq, ctx, status, false) != REDISMODULE_OK) {
     goto done;
   }
   rc = REDISMODULE_OK;
@@ -1328,6 +1317,8 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
   ret->spec_ref = StrongRef_Demote(spec);
   ret->hybridParams = hybridParams;
   ret->internal = internal;
+  ret->runners = RSGlobalConfig.numWorkerThreads;
+  ret->depleters = NULL;
   return ret;
 }
 
@@ -1395,7 +1386,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
             "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts)", status)) {
       return REDISMODULE_ERR;
     }
-    int rc = buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal, false);
+    int rc = buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal, NULL);
     if (rc == REDISMODULE_OK) {
       HybridRequest_Free(hreq);
     }
@@ -1630,6 +1621,53 @@ static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx) {
   rm_free(BCHCtx);
 }
 
+static void finishWorkerCycle(blockedClientHybridCtx *BCHCtx) {
+  HybridRequest *hreq = BCHCtx->hreq;
+  // Reclaim the cycle's loans on every path — depletion has finished (or never
+  // started), and parked subs must not carry a dead ctx into their cursors.
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    RedisSearchCtx *subSctx = AREQ_SearchCtx(hreq->requests[i]);
+    RedisModule_FreeThreadSafeContext(subSctx->redisCtx);
+    subSctx->redisCtx = NULL;
+  }
+
+  if (!(hreq->reqflags & QEXEC_F_IS_CURSOR)) HREQ_SearchCtx(hreq)->redisCtx = NULL;
+  RedisModule_FreeThreadSafeContext(BCHCtx->replyCtx);
+  array_free(BCHCtx->depleters);
+  IndexSpecRef_Release(BCHCtx->executionRef);
+  // Unblocking the client below may free the request; last touch before destroy.
+  IndexSpec_AssertLockNotHeld();
+  blockedClientHybridCtx_destroy(BCHCtx);
+}
+
+static int submitSearchTicket(void *pool, HybridTicket run, void *ticket) {
+  UNUSED(pool);
+  return workersThreadPool_AddWork(run, ticket);
+}
+
+static void runSearchChild(void *arg, size_t ordinal) {
+  blockedClientHybridCtx *job = arg;
+  CurrentThread_SetIndexSpec(job->executionRef);
+  RPSafeDepleter_RunPreparedJob(job->depleters[ordinal]);
+  CurrentThread_ClearIndexSpec();
+}
+
+static void finishSearchChildren(void *arg) {
+  blockedClientHybridCtx *job = arg;
+  HybridRequest *hreq = job->hreq;
+  CurrentThread_SetIndexSpec(job->executionRef);
+  if (hreq->reqflags & QEXEC_F_IS_CURSOR) {
+    QueryError status = QueryError_Default();
+    if (finishCursors(hreq, job->replyCtx, &status,
+                      RPSafeDepleter_CompletedStatus(job->depleters)) != REDISMODULE_OK) {
+      HREQ_ReplyOrStoreError(hreq, job->replyCtx, &status);
+    }
+  } else {
+    HybridRequest_Execute(hreq, job->replyCtx, HREQ_SearchCtx(hreq));
+  }
+  finishWorkerCycle(job);
+}
+
 /**
  * Background execution callback for hybrid requests.
  * This function is called by the worker thread to execute hybrid requests.
@@ -1678,9 +1716,15 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     AREQ_SearchCtx(hreq->requests[i])->redisCtx = subctx;
   }
 
-  if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal, true) == REDISMODULE_OK) {
+  BCHCtx->executionRef = execution_ref;
+  BCHCtx->replyCtx = outctx;
+  if (buildPipelineAndExecute(hreq, hybridParams, outctx, sctx, &status, BCHCtx->internal, BCHCtx) == REDISMODULE_OK) {
     // Set hybridParams to NULL so they won't be freed in destroy
     BCHCtx->hybridParams = NULL;
+    CurrentThread_ClearIndexSpec();
+    HybridExecutor_Run(hreq->nrequests, BCHCtx->runners, submitSearchTicket, NULL, runSearchChild,
+                       finishSearchChildren, BCHCtx);
+    return;
   } else {
     if (!QueryError_HasError(&status)) {
       // There was an error but it was not set in status, get it from hreq
@@ -1690,17 +1734,5 @@ static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx) {
     HREQ_ReplyOrStoreError(hreq, outctx, &status);
   }
 
-  // Reclaim the cycle's loans on every path — depletion has finished (or never
-  // started), and parked subs must not carry a dead ctx into their cursors.
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    RedisSearchCtx *subSctx = AREQ_SearchCtx(hreq->requests[i]);
-    RedisModule_FreeThreadSafeContext(subSctx->redisCtx);
-    subSctx->redisCtx = NULL;
-  }
-
-  RedisModule_FreeThreadSafeContext(outctx);
-  IndexSpecRef_Release(execution_ref);
-  // Unblocking the client below may free the request; last touch before destroy.
-  IndexSpec_AssertLockNotHeld();
-  blockedClientHybridCtx_destroy(BCHCtx);
+  finishWorkerCycle(BCHCtx);
 }

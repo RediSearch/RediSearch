@@ -33,6 +33,13 @@
 // Base test class
 class RPSafeDepleterTest : public ::testing::Test {
 protected:
+  inline static redisearch_thpool_t *depleterPool;
+  static void SetUpTestSuite() {
+    depleterPool = redisearch_thpool_create(4, 1, LogCallback, "test-depleter");
+  }
+  static void TearDownTestSuite() {
+    redisearch_thpool_destroy(depleterPool);
+  }
   // Reusable mock upstream processor
   struct MockUpstream : public ResultProcessor {
     int count = 0;
