@@ -367,6 +367,54 @@ fn filtered_adhoc_drops_expired_without_refill() {
     assert_eq!(ids, vec![99, 98]);
 }
 
+/// Runs a filtered top-3 over `90..=100` with the bound at 97 in `mode`. The
+/// three nearest documents are above the bound.
+fn filtered_ids_with_max_doc_id(mode: TopKMode) -> Vec<t_docId> {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    let child_ids: Vec<t_docId> = (90..=100).collect();
+    let source = make_source(&index, n, k, child_ids.len()).with_max_doc_id(97);
+    let mut it = TopKIterator::new_with_mode(
+        source,
+        Some(make_child(child_ids)),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        mode,
+    );
+    collect_ids(&mut it)
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_batches_refills_k_below_max_doc_id() {
+    assert_eq!(
+        filtered_ids_with_max_doc_id(TopKMode::ForcedBatches),
+        vec![97, 96, 95]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn filtered_adhoc_refills_k_below_max_doc_id() {
+    assert_eq!(
+        filtered_ids_with_max_doc_id(TopKMode::AdhocBF),
+        vec![97, 96, 95]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_drops_above_max_doc_id_without_refill() {
+    let n = 100;
+    let k = 3;
+    let index = build_hnsw_index(n);
+    // VecSim picks the k results itself, so the ones above the bound are not replaced.
+    let source = make_source(&index, n, k, 0).with_max_doc_id(98);
+    let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+    assert_eq!(collect_ids(&mut it), vec![98]);
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
 fn index_size_reflects_added_vectors() {

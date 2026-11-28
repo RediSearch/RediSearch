@@ -136,6 +136,9 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
     if (it->current->dmd) {
       *dmd = it->current->dmd;
     } else {
+      if (!SearchCtx_IsDocVisible(sctx, it->lastDocId)) {
+        return false;
+      }
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
     if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime) || !SearchCtx_IsDocVisible(sctx, (*dmd)->id)) {
