@@ -68,9 +68,10 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     };
     QueryError_SetError(&hidden->base.reply.err, QUERY_ERROR_CODE_GENERIC, "unpublished failure");
     request->subqueriesReturnCodes[0] = RS_RESULT_ERROR;
-    HREQ_StoreResults(request, array_new(SearchResult *, 1), RS_RESULT_TIMEDOUT, cachedVars{});
+    request->base.reply.rc = RS_RESULT_TIMEDOUT;
     bool published[] = {false, true};
     auto *ctx = RedisModule_GetThreadSafeContext(nullptr);
+    ChunkReplyState_OpenBuffer(&request->base.reply, ctx);
     auto reply = RedisModule_NewReply(ctx);
     std::atomic<bool> stop{false};
     std::atomic<bool> started{false};
@@ -86,7 +87,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     }
 
     if (automatic) {
-      serializeStoredResults_hybrid(request, &reply);
+      HREQ_ReplyWithStoredResults(request, &reply);
     } else {
       serializePublishedResults_hybrid(request, &reply, published);
     }
@@ -97,8 +98,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     EXPECT_TRUE(profileCalled);
     EXPECT_TRUE(request->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED);
     EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&hidden->base.reply.err));
-    EXPECT_FALSE(request->base.reply.hasStoredResults);
-    EXPECT_EQ(nullptr, request->base.reply.results);
+    EXPECT_EQ(0u, request->base.reply.bufferedElements);
     HybridRequest_Free(request);
     RedisModule_FreeThreadSafeContext(ctx);
   }
@@ -134,17 +134,15 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
 
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
-  // Only the container owns result rows; subqueries retain their own error slots.
-  HREQ_StoreResults(hybridReq, nullptr, RS_RESULT_EOF, cachedVars{});
-  EXPECT_TRUE(hybridReq->base.reply.hasStoredResults);
-  EXPECT_EQ(hybridReq->base.reply.rc, RS_RESULT_EOF);
-  EXPECT_FALSE(req1->base.reply.hasStoredResults);
-  EXPECT_FALSE(req2->base.reply.hasStoredResults);
+  // Only the container carries the cycle's reply state; subqueries retain their own error slots.
+  hybridReq->base.reply.rc = RS_RESULT_EOF;
+  EXPECT_EQ(req1->base.reply.rc, 0);
+  EXPECT_EQ(req2->base.reply.rc, 0);
   QueryRequest_ResetReply(&hybridReq->base);
   QueryRequest_ResetReply(&req1->base);
   EXPECT_EQ(hybridReq->replyflags, QUERY_REPLY_F_TIMEOUT_CAPPED);
   EXPECT_EQ(req1->replyflags, QUERY_REPLY_F_TIMEOUT_CAPPED);
-  EXPECT_FALSE(hybridReq->base.reply.hasStoredResults);
-  EXPECT_EQ(hybridReq->base.reply.results, nullptr);
+  EXPECT_EQ(hybridReq->base.reply.rc, 0);
+  EXPECT_EQ(hybridReq->base.reply.rows.ctx, nullptr);
   HybridRequest_Free(hybridReq);
 }

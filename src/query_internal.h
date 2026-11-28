@@ -41,6 +41,10 @@ extern "C" {
 
   QueryError *status;
 
+  // Unescaped copies of escaped field names (an array), so the parser never writes into `raw`.
+  // They stay valid until QueryParseCtx_Cleanup.
+  char **unescapedNames;
+
   #ifdef PARSER_DEBUG
   FILE *trace_log;
   #endif
@@ -48,6 +52,9 @@ extern "C" {
 } QueryParseCtx;
 
 #define QPCTX_ISOK(qpctx) (!QueryError_HasError((qpctx)->status))
+
+// Release what the parse allocated for its own use; the resulting AST does not depend on it.
+void QueryParseCtx_Cleanup(QueryParseCtx *q);
 
 struct QueryAST;
 struct NumericFilter;

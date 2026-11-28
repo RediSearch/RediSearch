@@ -247,6 +247,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (disk_db && spec && spec->diskSpec) {
+    RS_ASSERT(specDict_g && StrongRef_Get((StrongRef){dictFetchValue(specDict_g, spec->specName)}) == spec);
     disk->metrics.activateTarget(spec->diskSpec);
   }
 }
@@ -306,10 +307,6 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     spec->diskRegistered = true;
-    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
-    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
-      disk->metrics.activateTarget(result);
-    }
     return;
   }
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {

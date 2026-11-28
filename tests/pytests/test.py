@@ -387,6 +387,24 @@ def testDropIndex(env):
     env.expect('FT.DROPINDEX', 'idx').ok()
     env.assertEqual(docs_count, countKeys(env))
 
+@skip(cluster=True)
+def testDropDeletesBinaryDocKey(env):
+    """Dropping an index with its documents must delete each document by its full
+    binary-safe key. Truncating at an embedded NUL would delete a different,
+    unindexed key under the same prefix and leave the document behind."""
+    conn = getConnectionByEnv(env)
+    doc_key = 'p:victim\x00suffix'
+    for drop_cmd in (['FT.DROPINDEX', 'idx', 'DD'], ['FT.DROP', 'idx']):
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'p:', 'SCHEMA', 't', 'TAG').ok()
+        conn.execute_command('SET', 'p:victim', 'unrelated')
+        conn.execute_command('HSET', doc_key, 't', 'foo')
+
+        env.expect(*drop_cmd).ok()
+
+        env.assertEqual(conn.execute_command('EXISTS', 'p:victim'), 1, message=drop_cmd)
+        env.assertEqual(conn.execute_command('EXISTS', doc_key), 0, message=drop_cmd)
+        conn.execute_command('DEL', 'p:victim')
+
 def testCustomStopwords(env):
     # Index with default stopwords
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
@@ -3777,11 +3795,11 @@ def testFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation load are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([1, ['n', '1'], ['n', '1.1']])
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([1, [], []])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n').equal([2, ['n', '1'], ['n', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@N').equal([2, [], []])
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@n', 'as', 'r').equal([2, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'LOAD', '1', '@n', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive
@@ -3858,7 +3876,7 @@ def testSortedFieldsCaseSensetive(env):
     env.expect('ft.search', 'idx', '@n:[0 2]', 'SORTBY', 'N').error().contains('not loaded nor in schema')
 
     # make sure aggregation apply are case sensitive
-    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([1, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
+    env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@n', 'as', 'r').equal([2, ['n', '1', 'r', '1'], ['n', '1.1', 'r', '1.1']])
     env.expect('ft.aggregate', 'idx', '@n:[0 2]', 'apply', '@N', 'as', 'r').error().contains('SEARCH_PROP_NOT_FOUND Property not loaded nor in pipeline')
 
     # make sure aggregation filter are case sensitive

@@ -7,6 +7,8 @@ extern "C"
 {
 #endif
 double fast_float_strtod(const char *in, char **out);
+// Like fast_float_strtod, but reads only [in, end): the string need not be NUL-terminated.
+double fast_float_strtod_n(const char *in, const char *end, char **out);
 
 #if defined(__cplusplus)
 }

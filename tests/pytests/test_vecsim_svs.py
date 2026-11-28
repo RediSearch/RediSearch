@@ -34,6 +34,7 @@ from common import (
     skipIfNoEnableAssert,
     paused_workers,
     drain_workers,
+    min_maintenance_workers_conf,
     verify_command_OK_on_all_shards,
 )
 
@@ -920,7 +921,7 @@ def test_gc_no_workers():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
@@ -935,7 +936,7 @@ def test_gc_no_workers_compressed():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)

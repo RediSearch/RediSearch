@@ -1808,19 +1808,27 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-void ChunkReplyState_Destroy(ChunkReplyState *state) {
-  // Free any stored results that weren't consumed
-  // (e.g., if timeout occurred before reply_callback ran)
-  if (state->results) {
-    for (size_t i = 0; i < array_len(state->results); i++) {
-      SearchResult_Destroy(state->results[i]);
-      rm_free(state->results[i]);
-    }
-    array_free(state->results);
-    state->results = NULL;
-  }
+void ChunkReplyState_OpenBuffer(ChunkReplyState *state, RedisModuleCtx *ctx) {
+  RS_ASSERT(!state->rows.ctx);
+  state->rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
+  state->bufferedElements = 0;
+}
 
-  // Clear stored error state
+void ChunkReplyState_CloseBuffer(ChunkReplyState *state) {
+  RedisModule_EndReply(&state->rows);
+  // The buffer is module-owned (RedisModule_CreateReplyBufferContext): Redis never frees it on its
+  // own. Idempotent: a background cycle closes it from QueryRequest_OnFree (Redis's
+  // free_privdata_cb, guaranteed main thread) and again from QueryRequest_Destroy's safety net.
+  if (state->rows.ctx) {
+    RedisModule_FreeThreadSafeContext(state->rows.ctx);
+    state->rows.ctx = NULL;
+  }
+}
+
+void ChunkReplyState_Destroy(ChunkReplyState *state) {
+  ChunkReplyState_CloseBuffer(state);
+  if (state->schema.keys) array_free(state->schema.keys);
+  rm_free(state->schema.presence);
   QueryError_ClearError(&state->err);
 }
 

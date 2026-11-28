@@ -282,7 +282,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
   // module type and returns the root without opening the key a second time by name.
-  jsonRoot = JSON_GetJsonFromHandleCompat(k);
+  jsonRoot = JSON_GetJsonFromHandle(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -298,7 +298,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
+    jsonIter = JSON_GetWithCompiledPath(jsonRoot, field->compiledPath);
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
       continue;
@@ -368,15 +368,13 @@ static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
 static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
                                                         const FieldSpec *fields, t_fieldIndex start,
                                                         t_fieldIndex end) {
-  RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
+  RedisJSON jsonRoot = JSON_GetJsonFromHandle(key);
   if (!jsonRoot) {
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
-    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations,
-    // and reuse parsed field paths to avoid parsing the same path for every JSON key.
-    JSONResultsIterator iter =
-        japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations.
+    JSONResultsIterator iter = JSON_GetWithCompiledPath(jsonRoot, fields[i].compiledPath);
     if (!iter) {
       continue;
     }

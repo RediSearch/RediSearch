@@ -26,6 +26,40 @@ extern "C" {
 
 using namespace std::chrono_literals;
 
+namespace {
+struct TestChunk {
+  AREQ request{};
+  SearchResult ***output;
+};
+
+void collectRows(ResultProcessor *rp, bool live, RSTimeoutPolicy policy, RSOomPolicy oomPolicy,
+                 int *rc, SearchResult ***results) {
+  if (!*results) *results = array_new(SearchResult *, 1);
+  TestChunk chunk{};
+  chunk.output = results;
+  chunk.request.base.kind = QUERY_REQUEST_KIND_AREQ;
+  chunk.request.base.reqConfig.oomPolicy = oomPolicy;
+  const TimeoutConfig config = {.queryTimeoutMS = 0, .timeoutPolicy = policy};
+  QueryRequestTimeout_Init(&chunk.request.base.timeout, &config);
+  QueryRequestTimeout_BeginCycle(&chunk.request.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  chunk.request.pipeline.qctx.endProc = rp;
+  Pipeline_SerializeResults(&chunk.request.base, [](QueryRequest *request, RedisModule_Reply *, const SearchResult *row) {
+    auto *chunk = reinterpret_cast<TestChunk *>(request);
+    SearchResult copy = SearchResult_New();
+    SearchResult_SetDocId(&copy, SearchResult_GetDocId(row));
+    array_append(*chunk->output, SearchResult_AllocateMove(&copy));
+  }, live, rc);
+}
+
+void destroyResults(SearchResult **results) {
+  for (size_t i = 0; i < array_len(results); ++i) {
+    SearchResult_Destroy(results[i]);
+    rm_free(results[i]);
+  }
+  array_free(results);
+}
+}  // namespace
+
 // Distinguish recovery from fresh execution and detect reads past a terminal
 // Drain status, including when a caller stops at its output budget instead.
 struct DrainCollectorSource {
@@ -61,7 +95,7 @@ TEST(DrainCollectorTest, PreservesPrefixAndStopsAtBudget) {
   array_append(results, SearchResult_AllocateMove(&prefix));
   int rc = RS_RESULT_TIMEDOUT;
 
-  Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+  collectRows(&source.rp, false, TimeoutPolicy_ReturnStrict, OomPolicy_Return, &rc, &results);
 
   ASSERT_EQ(2, array_len(results));
   EXPECT_EQ(99, SearchResult_GetDocId(results[0]));
@@ -82,7 +116,7 @@ TEST(DrainCollectorTest, TerminalStatusKeepsRowsAndPreservesTimeoutUnlessError) 
     SearchResult **results = nullptr;
     int rc = RS_RESULT_TIMEDOUT;
 
-    Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+    collectRows(&source.rp, false, TimeoutPolicy_ReturnStrict, OomPolicy_Return, &rc, &results);
 
     ASSERT_EQ(2, array_len(results));
     EXPECT_EQ(1, SearchResult_GetDocId(results[0]));
@@ -100,7 +134,7 @@ TEST(DrainCollectorTest, EmptyBudgetDoesNotEnterPipeline) {
   SearchResult **results = nullptr;
   int rc = RS_RESULT_TIMEDOUT;
 
-  Pipeline_CollectDrainResults(&source.rp, &rc, &results);
+  collectRows(&source.rp, false, TimeoutPolicy_ReturnStrict, OomPolicy_Return, &rc, &results);
 
   EXPECT_EQ(0, array_len(results));
   EXPECT_EQ(0, source.calls);
@@ -112,15 +146,7 @@ TEST(DrainCollectorTest, BufferedExecutionRecoversInlineOnlyForReturn) {
   for (RSTimeoutPolicy policy :
        {TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict, TimeoutPolicy_Fail}) {
     SCOPED_TRACE(policy);
-    QueryRequestTimeout timeout = {};
-    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = policy};
-    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-    QueryRequestTimeout_BeginCycle(&timeout, policy == TimeoutPolicy_ReturnStrict
-                                                ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-                                                : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    CommonPipelineCtx pipeline = {};
-    pipeline.timeout = &timeout;
-    pipeline.oomPolicy = OomPolicy_Fail;
+    const auto oomPolicy = OomPolicy_Fail;
     QueryProcessingCtx context = {};
     context.resultLimit = 8;
     DrainCollectorSource source(&context);
@@ -129,7 +155,7 @@ TEST(DrainCollectorTest, BufferedExecutionRecoversInlineOnlyForReturn) {
     SearchResult row = SearchResult_New();
     int rc = RS_RESULT_EOF;
 
-    startPipelineCommon(&pipeline, &source.rp, &results, &row, &rc);
+    collectRows(&source.rp, true, policy, oomPolicy, &rc, &results);
 
     EXPECT_EQ(policy == TimeoutPolicy_Return ? 2 : 0, array_len(results));
     EXPECT_EQ(policy == TimeoutPolicy_Return ? 3 : 0, source.calls);
@@ -142,13 +168,7 @@ TEST(DrainCollectorTest, BufferedExecutionRecoversInlineOnlyForReturn) {
 TEST(DrainCollectorTest, StreamingReturnBuffersOnlyAfterTimeout) {
   for (int upstreamStatus : {RS_RESULT_OK, RS_RESULT_EOF, RS_RESULT_TIMEDOUT, RS_RESULT_ERROR}) {
     SCOPED_TRACE(upstreamStatus);
-    QueryRequestTimeout timeout = {};
-    const TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Return};
-    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    CommonPipelineCtx pipeline = {};
-    pipeline.timeout = &timeout;
-    pipeline.oomPolicy = OomPolicy_Return;
+    const auto oomPolicy = OomPolicy_Return;
     QueryProcessingCtx context = {};
     context.resultLimit = 8;
     DrainCollectorSource source(&context);
@@ -160,7 +180,7 @@ TEST(DrainCollectorTest, StreamingReturnBuffersOnlyAfterTimeout) {
     SearchResult row = SearchResult_New();
     int rc = RS_RESULT_EOF;
 
-    startPipelineCommon(&pipeline, &source.rp, &results, &row, &rc);
+    collectRows(&source.rp, true, TimeoutPolicy_Return, oomPolicy, &rc, &results);
 
     EXPECT_EQ(upstreamStatus, rc);
     if (upstreamStatus == RS_RESULT_TIMEDOUT) {
@@ -168,7 +188,7 @@ TEST(DrainCollectorTest, StreamingReturnBuffersOnlyAfterTimeout) {
       EXPECT_EQ(2, array_len(results));
       EXPECT_EQ(3, source.calls);
     } else {
-      EXPECT_EQ(nullptr, results);
+      EXPECT_EQ(upstreamStatus == RS_RESULT_OK ? 8 : 0, array_len(results));
       EXPECT_EQ(0, source.calls);
     }
     destroyResults(results);
@@ -367,7 +387,7 @@ struct ScopedCollectorWork {
     auto *work = static_cast<ScopedCollectorWork *>(data);
     PipelineAccess_Publish(access, work->rp.parent);
     int rc = RS_RESULT_EOF;
-    AggregateResultsContinue(work->tail, nullptr, &rc, &work->results);
+    collectRows(work->tail, true, TimeoutPolicy_ReturnStrict, OomPolicy_Return, &rc, &work->results);
     if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return;
     work->storedStatus = rc;
   }

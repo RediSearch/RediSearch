@@ -13,17 +13,23 @@
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "redismodule.h"
-#include "spec.h"
+#include "rmutil/rm_assert.h"
+#include "util/charbuf.h"
 
-// The dict owns only the CharBuf of each key; its bytes are borrowed like the values.
+// The keys' CharBufs live in one array sized up front, handed to the dict as its private data;
+// their bytes are borrowed like the values.
+typedef struct {
+  size_t len;
+  size_t cap;
+  CharBuf keys[];
+} ParamKeys;
+
 static void *borrowedKeyDup(void *privdata, const void *key) {
-  CharBuf *cb = rm_malloc(sizeof(*cb));
+  ParamKeys *keys = privdata;
+  RS_ASSERT(keys->len < keys->cap);
+  CharBuf *cb = &keys->keys[keys->len++];
   *cb = *(const CharBuf *)key;
   return cb;
-}
-
-static void borrowedKeyDestructor(void *privdata, void *key) {
-  rm_free(key);
 }
 
 // CharBuf keys let lookups use names that point into the query, which are not NUL-terminated.
@@ -32,12 +38,17 @@ static dictType dictTypeBorrowedParams = {
   .keyDup = borrowedKeyDup,
   .valDup = NULL,
   .keyCompare = CharBuf_KeyCompare,
-  .keyDestructor = borrowedKeyDestructor,
+  .keyDestructor = NULL,
   .valDestructor = NULL,
 };
 
-dict *Param_DictCreate() {
-  return dictCreate(&dictTypeBorrowedParams, NULL);
+dict *Param_DictCreate(size_t capacity) {
+  ParamKeys *keys = rm_malloc(sizeof(*keys) + capacity * sizeof(*keys->keys));
+  keys->len = 0;
+  keys->cap = capacity;
+  dict *d = dictCreate(&dictTypeBorrowedParams, keys);
+  dictExpand(d, capacity);
+  return d;
 }
 
 int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status) {
@@ -61,7 +72,9 @@ const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *va
 }
 
 void Param_DictFree(dict *d) {
+  void *keys = d->privdata;
   dictRelease(d);
+  rm_free(keys);
 }
 
 dict *Param_DictClone(dict *source) {
@@ -69,8 +82,7 @@ dict *Param_DictClone(dict *source) {
     return NULL;
   }
 
-  dict *clone = Param_DictCreate();
-  dictExpand(clone, dictSize(source));
+  dict *clone = Param_DictCreate(dictSize(source));
   dictIterator *iter = dictGetIterator(source);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {

@@ -90,7 +90,6 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/hybrid/parse/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ext/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fork_gc/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/hll/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v1/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v2/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/util/*.c"

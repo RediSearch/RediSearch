@@ -356,7 +356,7 @@ def test_hnsw_sq8_query_scores_across_training_and_reload():
 @skip(cluster=True)
 def test_hnsw_sq8_json_multi_value_training_and_reload():
     """Train across values of one JSON document and rank each label by its closest value."""
-    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     for data_type in ('FLOAT32', 'FLOAT16'):
         params = hnsw_params(data_type, 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4)
@@ -381,7 +381,7 @@ def test_hnsw_sq8_json_multi_value_training_and_reload():
 @skip(cluster=True)
 def test_hnsw_sq8_training_without_workers():
     """Cross the threshold synchronously, including pending overwrites and deletions."""
-    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     for data_type in ('FLOAT32', 'FLOAT16'):
         create_hnsw(env, 'idx', [
@@ -414,7 +414,7 @@ def test_hnsw_sq8_training_without_workers():
 @skip(cluster=True)
 def test_hnsw_sq8_disable_workers_during_accumulation():
     """Use the current worker setting when the accumulated vectors reach the threshold."""
-    env = Env(moduleArgs='WORKERS 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='WORKERS 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     create_hnsw(env, 'idx', hnsw_params(
         'FLOAT32', 'COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 4))
@@ -434,7 +434,7 @@ def test_hnsw_sq8_disable_workers_during_accumulation():
 @skip(cluster=True)
 def test_hnsw_sq8_reload_without_workers():
     """Reload both training states without regular or temporary loading workers."""
-    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     for data_type in ('FLOAT32', 'FLOAT16'):
         create_hnsw(env, 'idx', [

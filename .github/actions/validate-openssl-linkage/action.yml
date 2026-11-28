@@ -1,0 +1,25 @@
+name: Validate OpenSSL linkage
+description: |
+  Checks that the built macOS redisearch.so links libssl/libcrypto from
+  Homebrew's openssl@4 only. The Homebrew Redis package declares only openssl@4
+  as a run-time dependency, so a module linking any other OpenSSL fails to load.
+
+runs:
+  using: composite
+  steps:
+    - name: Validate OpenSSL linkage
+      shell: bash -eo pipefail {0}
+      run: |
+        BINARY=$(find bin/ -name 'redisearch.so' | head -1)
+        if [ -z "$BINARY" ]; then
+          echo "::error::redisearch.so not found"
+          exit 1
+        fi
+
+        SSL_LIBS=$(otool -L "$BINARY" | grep -E 'lib(ssl|crypto)\.' || true)
+        echo ">>> OpenSSL libraries linked by $BINARY:"
+        echo "$SSL_LIBS"
+        if [ -z "$SSL_LIBS" ] || grep -qv '/openssl@4/' <<< "$SSL_LIBS"; then
+          echo "::error::$BINARY must link libssl/libcrypto from openssl@4 only"
+          exit 1
+        fi

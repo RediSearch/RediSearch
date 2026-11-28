@@ -15,6 +15,7 @@ unittest = []
 bumpalo.workspace = true
 ffi.workspace = true
 global_config.workspace = true
+hyperloglog.workspace = true
 indexmap = "2.14.0"
 itertools.workspace = true
 min-max-heap = "1.3.0"

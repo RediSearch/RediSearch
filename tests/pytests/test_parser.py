@@ -8,6 +8,7 @@
 from includes import *
 from common import *
 from RLTest import Env
+import struct
 
 def test_and_or_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
@@ -856,3 +857,79 @@ def test_explain_with_inkeys(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
     env.assertContains('IDS', res)
+
+def test_escaped_field_names(env):
+    # Field names are unescaped for the lookup without changing the client's query text.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'field.with,punct', 'TEXT',
+               'v-ec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    blob = struct.pack('2f', 1.0, 2.0)
+    conn.execute_command('HSET', '{doc}:1', 'field.with,punct', 'punt', 'v-ec', blob)
+
+    res = env.cmd('FT.SEARCH', 'idx', r'@field\.with\,punct:(punt)', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:1'])
+
+    # The default score field is named after the unescaped vector field.
+    res = env.cmd('FT.SEARCH', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
+                  'RETURN', '1', '__v-ec_score')
+    env.assertEqual(res, [1, '{doc}:1', ['__v-ec_score', '0']])
+
+    # On a cluster the coordinator parses the KNN query too; the shards must still see the escaped name.
+    res = env.cmd('FT.AGGREGATE', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
+                  'LOAD', '1', '@__key')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'__key': '{doc}:1', '__v-ec_score': '0'})
+
+@skip(cluster=True)
+def test_quoted_param_and_exact_tokens(env):
+    # A quoted `$name` is a verbatim term that keeps its `$`; exact phrases split on separators.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.EXPLAIN', 'idx', '"$Val1"').equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', "'$Val1'").equal('EXACT {\n  $val1\n}\n')
+    env.expect('FT.EXPLAIN', 'idx', '"Hello, wOrld foo"').equal('EXACT {\n  hello\n  world\n  foo\n}\n')
+
+@skip(cluster=True)
+def test_escaped_field_name_in_field_list(env):
+    """Every name in an `@a|b:` field list is unescaped, not just the first."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT', 'body', 'TEXT', 'tag-f', 'TAG').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'x', 'sub-title', 'hello')
+
+    for dialect in range(1, set_max_dialect(env) + 1):
+        for query in [r'@sub\-title|title:hello', r'@title|sub\-title:hello', r'@title|body|sub\-title:hello']:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, 'doc1'], message=f'{query} DIALECT {dialect}')
+
+    # Errors on a later name report it unescaped.
+    for dialect in range(2, set_max_dialect(env) + 1):
+        env.expect('FT.SEARCH', 'idx', r'@title|no\-such:hello', 'DIALECT', dialect).error() \
+            .contains('Unknown field at offset 7 near no-such')
+        env.expect('FT.SEARCH', 'idx', r'@title|tag\-f:hello', 'DIALECT', dialect).error() \
+            .contains('Expected a TEXT field at offset 7 near tag-f')
+
+@skip(cluster=False)
+def test_escaped_field_name_in_field_list_coord_knn(env):
+    """The coordinator's KNN parse leaves an escaped field-list name intact for the shards."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'sub-title', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    blob = struct.pack('2f', 1.0, 2.0)
+    conn.execute_command('HSET', '{doc}:1', 'title', 'x', 'sub-title', 'hello', 'v', blob)
+
+    query = r'(@title|sub\-title:hello)=>[KNN 1 @v $b]'
+    res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '2', 'b', blob, 'NOCONTENT', 'DIALECT', 2)
+    env.assertEqual(res, [1, '{doc}:1'])
+    res = env.cmd('FT.AGGREGATE', 'idx', query, 'PARAMS', '2', 'b', blob, 'LOAD', '1', '@__key', 'DIALECT', 2)
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1])['__key'], '{doc}:1')
+
+@skip(cluster=True)
+def test_unterminated_quotes_are_syntax_errors(env):
+    # A quote that is never closed is rejected, and a closed quoted `$name` is still a verbatim term.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    # The error is reported at the unterminated quote itself.
+    for query in ['"hello', '"$x', '"a b', '"$x y', '"$x )', '"*']:
+        env.expect('FT.EXPLAIN', 'idx', query).error().contains('SEARCH_SYNTAX Syntax error at offset 0 near "')
+    env.expect('FT.EXPLAIN', 'idx', '@t:"hello').error().contains('SEARCH_SYNTAX Syntax error at offset 3 near "')
+    env.expect('FT.EXPLAIN', 'idx', '"a" "b').error().contains('SEARCH_SYNTAX Syntax error at offset 4 near "')
+    env.expect('FT.EXPLAIN', 'idx', '"$x"').equal('EXACT {\n  $x\n}\n')

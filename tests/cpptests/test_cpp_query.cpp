@@ -160,7 +160,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast = {0};
   QueryError iterErr = QueryError_Default();
   // Set up params for the pre-filtered KNN query.
-  opts.params = Param_DictCreate();
+  opts.params = Param_DictCreate(1);
   ASSERT_NE(opts.params, nullptr);
   RedisModuleString *blob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", 4, blob, &iterErr),
@@ -193,7 +193,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_missing_attrs = {0};
   QueryError iterErrMissingAttrs = QueryError_Default();
   // Set up params for query-attributes syntax without HYBRID_POLICY.
-  opts_missing_attrs.params = Param_DictCreate();
+  opts_missing_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_missing_attrs.params, nullptr);
   RedisModuleString *missingAttrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", 4, missingAttrsBlob,
@@ -235,7 +235,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_attrs = {0};
   QueryError iterErrAttrs = QueryError_Default();
   // Set up params for query-attributes syntax with HYBRID_POLICY.
-  opts_attrs.params = Param_DictCreate();
+  opts_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_attrs.params, nullptr);
   RedisModuleString *attrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", 4, attrsBlob, &iterErrAttrs),
@@ -268,6 +268,57 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
   RedisModule_FreeThreadSafeContext(redisCtx);
 }
+
+#ifdef ENABLE_ASSERT
+TEST_F(QueryTest, testVectorIteratorRejectsUnsafeDimension) {
+  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(nullptr);
+  std::array<const char *, 11> args = {
+      "SCHEMA", "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "1", "DISTANCE_METRIC", "L2"};
+  QueryError parseErr = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(redisCtx, "unsafe_dim", args.data(), args.size(), &parseErr);
+  ASSERT_FALSE(QueryError_HasError(&parseErr)) << QueryError_GetUserError(&parseErr);
+  IndexSpec *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+  ASSERT_NE(spec, nullptr);
+  ASSERT_NE(openVectorIndex(redisCtx, &spec->fields[0], CREATE_INDEX), nullptr);
+
+  VectorIndex_SetBasicInfoFnForTests([](VecSimIndex *) {
+    VecSimIndexBasicInfo info = {};
+    info.type = VecSimType_FLOAT32;
+    info.dim = SIZE_MAX / sizeof(float) + 1;
+    return info;
+  });
+  struct ResetBasicInfoFn {
+    ~ResetBasicInfoFn() {
+      VectorIndex_SetBasicInfoFnForTests(nullptr);
+    }
+  } resetBasicInfoFn;
+
+  RedisSearchCtx searchCtx = SEARCH_CTX_STATIC(redisCtx, spec);
+  QueryError queryErr = QueryError_Default();
+  QueryEvalCtx queryCtx = {.sctx = &searchCtx, .status = &queryErr};
+  char vector[sizeof(float)] = {};
+
+  for (VectorQueryType type : {VECSIM_QT_KNN, VECSIM_QT_RANGE}) {
+    SCOPED_TRACE(type == VECSIM_QT_KNN ? "KNN" : "RANGE");
+    VectorQuery query = {.fieldIndex = 0, .type = type};
+    if (type == VECSIM_QT_KNN) {
+      query.knn.vector = vector;
+      query.knn.vecLen = sizeof(vector);
+    } else {
+      query.range.vector = vector;
+      query.range.vecLen = sizeof(vector);
+    }
+
+    EXPECT_EQ(NewVectorIterator(&queryCtx, &query, nullptr), nullptr);
+    EXPECT_STREQ("SEARCH_QUERY_BAD Invalid vector DIM: vector size is too large",
+                 QueryError_GetUserError(&queryErr));
+    QueryError_ClearError(&queryErr);
+  }
+
+  Indexes_RemoveSpecFromGlobals(ref, false);
+  RedisModule_FreeThreadSafeContext(redisCtx);
+}
+#endif
 
 TEST_F(QueryTest, testParser_v1) {
   RedisSearchCtx ctx;
@@ -1122,7 +1173,7 @@ TEST_F(QueryTest, testWildcard) {
 // AddressSanitizer — while also asserting the value is preserved intact.
 TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(1);
 
   // 'a', interior NUL, then a long tail. rm_strdup would stop at the NUL and
   // allocate only 2 bytes while still reporting the full length.
@@ -1159,11 +1210,27 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   RedisModule_FreeString(NULL, rvalue);
 }
 
+// The parser reads only `len` bytes: a number at the very end must not run on into the bytes that
+// follow the query in a larger buffer.
+TEST_F(QueryTest, testNumberAtEndOfQueryNotTerminated) {
+  const char buf[] = "@n>=512345";
+  RedisSearchCtx sctx = {0};
+  RSSearchOptions opts = {0};
+  QueryAST ast = {0};
+  QueryError err = QueryError_Default();
+  ASSERT_EQ(REDISMODULE_OK, QAST_Parse(&ast, &sctx, &opts, buf, 5, 2, &err))
+      << QueryError_GetUserError(&err);
+  ASSERT_EQ(QN_NUMERIC, ast.root->type);
+  ASSERT_EQ(5.0, ast.root->nn.nf->min);
+  QAST_Destroy(&ast);
+  QueryError_ClearError(&err);
+}
+
 // Lookups take the name by length: query tokens are not NUL-terminated, and
 // long names must resolve too.
 TEST_F(QueryTest, testParamDictGetByLength) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(2);
   const std::string longName(100, 'n');
   RedisModuleString *shortValue = RedisModule_CreateString(NULL, "v1", 2);
   RedisModuleString *longValue = RedisModule_CreateString(NULL, "v2", 2);

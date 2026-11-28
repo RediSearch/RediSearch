@@ -275,10 +275,7 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 // fan-out (the caller dispatches via MR_StartIterator). Builds the per-iterator
 // context (optional WITHCOUNT barrier and optional KNN snapshot), wires the
 // abort-wake channel and FT.DEBUG handle, and points base.Next at rpnetNext.
-//
-// Returns RS_RESULT_OK on success, RS_RESULT_ERROR if the iterator could not be
-// created (in which case no callbacks are running and nc->it is left NULL).
-static int rpnetCreateIterator(RPNet *nc) {
+static void rpnetCreateIterator(RPNet *nc) {
   // Per-iterator context for privateData. Holds the WITHCOUNT running total and
   // an optional KNN snapshot.
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
@@ -314,21 +311,21 @@ static int rpnetCreateIterator(RPNet *nc) {
   MRIteratorCallback cb = nc->withCount ? withCountReplyCb : netCursorCallback;
   MRIteratorErrorCallback errCb = nc->withCount ? withCountErrorCb : NULL;
 
+  // The iterator takes the command's arguments; rpnet keeps reading only these reply-shape flags.
+  const MRCommand replyShape = {
+    .protocol = nc->cmd.protocol,
+    .forCursor = nc->cmd.forCursor,
+    .forProfiling = nc->cmd.forProfiling,
+  };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
+  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
     .errorCB = errCb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
   });
-
-  if (!it) {
-    // Iterator never created, so no callbacks are running and it did not take
-    // ownership of iterCtx; free it here.
-    aggregateIteratorContext_Free(iterCtx);
-    return RS_RESULT_ERROR;
-  }
+  nc->cmd = replyShape;
 
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
@@ -341,7 +338,6 @@ static int rpnetCreateIterator(RPNet *nc) {
   DebugBgIterator_Set(it);
 #endif
   nc->base.Next = rpnetNext;
-  return RS_RESULT_OK;
 }
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
@@ -361,10 +357,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // pull the first reply. The async WITHCOUNT path creates the iterator eagerly
   // in RSExecDistAggregate before fanning out, so base.Next is already rpnetNext
   // by the time results are pulled and this function is never reached.
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(nc->base.parent->err, QUERY_ERROR_CODE_GENERIC);
-    return RS_RESULT_ERROR;
-  }
+  rpnetCreateIterator(nc);
   MR_StartIterator(nc->it, iterStartCb);
   return rpnetNext(rp, r);
 }
@@ -807,7 +800,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     const char *query = AREQ_Query(r, &queryLen);
     if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, r->searchopts.params, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -926,10 +919,7 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
 
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_GENERIC);
-    return REDISMODULE_ERR;
-  }
+  rpnetCreateIterator(nc);
   // Wire deferred-execution fields into the iterator's private data before
   // MR_StartIterator so the IO thread sees them when withCountReplyCb fires.
   AggregateIteratorContext *iterCtx =
@@ -1060,7 +1050,8 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
 // delegates the actual loop to the shared helper.
 static void drainPartialResultsAfterTimeout(AREQ *req) {
   QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
-  if (!qctx->canYieldPartialResults) {
+  // A cycle that ended in an error replies that error and has nothing to drain.
+  if (!qctx->canYieldPartialResults || QueryError_HasError(&req->base.reply.err)) {
     return;
   }
 
@@ -1093,7 +1084,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
 
   if (AREQ_TryClaimAggregateResults(req)) {
     // We were able to claim the aggregation results.
-    // That means that the background thread didn't reach the aggregation phase (startPipelineCommon) yet.
+    // That means that the background thread didn't reach the aggregation phase (runPipelineCycle) yet.
     // Intentionally claim as worker-owned here: query-level coord aggregate timeouts do not use
     // the cursor-read timeout-owner cleanup path, and the worker must still observe a claimed
     // aggregation phase so it stores/signals the timed-out state for partial-result handling.
@@ -1109,8 +1100,6 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   // Sync with the background thread
   AREQ_WaitForAggregateResultsComplete(req);
 
-  // BG signals only after AREQ_StoreResults
-  RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     req->base.reply.rc = RS_RESULT_TIMEDOUT;
   }
@@ -1134,18 +1123,6 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
 
-  // Check if results were stored (background thread completed successfully)
-  if (!req->base.reply.hasStoredResults) {
-    // Background thread didn't store results - some early error occurred.
-    if (QueryError_HasError(&req->base.reply.err)) {
-      QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(&req->base.reply.err), 1, COORD_ERR_WARN);
-      QueryError_ReplyAndClear(ctx, &req->base.reply.err);
-    } else {
-      RedisModule_ReplyWithError(ctx, "Internal error: no results stored");
-    }
-    return REDISMODULE_OK;
-  }
-
   // Under RETURN-STRICT, a shard's TIMEDOUT warning does not abort the coord
   // pipeline (see processWarningsAndCleanup in src/coord/rpnet.c): RPNet keeps
   // draining the remaining shards and the warning is surfaced via the
@@ -1163,9 +1140,9 @@ int DistAggregateReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv, in
 // Coordinator FT.CURSOR READ timeout callback for the RETURN_STRICT policy.
 // Runs on the main thread when the BC times out. Unlike the FT.AGGREGATE
 // RETURN_STRICT path, no TryClaim here: BG's existing `(!TryClaim || TimedOut)`
-// check at startPipelineCommon handles pipeline-side bails, and pre-pipeline
-// bails are signaled via AREQ_ReplyErrorOrDefer. The timer waits and branches
-// on `hasStoredResults`.
+// check at runPipelineCycle handles pipeline-side bails, and pre-pipeline
+// bails are signaled via AREQ_ReplyErrorOrDefer, which stores the error as the
+// cycle's outcome, so the timer replies every cycle the same way.
 int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
@@ -1198,22 +1175,12 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   // cursor-shaped reply, signals completion, and parks/frees the cursor.
   AREQ_WaitForAggregateResultsComplete(req);
 
-  if (req->base.reply.hasStoredResults) {
-    // Drain anything queued before the deadline, then serialize and dispose
-    // the stashed cursor (Pause if more rows remain, Free on EOF) inside
-    // AREQ_ReplyWithStoredResults.
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
-    drainPartialResultsAfterTimeout(req);
-    AREQ_ReplyWithStoredResults(ctx, req);
-  } else {
-    // Pre-pipeline bail through AREQ_ReplyErrorOrDefer. Reachable on
-    // coord+RETURN_STRICT now that coordinator cursors carry a real spec ref:
-    // cursorRead bails here when the index was dropped while the cursor idled.
-    QueryError *err = &req->base.reply.err;
-    RS_ASSERT(QueryError_HasError(err));
-    QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
-    QueryError_ReplyAndClear(ctx, err);
-  }
+  // Drain anything queued before the deadline, then serialize and dispose
+  // the stashed cursor (Pause if more rows remain, Free on EOF) inside
+  // AREQ_ReplyWithStoredResults.
+  req->base.reply.rc = RS_RESULT_TIMEDOUT;
+  drainPartialResultsAfterTimeout(req);
+  AREQ_ReplyWithStoredResults(ctx, req);
   return REDISMODULE_OK;
 }
 
