@@ -1379,8 +1379,8 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
       AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
     }
 
-    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
-    if (rc != 0) {
+    if (Debug_ShouldRejectHybridDispatch() ||
+        workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx) != 0) {
       RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(blockedClient);
       QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Unable to schedule hybrid query");
       HREQ_ReplyOrStoreError(hreq, replyCtx, status);

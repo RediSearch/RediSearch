@@ -9,7 +9,7 @@ import numpy as np
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-import redis
+from redis.exceptions import ResponseError
 from RLTest import Env
 from common import *
 from utils.hybrid import *
@@ -364,22 +364,57 @@ def test_hybrid_one_worker_completes_concurrent_requests():
                'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
     blob = np.array([1, 2], dtype=np.float32).tobytes()
     conn = getConnectionByEnv(env)
-    conn.execute_command('HSET', 'doc:{text}', 't', 'hello')
-    conn.execute_command('HSET', 'doc:{vector}', 'v', blob)
-    kwargs = dict(env.getConnection().connection_pool.connection_kwargs)
-    kwargs.update(socket_timeout=15, socket_connect_timeout=15)
     clients = 8
+    for i in range(clients):
+        conn.execute_command('HSET', f'doc:{{text{i}}}', 't', f'token{i}')
+    conn.execute_command('HSET', 'doc:{vector}', 'v', blob)
     start = threading.Barrier(clients, timeout=15)
 
-    def query(_):
-        with redis.Redis(**kwargs) as client:
+    def query(i):
+        with env.getConnection() as client:
+            client.connection_pool.connection_kwargs['socket_timeout'] = 15
             start.wait()
-            return client.execute_command('FT.HYBRID', 'idx', 'SEARCH', 'hello', 'VSIM', '@v',
-                                          '$blob', 'PARAMS', '2', 'blob', blob)
+            return client.execute_command('FT.HYBRID', 'idx', 'SEARCH', f'token{i}', 'VSIM',
+                                          '@v', '$blob', 'PARAMS', '2', 'blob', blob)
 
     with ThreadPoolExecutor(max_workers=clients) as pool:
-        for response in pool.map(query, range(clients)):
+        for i, response in enumerate(pool.map(query, range(clients))):
             rows, total = get_results_from_hybrid_response(response)
             env.assertEqual(total, 2, message=response)
-            env.assertEqual(set(rows), {'doc:{text}', 'doc:{vector}'}, message=response)
+            env.assertEqual(set(rows), {f'doc:{{text{i}}}', 'doc:{vector}'}, message=response)
             env.assertEqual(response['warnings'], [])
+
+
+def test_hybrid_initial_dispatch_rejection():
+    """A refused first job replies once and releases the blocked request and reserved cursors."""
+    env = Env(moduleArgs='WORKERS 1', protocol=3, enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    public_query = ('FT.HYBRID', 'idx', *hybrid_numeric_query())
+    internal_query = ('_FT.HYBRID', 'idx', *hybrid_numeric_query('WITHCURSOR'),
+                      '_COORD_DISPATCH_TIME', '1000000')
+    def free_count():
+        return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+
+    with env.getConnection() as client, env.getConnection() as shard:
+        shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        for policy in ('return', 'fail', 'return-strict'):
+            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RejectHybridDispatch').ok()
+            try:
+                for connection, query in ((client, public_query), (shard, internal_query)):
+                    before = free_count()
+                    try:
+                        connection.execute_command(*query)
+                        env.assertTrue(False, message=f'{policy} accepted a refused dispatch')
+                    except ResponseError as error:
+                        env.assertContains('Unable to schedule hybrid query', str(error))
+                    wait_for_condition(lambda: (free_count() == before + 1, {}),
+                                       'refused request did not finish exactly once')
+                    env.assertTrue(connection.ping())
+                stats = shard.execute_command('_FT.INFO', 'idx')['cursor_stats']
+                env.assertEqual(stats['index_total_internal'], 0)
+            finally:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+            env.assertEqual(client.execute_command(*public_query)['warnings'], [])

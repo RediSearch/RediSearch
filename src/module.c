@@ -4195,7 +4195,8 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
       .numShards = NumShards,
       .bc = BlockQueryClientWithTimeout(ctx, &hreq->base, reply_cb, timeout_cb, timeout_ms),
   };
-  if (ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch) != 0) {
+  if (Debug_ShouldRejectHybridDispatch() ||
+      ConcurrentSearch_ThreadPoolRun(dist_callback, dispatch) != 0) {
     RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(dispatch->bc);
     QueryError_SetError(&status, QUERY_ERROR_CODE_GENERIC, "Unable to schedule hybrid query");
     HREQ_ReplyOrStoreError(hreq, replyCtx, &status);

@@ -4362,7 +4362,7 @@ class TestCoordinatorTimeout:
 
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
-            'SEARCH', '*',
+            'SEARCH', '@name:hello0',
             'VSIM', '@embedding', '$BLOB',
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
         ]
@@ -7514,7 +7514,8 @@ class TestShardTimeout:
                     env.assertGreaterEqual(processor['Results processed'], 0, message=result)
                 if loaded:
                     loader = next(p for p in processors if p['Type'] == 'Threadsafe-Loader')
-                    env.assertEqual(loader['Results processed'], self.n_docs, message=result)
+                    expected_loaded = self.n_docs if source == 'SEARCH' else 0
+                    env.assertEqual(loader['Results processed'], expected_loaded, message=result)
             for processor in result['Profile']['Coordinator']['Result processors profile']:
                 env.assertEqual(processor['Results processed'], len(expected_rows), message=result)
                 env.assertGreaterEqual(processor['Time'], 0, message=result)
