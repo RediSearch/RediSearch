@@ -18,6 +18,7 @@ extern "C" {
 typedef void (*HybridTicket)(void *ticket);
 typedef int (*HybridSubmitTicket)(void *pool, HybridTicket run, void *ticket);
 
+// children must be positive. A runner budget of zero uses only the caller.
 // The caller is one of the runners. submit takes ownership of a ticket on success (zero).
 // finish runs exactly once after all runChild calls return and can free ctx. Queued tickets
 // may run later. No thread, including the caller, waits for a ticket to get a pool worker.

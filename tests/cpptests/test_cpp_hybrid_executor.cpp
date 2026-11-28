@@ -14,6 +14,7 @@
 #include <array>
 #include <atomic>
 #include <future>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -48,7 +49,7 @@ int collect(void *pool, HybridTicket run, void *ticket) {
 }
 
 TEST(HybridExecutor, CallerCanFinishBeforeAnyHelperStarts) {
-  for (const size_t runners : {1u, 2u, 4u, 16u}) {
+  for (const size_t runners : {0u, 1u, 2u, 4u, 16u}) {
     std::vector<Queued> queued;
     {
       Execution execution;
@@ -56,9 +57,33 @@ TEST(HybridExecutor, CallerCanFinishBeforeAnyHelperStarts) {
                          Execution::finish, &execution);
       EXPECT_EQ(execution.finishes, 1);
     }
-    EXPECT_EQ(queued.size(), std::min(runners, Execution::count) - 1);
+    EXPECT_EQ(queued.size(), runners ? std::min(runners, Execution::count) - 1 : 0u);
     for (auto job : queued) job.run(job.ticket);
   }
+}
+
+TEST(HybridExecutor, RequiresAtLeastOneChild) {
+  EXPECT_THROW(HybridExecutor_Run(0, 1, nullptr, nullptr, nullptr, nullptr, nullptr),
+               std::runtime_error);
+}
+
+TEST(HybridExecutor, CallerKeepsRequestAliveUntilSubmissionEnds) {
+  struct InlinePool : Execution {
+    size_t submissions = 0;
+  } execution;
+  auto submit = [](void *ctx, HybridTicket run, void *ticket) {
+    auto &pool = *static_cast<InlinePool *>(ctx);
+    ++pool.submissions;
+    EXPECT_EQ(0, pool.calls[0]);
+    EXPECT_EQ(0, pool.finishes);
+    if (pool.submissions != 1) return -1;
+    run(ticket);
+    return 0;
+  };
+  HybridExecutor_Run(Execution::count, 3, submit, &execution, Execution::run,
+                     Execution::finish, &execution);
+  EXPECT_EQ(2u, execution.submissions);
+  EXPECT_EQ(1, execution.finishes);
 }
 
 TEST(HybridExecutor, RejectedHelpersLeaveChildrenAvailable) {

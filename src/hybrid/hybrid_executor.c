@@ -71,9 +71,9 @@ static void runTicket(void *data) {
 
 void HybridExecutor_Run(size_t children, size_t runners, HybridSubmitTicket submit, void *pool,
                         void (*runChild)(void *, size_t), void (*finish)(void *), void *ctx) {
-  RS_ASSERT(children > 0 && runners > 0);
+  RS_ASSERT_ALWAYS(children > 0);
   if (runners > children) runners = children;
-  if (runners == 1) {
+  if (runners <= 1) {
     for (size_t i = 0; i < children; ++i) runChild(ctx, i);
     finish(ctx);
     return;
