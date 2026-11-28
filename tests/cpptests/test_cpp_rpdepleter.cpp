@@ -9,6 +9,7 @@
 
 #include "result_processor.h"
 #include "gtest/gtest.h"
+#include "util/logging.h"
 #include "search_result_ffi.h"
 #include "spec.h"
 #include "search_ctx.h"

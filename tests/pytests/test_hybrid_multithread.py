@@ -81,14 +81,9 @@ def test_hybrid_multithread():
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
-    if env.isCluster():
-        # Expect 5 jobs done: 3 for the hybrid search + its depleters,
-        # 1 for the search equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 5)
-    else:
-        # Expect 3 jobs done: 1 for the hybrid search, 1 for the search
-        # equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 3)
+    # At two workers hybrid submits one helper in addition to the request itself.
+    first_run = 6 if env.isCluster() else 4
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], first_run)
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 2)
 
@@ -99,12 +94,9 @@ def test_hybrid_multithread():
 
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    if env.isCluster():
-        # Expect 10 jobs done: 5 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 10)
-    else:
-        # Expect 6 jobs done: 3 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
+    # At one worker all children and the continuation run on the caller.
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'],
+                    first_run + (5 if env.isCluster() else 3))
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 

@@ -24,7 +24,7 @@ void ConcurrentSearch_ThreadPoolDestroy(void);
 void ConcurrentSearch_CreatePool(int numThreads);
 
 /* Run a function on the concurrent thread pool */
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg);
+int ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg);
 
 /* Return the underlying thread pool for direct submission. */
 redisearch_thpool_t *ConcurrentSearch_GetPool(void);

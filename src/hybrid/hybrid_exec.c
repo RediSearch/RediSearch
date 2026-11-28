@@ -181,6 +181,7 @@ static HybridWarningMask replyWarningsWithSuffixes(RedisModule_Reply *reply, Hyb
 }
 
 static void HREQ_Execute_Callback(blockedClientHybridCtx *BCHCtx);
+static void blockedClientHybridCtx_destroy(blockedClientHybridCtx *BCHCtx);
 
 #ifdef ENABLE_ASSERT
 static bool hybridSerializationTimedOut(void *arg) {
@@ -1377,7 +1378,13 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     }
 
     const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)HREQ_Execute_Callback, BCHCtx);
-    RS_ASSERT(rc == 0);
+    if (rc != 0) {
+      RedisModuleCtx *replyCtx = RedisModule_GetThreadSafeContext(blockedClient);
+      QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Unable to schedule hybrid query");
+      HREQ_ReplyOrStoreError(hreq, replyCtx, status);
+      RedisModule_FreeThreadSafeContext(replyCtx);
+      blockedClientHybridCtx_destroy(BCHCtx);
+    }
 
     return REDISMODULE_OK;
   } else {
