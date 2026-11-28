@@ -99,9 +99,11 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
     // SAFETY: guaranteed by 6.
-    let max_doc_id = match unsafe { sctx_nn.as_ref() }.maxVisibleDocId {
-        0 => DocId::MAX,
-        bound => bound,
+    let sctx = unsafe { sctx_nn.as_ref() };
+    let max_doc_id = if sctx.hasMaxVisibleDocId {
+        sctx.maxVisibleDocId
+    } else {
+        DocId::MAX
     };
     // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
     let reduced = unsafe {

@@ -112,6 +112,40 @@ def hybrid_reply_keys(reply):
 
 
 @skip(cluster=True)
+def test_hybrid_empty_index_rejects_first_insert_after_build():
+    """The common build watermark can be zero even when the vector index already exists."""
+    env = Env(moduleArgs='WORKERS 1', enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    env.cmd(debug_cmd(), 'VECSIM_INFO', 'idx', 'v')
+    blob = np.array([1, 2], dtype=np.float32).tobytes()
+    query = ('FT.HYBRID', 'idx', 'SEARCH', 'hello', 'VSIM', '@v', '$blob',
+             'PARAMS', '2', 'blob', blob, 'TIMEOUT', '0')
+    point = 'BeforeHybridDepletion'
+    replies = []
+    def run():
+        replies.append(env.getConnection().execute_command(*query))
+    worker = threading.Thread(target=run, daemon=True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+    try:
+        worker.start()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            'query did not finish building on the empty index')
+        env.cmd('HSET', 'first', 'text', 'hello', 'v', blob)
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
+        worker.join(timeout=10)
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.assertFalse(worker.is_alive())
+    env.assertEqual(len(replies), 1)
+    if replies:
+        env.assertEqual(hybrid_reply_keys(replies[0]), set(), message=replies[0])
+    env.assertEqual(hybrid_reply_keys(env.cmd(*query)), {'first'})
+
+
+@skip(cluster=True)
 def test_hybrid_writer_not_blocked_before_depletion():
     """A writer must not wait for a background hybrid query that has built its
     pipelines but has not started its depleters yet, and the documents it adds

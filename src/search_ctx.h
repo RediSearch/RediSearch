@@ -48,6 +48,7 @@ typedef struct RedisSearchCtx {
   // Owned by the query setup that took the snapshot; iterators borrow it.
   RedisSearchDiskSnapshot *diskSnapshot;
   t_docId maxVisibleDocId;
+  bool hasMaxVisibleDocId;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -78,7 +79,7 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
 
 // Whether `docId` is within the query's `maxVisibleDocId` bound.
 static inline bool SearchCtx_IsDocVisible(const RedisSearchCtx *sctx, t_docId docId) {
-  return !sctx->maxVisibleDocId || docId <= sctx->maxVisibleDocId;
+  return !sctx->hasMaxVisibleDocId || docId <= sctx->maxVisibleDocId;
 }
 
 typedef struct QueryError QueryError;
