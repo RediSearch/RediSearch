@@ -7,6 +7,9 @@
 
 import numpy as np
 import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import redis
 from RLTest import Env
 from common import *
 from utils.hybrid import *
@@ -327,3 +330,30 @@ def test_hybrid_filtered_knn_keeps_k_with_late_document():
     env.assertEqual(len(keys), k, message=f'expected {k} KNN results, got: {sorted(keys)}')
     # The late document is a top match, so its absence above comes from the bound.
     env.assertContains('late:vector', hybrid_reply_keys(env.cmd(*query)))
+
+def test_hybrid_one_worker_completes_concurrent_requests():
+    """A busy search pool and a single coordinator worker can finish every client's fusion."""
+    env = Env(moduleArgs='WORKERS 1 MIN_OPERATION_WORKERS 1 SEARCH_THREADS 1', protocol=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    blob = np.array([1, 2], dtype=np.float32).tobytes()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc:{text}', 't', 'hello')
+    conn.execute_command('HSET', 'doc:{vector}', 'v', blob)
+    kwargs = dict(env.getConnection().connection_pool.connection_kwargs)
+    kwargs.update(socket_timeout=15, socket_connect_timeout=15)
+    clients = 8
+    start = threading.Barrier(clients, timeout=15)
+
+    def query(_):
+        with redis.Redis(**kwargs) as client:
+            start.wait()
+            return client.execute_command('FT.HYBRID', 'idx', 'SEARCH', 'hello', 'VSIM', '@v',
+                                          '$blob', 'PARAMS', '2', 'blob', blob)
+
+    with ThreadPoolExecutor(max_workers=clients) as pool:
+        for response in pool.map(query, range(clients)):
+            rows, total = get_results_from_hybrid_response(response)
+            env.assertEqual(total, 2, message=response)
+            env.assertEqual(set(rows), {'doc:{text}', 'doc:{vector}'}, message=response)
+            env.assertEqual(response['warnings'], [])
