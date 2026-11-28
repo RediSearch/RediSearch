@@ -51,3 +51,6 @@ target_link_libraries(benchmark_unicode_tolower redisearch redismock benchmark::
 
 add_executable(benchmark_trie benchmark_trie.cpp)
 target_link_libraries(benchmark_trie redisearch redismock benchmark::benchmark)
+
+add_executable(benchmark_hybrid_executor benchmark_hybrid_executor.cpp)
+target_link_libraries(benchmark_hybrid_executor redisearch redismock benchmark::benchmark)
