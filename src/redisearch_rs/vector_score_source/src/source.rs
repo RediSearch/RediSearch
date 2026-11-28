@@ -298,7 +298,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         self.unfiltered_consumed = true;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
+            .map(|batch| VecSimScoreBatch::new(batch, self.max_doc_id)))
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -361,14 +361,13 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
-    }
-
-    fn accept_candidate(&mut self, doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
-        Ok(doc_id <= self.max_doc_id)
+            .map(|batch| VecSimScoreBatch::new(batch, self.max_doc_id)))
     }
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
+        if doc_id > self.max_doc_id {
+            return None;
+        }
         match &self.adhoc_state {
             AdhocPathState::Ram { guard: Some(g) } => g.get_distance_from(doc_id),
             AdhocPathState::Ram { guard: None } => None,

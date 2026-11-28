@@ -337,6 +337,7 @@ class OwnedLoaderDrainTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
   IndexSpec spec = {};
+  SchemaRule rule = {};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, &spec);
   QueryProcessingCtx qctx = {};
   RLookup lookup = RLookup_New();
@@ -345,6 +346,8 @@ class OwnedLoaderDrainTest : public ::testing::Test {
   SearchResult row = SearchResult_New();
 
   void SetUp() override {
+    rule.type = DocumentType_Hash;
+    spec.rule = &rule;
     spec.docs = DocTable_New(1);
   }
 

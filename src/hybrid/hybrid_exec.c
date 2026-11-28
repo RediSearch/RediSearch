@@ -251,7 +251,7 @@ static bool hreq_timeout_or_pending_spec_writers(void *arg) {
 
 static bool hreq_timed_out(void *arg) {
   HybridRequest *hreq = arg;
-  return QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.limits);
+  return QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout);
 }
 #endif
 

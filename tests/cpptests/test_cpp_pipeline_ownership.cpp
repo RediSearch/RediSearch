@@ -41,7 +41,8 @@ void collectRows(ResultProcessor *rp, bool live, RSTimeoutPolicy policy, RSOomPo
   chunk.request.base.reqConfig.oomPolicy = oomPolicy;
   const TimeoutConfig config = {.queryTimeoutMS = 0, .timeoutPolicy = policy};
   QueryRequestTimeout_Init(&chunk.request.base.timeout, &config);
-  QueryRequestTimeout_BeginCycle(&chunk.request.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestTimeout_BeginCycle(&chunk.request.base.timeout, policy == TimeoutPolicy_ReturnStrict
+      ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   chunk.request.pipeline.qctx.endProc = rp;
   Pipeline_SerializeResults(&chunk.request.base, [](QueryRequest *request, RedisModule_Reply *, const SearchResult *row) {
     auto *chunk = reinterpret_cast<TestChunk *>(request);
