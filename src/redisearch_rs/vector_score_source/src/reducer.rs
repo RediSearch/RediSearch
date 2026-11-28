@@ -14,6 +14,7 @@ use std::{num::NonZeroUsize, ptr::NonNull};
 
 use ffi::{QueryRequestTimeout, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
 use rqe_iterator_type::IteratorType;
+use rqe_core::DocId;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
 use top_k::TopKIterator;
 
@@ -63,6 +64,8 @@ pub enum NewVectorTopK<'index, E: ExpirationChecker> {
 /// Build the vector top-k iterator for the given query, applying the child
 /// reduction and choosing the unfiltered or filtered construction accordingly.
 ///
+/// `max_doc_id` is passed to [`VectorScoreSource::with_max_doc_id`].
+///
 /// # Safety
 ///
 /// 1. `index` must be valid for `'index`, which outlives the returned iterator.
@@ -80,6 +83,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,
+    max_doc_id: DocId,
 ) -> NewVectorTopK<'index, E>
 where
     E: ExpirationChecker + 'index,
@@ -109,7 +113,8 @@ where
                     0, // dynamic batch size
                     expiration,
                 )
-            };
+            }
+            .with_max_doc_id(max_doc_id);
             NewVectorTopK::Unfiltered(new_vector_top_k_unfiltered(source, k))
         }
         VectorChildReduction::Filtered(child) => {
@@ -127,7 +132,8 @@ where
                     query_params.batchSize,
                     expiration,
                 )
-            };
+            }
+            .with_max_doc_id(max_doc_id);
             NewVectorTopK::Filtered(new_vector_top_k_filtered(
                 source,
                 child,

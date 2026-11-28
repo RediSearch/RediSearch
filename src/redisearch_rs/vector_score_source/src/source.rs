@@ -118,6 +118,9 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// the timeout context and could spuriously fail). A timed-out query
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
+    /// Highest doc id a candidate may have to take a heap slot. Set by
+    /// [`with_max_doc_id`](Self::with_max_doc_id).
+    max_doc_id: DocId,
 
     /// Score key for this iterator's metric output. The metrics loader writes
     /// through the address returned by [`interop::own_key_ref`]. Boxed so that
@@ -215,9 +218,17 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
+            max_doc_id: DocId::MAX,
             own_key: Box::new(ptr::null_mut()),
             key_handle: ptr::null_mut(),
         }
+    }
+
+    /// Reject candidates above `max_doc_id`, so documents added after the
+    /// caller's view of the index cannot take one of the k places.
+    pub fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.max_doc_id = max_doc_id;
+        self
     }
 
     /// Return the request-owned timeout as the opaque context expected by VecSim.
@@ -351,6 +362,10 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         Ok(reply
             .and_then(|r| r.into_results())
             .map(VecSimScoreBatch::new))
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
+        Ok(doc_id <= self.max_doc_id)
     }
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {

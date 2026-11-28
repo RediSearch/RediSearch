@@ -52,7 +52,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     auto *sctx = static_cast<RedisSearchCtx *>(rm_new(RedisSearchCtx));
     *sctx = SEARCH_CTX_STATIC(nullptr, nullptr);
     auto *request = HybridRequest_New(sctx, requests, 2, args, args.size());
-    auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), sctx, depleterPool);
+    auto *producer = RPSafeDepleter_New(DepleterSync_New(1), sctx, depleterPool);
     QITR_PushRP(&hidden->pipeline.qctx, producer);
     request->reqflags |= QEXEC_F_PROFILE;
     request->base.timeout.config.timeoutPolicy = TimeoutPolicy_ReturnStrict;
