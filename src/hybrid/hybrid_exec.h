@@ -50,6 +50,7 @@ void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(
 
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
 
+void HREQ_PublishOwnedTail(HybridRequest *hreq, size_t limit);
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit);
 
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);

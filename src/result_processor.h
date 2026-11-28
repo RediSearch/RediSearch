@@ -321,6 +321,8 @@ void RPSafeDepleter_Recover(ResultProcessor *base);
 * with RPSafeDepleter_MarkTimedOut instead. Used to enqueue depleters ahead of
 * a tail continuation on the same pool.
 */
+void RPSafeDepleter_PrepareJob(ResultProcessor *depleter);
+void RPSafeDepleter_RunPreparedJob(ResultProcessor *depleter);
 void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 
 /**

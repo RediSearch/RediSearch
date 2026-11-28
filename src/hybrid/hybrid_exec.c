@@ -518,10 +518,27 @@ static bool *snapshotHybridInputPublication(const HybridRequest *hreq) {
   return published;
 }
 
-static void executeOwnedHybridChunk(PipelineAccess *access, void *data) {
+static void prepareHybridReply(HybridRequest *hreq) {
+  // The cycle's serialization constants live in the reply state, where the reply phase reads them.
+  AGGPlan *plan = &hreq->tailPipeline->ap;
+  const uint32_t options = HREQ_RequestFlags(hreq);
+  cachedVars *cv = &hreq->base.reply.cv;
+  *cv = (cachedVars){
+      .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
+      .lastAstp = AGPLN_GetArrangeStep(plan),
+      .options = options,
+      .replyFlags = ((options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
+                    ((options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
+      .apiVersion = HREQ_SearchCtx(hreq)->apiVersion,
+      .rowElements = 1, // a hybrid row is one map in both protocols
+  };
+}
+
+static void publishOwnedHybridChunk(PipelineAccess *access, void *data) {
   OwnedHybridChunk *work = data;
   HybridRequest *hreq = work->request;
   QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  prepareHybridReply(hreq);
   qctx->resultLimit = work->limit;
   hreq->base.reply.rc = RS_RESULT_OK;
   hreq->base.reply.rowLimit = work->limit;
@@ -532,6 +549,21 @@ static void executeOwnedHybridChunk(PipelineAccess *access, void *data) {
 #ifdef ENABLE_ASSERT
   if (PipelineAccess_DebugPause(access, SYNC_POINT_AFTER_HYBRID_PIPELINE_PUBLISHED)) return;
 #endif
+}
+
+void HREQ_PublishOwnedTail(HybridRequest *hreq, size_t limit) {
+  OwnedHybridChunk work = {.request = hreq, .limit = limit};
+  PipelineExecution_RunNext(hreq->base.execution, publishOwnedHybridChunk, &work);
+}
+
+static void executeOwnedHybridChunk(PipelineAccess *access, void *data) {
+  OwnedHybridChunk *work = data;
+  HybridRequest *hreq = work->request;
+  QueryProcessingCtx *qctx = &hreq->tailPipeline->qctx;
+  if (!PipelineAccess_Context(access)) {
+    publishOwnedHybridChunk(access, work);
+    if (!PipelineAccess_IsOwned(access)) return;
+  }
   int rc = RS_RESULT_EOF;
   Pipeline_SerializeResults(&hreq->base, serializeResult_hybrid, true, &rc);
   if (!PipelineAccess_IsOwned(access)) return;
@@ -591,26 +623,13 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
  * @param cv Cached variables for result processing
  */
 void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit) {
-  // The cycle's serialization constants live in the reply state, where the reply phase reads them.
-  AGGPlan *plan = &hreq->tailPipeline->ap;
-  const uint32_t options = HREQ_RequestFlags(hreq);
-  cachedVars *cv = &hreq->base.reply.cv;
-  *cv = (cachedVars){
-      .lastLookup = AGPLN_GetLookup(plan, NULL, AGPLN_GETLOOKUP_LAST),
-      .lastAstp = AGPLN_GetArrangeStep(plan),
-      .options = options,
-      .replyFlags = ((options & QEXEC_F_TYPED) ? SENDREPLY_FLAG_TYPED : 0) |
-                    ((options & QEXEC_FORMAT_EXPAND) ? SENDREPLY_FLAG_EXPAND : 0),
-      .apiVersion = HREQ_SearchCtx(hreq)->apiVersion,
-      .rowElements = 1, // a hybrid row is one map in both protocols
-  };
-
   if (hreq->base.execution) {
     OwnedHybridChunk work = {.request = hreq, .limit = limit};
     PipelineExecution_RunNext(hreq->base.execution, executeOwnedHybridChunk, &work);
     return;
   }
 
+  prepareHybridReply(hreq);
   // Execute, store, reply. A blocked cycle opened its reply buffer when it began; a foreground
   // call opens one here for the duration of the call. With a reply callback the reply phase runs
   // later on the main thread (HREQ_ReplyWithStoredResults); otherwise it runs right here.

@@ -33,6 +33,9 @@
 #include "profile/profile.h"
 #include "dist_profile.h"
 #include "config.h"
+#include "coord/config.h"
+#include "hybrid/hybrid_executor.h"
+#include "thpool/thpool.h"
 #include "debug_commands.h"
 #include "result_processor.h"
 #include "concurrent_ctx.h"
@@ -988,38 +991,15 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
     return rp;
 }
 
-// Schedule each subquery's RPSafeDepleter to the coordinator thread pool, or
-// mark them all timed out when the query's clock has already expired — the
-// launcher owns that decision, and a marked depleter yields TIMEDOUT without
-// a job to wait on.
-//
-// NOTE: FIFO ordering on the pool must guarantees depleters get a worker before
-// the tail hybrid merger job that cv-waits on their completion or this will
-// deadlock (see submitHybridTail).
-static void scheduleDepleters(HybridRequest *hreq) {
-  if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
-  const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
-  for (size_t i = 0; i < hreq->nrequests; i++) {
-    ResultProcessor *depleter = findSafeDepleter(hreq, i);
-    if (timedOut) {
-      RPSafeDepleter_MarkTimedOut(depleter);
-    } else {
-      RPSafeDepleter_StartDepletion(depleter);
-    }
-  }
+static int submitCoordinatorTicket(void *pool, HybridTicket run, void *ticket) {
+  return redisearch_thpool_add_work(pool, run, ticket, THPOOL_PRIORITY_HIGH);
 }
 
-// Block until every depleter scheduled by scheduleDepleters has signaled
-// completion. Required before the tail tears down `hreq`: the merger's
-// cv-wait normally drains depleters during runPipelineCycle_hybrid, but
-// early-bailout paths in sendChunk_hybrid (e.g. timeout-already-fired)
-// skip the merger. Without this, a depleter still running on a coord-pool
-// worker would race with HybridRequest_Free → rpnetFree, leading to
-// use-after-free on the RPNet's iterator and cursor mappings.
-static void waitForDepleters(HybridRequest *hreq) {
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        RPSafeDepleter_WaitForCompletion(findSafeDepleter(hreq, i));
-    }
+static void runCoordinatorChild(void *arg, size_t ordinal) {
+  HybridDispatchCtx *dispatch = arg;
+  CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
+  RPSafeDepleter_RunPreparedJob(findSafeDepleter(dispatch->hreq, ordinal));
+  CurrentThread_ClearIndexSpec();
 }
 
 static void HybridDispatchCtx_Tail(void *arg) {
@@ -1028,11 +1008,10 @@ static void HybridDispatchCtx_Tail(void *arg) {
 
     CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
 
-    // If timeout fired between dispatch and tail pickup, the timeout callback
-    // already replied — skip the reply path, but still drain depleters before
-    // teardown (see waitForDepleters).
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
+#endif
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-        waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
         return;
@@ -1053,8 +1032,6 @@ static void HybridDispatchCtx_Tail(void *arg) {
     // see a dangling pointer if SearchCtx ever starts reading sctx->redisCtx.
     hreq->sctx->redisCtx = NULL;
     RedisModule_FreeThreadSafeContext(replyCtx);
-
-    waitForDepleters(hreq);
 
     CurrentThread_ClearIndexSpec();
     HybridDispatchCtx_Free(dispatch);
@@ -1091,7 +1068,14 @@ static void scheduleHybridTail(HybridRequest *hreq, StrongRef indexSpecRef,
   // Tail needs the BC for replyCtx; defer unblock to HybridDispatchCtx_Free.
   job->bc = NULL;
 
-  ConcurrentSearch_ThreadPoolRun(HybridDispatchCtx_Tail, dispatch);
+  if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    RPSafeDepleter_PrepareJob(findSafeDepleter(hreq, i));
+  }
+  if (hreq->base.execution) HREQ_PublishOwnedTail(hreq, UINT64_MAX);
+  CurrentThread_ClearIndexSpec();
+  HybridExecutor_Run(hreq->nrequests, clusterConfig.coordinatorPoolSize, submitCoordinatorTicket,
+                     ConcurrentSearch_GetPool(), runCoordinatorChild, HybridDispatchCtx_Tail, dispatch);
 }
 
 static void DistHybridCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *strong_ref,
@@ -1170,19 +1154,7 @@ static void execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
     }
 
-    scheduleDepleters(hreq);
-
-#ifdef ENABLE_ASSERT
-    // Lets a test pause the dispatcher between scheduling the depleters and the tail merger.
-    SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
-#endif
-
     scheduleHybridTail(hreq, strong_ref, dispatch, &status);
-
-    // IndexSpecRef_Promote set the TLS on this (dispatcher) thread.
-    // scheduleHybridTail transferred strong_ref ownership to the tail, so we
-    // only clear the TLS here without releasing the StrongRef.
-    CurrentThread_ClearIndexSpec();
 }
 
 static void DEBUG_execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -1255,9 +1227,7 @@ static void DEBUG_execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, 
     HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
   }
 
-  scheduleDepleters(hreq);
   scheduleHybridTail(hreq, strong_ref, dispatch, &status);
-  CurrentThread_ClearIndexSpec();
 }
 
 // Record a timed-out blocked hybrid request into the Redis-INFO per-stage
