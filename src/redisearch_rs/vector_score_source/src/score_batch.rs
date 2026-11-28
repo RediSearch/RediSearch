@@ -25,7 +25,10 @@ pub struct VecSimScoreBatch {
 
 impl VecSimScoreBatch {
     pub(crate) fn new(results: ReplyResults, max_doc_id: DocId) -> Self {
-        Self { results, max_doc_id }
+        Self {
+            results,
+            max_doc_id,
+        }
     }
 }
 
@@ -35,6 +38,8 @@ impl ScoreBatch for VecSimScoreBatch {
     }
 
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-        self.results.skip_to(target).filter(|(id, _)| *id <= self.max_doc_id)
+        self.results
+            .skip_to(target)
+            .filter(|(id, _)| *id <= self.max_doc_id)
     }
 }
