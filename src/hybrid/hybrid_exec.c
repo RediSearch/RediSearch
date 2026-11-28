@@ -1061,7 +1061,9 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   if (depleteInBackground && !sctx->spec->diskSpec) {
     const t_docId maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
     for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ_SearchCtx(hreq->requests[i])->maxVisibleDocId = maxDocId;
+      RedisSearchCtx *child = AREQ_SearchCtx(hreq->requests[i]);
+      child->maxVisibleDocId = maxDocId;
+      child->hasMaxVisibleDocId = true;
     }
   }
 
