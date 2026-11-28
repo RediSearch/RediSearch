@@ -559,7 +559,7 @@ class SpecOwnershipTest : public PipelineOwnershipTest {
     ASSERT_EQ(0, pthread_rwlock_init(&spec.rwlock, nullptr));
     spec.keysDict = dictCreate(&dictionaryType, nullptr);
     sctx.timeout = &timeout;
-    source = RPQueryIterator_New(new SourceIterator(this), nullptr, 0, &sctx);
+    source = RPQueryIterator_New(new SourceIterator(this), nullptr, 0, &sctx, false);
     source->parent = &context;
     context.endProc = context.rootProc = source;
   }
