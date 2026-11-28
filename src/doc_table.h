@@ -161,6 +161,9 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }
 
+/* The caller must hold the spec lock throughout use of this unretained pointer. */
+RSDocumentMetadata *DocTable_GetVisible(const DocTable *t, t_docId docId);
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);

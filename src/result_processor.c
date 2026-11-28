@@ -21,6 +21,7 @@
 #include "value_ffi.h"
 #include "result_processor.h"
 #include "extension.h"
+#include "ext/default.h"
 #include "result_processor_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "rlookup.h"
@@ -187,7 +188,8 @@ readCandidate(QueryIterator *it, bool withThreshold, const QueryProcessingCtx *q
  */
 static inline __attribute__((always_inline)) bool getDocumentMetadata(
     IndexSpec *spec, DocTable *docs, RedisSearchCtx *sctx, const QueryIterator *it,
-    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self, bool isProfiled) {
+    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self, bool isProfiled,
+    bool retain) {
   if (spec->diskSpec) {
     RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
@@ -224,7 +226,8 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
       if (prefetchDmd) {
         DocTable_Prefetch(docs, it->lastDocId + WILDCARD_DMD_PREFETCH_DISTANCE);
       }
-      *dmd = DocTable_Borrow(docs, it->lastDocId);
+      *dmd =
+          retain ? DocTable_Borrow(docs, it->lastDocId) : DocTable_GetVisible(docs, it->lastDocId);
     }
     // RAM lookups also reject missing metadata and pending slot deletions.
     // Expiration and visibility are checked afterward and do not affect the candidate counts.
@@ -232,7 +235,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     recordCandidate(self, deleted, isProfiled);
     if (deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime) ||
         !SearchCtx_IsDocVisible(sctx, (*dmd)->id)) {
-      DMD_Return(*dmd);
+      if (retain) DMD_Return(*dmd);
       return false;
     }
   }
@@ -328,14 +331,16 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
  * Set the search result data from a DMD and IndexResult.
  */
 static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexResult *indexResult,
-                            const RSDocumentMetadata *dmd) {
+                            const RSDocumentMetadata *dmd, bool owned) {
   RS_LOG_ASSERT(SearchResult_GetDocumentMetadata(res) == NULL, "SearchResult already has associated document metadata");
   base->parent->totalResults++;
   SearchResult_SetDocId(res, dmd->id);
   SearchResult_SetBorrowedIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
-  SearchResult_SetDocumentMetadata(res, dmd);
-  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
+  if (owned) {
+    SearchResult_SetDocumentMetadata(res, dmd);
+    RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
+  }
 }
 
 /**
@@ -458,10 +463,9 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 }
 
 /* Next implementation for sync disk and regular (in-memory) flow */
-static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcessor *base,
-                                                                   SearchResult *res,
-                                                                   bool withThreshold,
-                                                                   bool isProfiled) {
+static inline __attribute__((always_inline)) int rpQueryItNextImpl(
+    ResultProcessor *base, SearchResult *res, bool withThreshold, bool isProfiled,
+    const RSDocumentMetadata **view) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
@@ -515,17 +519,22 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
     needToValidateCurrent = false;
 
     // Get document metadata (either from disk or in-memory DocTable)
-    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self,
-                             isProfiled)) {
+    bool retain = !view || spec->diskSpec || it->current->dmd;
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self, isProfiled,
+                             retain)) {
       continue;
     }
 
     if (!validateDmdSlot(self, dmd)) {
-      DMD_Return(dmd);
+      if (retain) DMD_Return(dmd);
       continue;
     }
 
-    setSearchResult(base, res, it->current, dmd);
+    if (!retain) {
+      RS_ASSERT(IndexSpec_IsLocked(spec));
+      *view = dmd;
+    }
+    setSearchResult(base, res, it->current, dmd, retain);
     return RS_RESULT_OK;
   }
 }
@@ -591,7 +600,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
         IndexResult_Free(indexResult);
         continue;
       }
-      setSearchResult(base, res, indexResult, indexResult->dmd);
+      setSearchResult(base, res, indexResult, indexResult->dmd, true);
       // Track this IndexResult so we can free it on the next call
       self->async.lastReturnedIndexResult = indexResult;
       return RS_RESULT_OK;
@@ -626,11 +635,11 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 }
 
 static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, false, false);
+  return rpQueryItNextImpl(base, res, false, false, NULL);
 }
 
 static int rpQueryItNextProfiled(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, false, true);
+  return rpQueryItNextImpl(base, res, false, true, NULL);
 }
 
 static int rpQueryItNextAsyncDisk(ResultProcessor *base, SearchResult *res) {
@@ -642,11 +651,11 @@ static int rpQueryItNextAsyncDiskProfiled(ResultProcessor *base, SearchResult *r
 }
 
 static int rpQueryItNextWithThreshold(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, true, false);
+  return rpQueryItNextImpl(base, res, true, false, NULL);
 }
 
 static int rpQueryItNextWithThresholdProfiled(ResultProcessor *base, SearchResult *res) {
-  return rpQueryItNextImpl(base, res, true, true);
+  return rpQueryItNextImpl(base, res, true, true, NULL);
 }
 
 static int rpQueryItNextAsyncDiskWithThreshold(ResultProcessor *base, SearchResult *res) {
@@ -810,18 +819,24 @@ typedef struct {
   const RLookupKey *scoreKey;
 } RPScorer;
 
-static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
+static inline int scoreNext(ResultProcessor *base, SearchResult *res,
+                            const RSDocumentMetadata **view) {
   int rc;
   RPScorer *self = (RPScorer *)base;
 
   do {
-    rc = base->upstream->Next(base->upstream, res);
+    if (view) *view = NULL;
+    rc = view ? rpQueryItNextImpl(base->upstream, res, false, false, view)
+              : base->upstream->Next(base->upstream, res);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
 
     // Apply the scoring function
-    SearchResult_SetScore(res, self->scorer(&self->scorerCtx, SearchResult_GetIndexResult(res), SearchResult_GetDocumentMetadata(res), base->parent->minScore));
+    SearchResult_SetScore(
+        res, self->scorer(&self->scorerCtx, SearchResult_GetIndexResult(res),
+                          view && *view ? *view : SearchResult_GetDocumentMetadata(res),
+                          base->parent->minScore));
     if (self->scorerCtx.scrExp) {
       SearchResult_SetScoreExplain(res, (RSScoreExplain *)self->scorerCtx.scrExp);
       self->scorerCtx.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -843,6 +858,10 @@ static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
   } while (1);
 
   return rc;
+}
+
+static int rpscoreNext(ResultProcessor *base, SearchResult *res) {
+  return scoreNext(base, res, NULL);
 }
 
 /* Free impl. for scorer - frees up the scorer privdata if needed */
@@ -1075,7 +1094,7 @@ static bool chainKeepsScoreThreshold(const ResultProcessor *rp) {
  * scoring below its minimum can enter it, so that minimum becomes the pipeline's
  * `minCompetitiveScore` before the pull. The heap minimum only rises, so the value never loosens.
  */
-static inline int pullCandidate(RPSorter *self) {
+static inline int pullCandidate(RPSorter *self, const RSDocumentMetadata **view) {
   ResultProcessor *upstream = self->base.upstream;
   if (self->scoreThreshold != ScoreThreshold_Off && self->pq->count == self->pq->size) {
     if (self->scoreThreshold == ScoreThreshold_Undecided) {
@@ -1086,14 +1105,60 @@ static inline int pullCandidate(RPSorter *self) {
       self->base.parent->minCompetitiveScore = SearchResult_GetScore(mmh_peek_min(self->pq));
     }
   }
+  if (view) {
+    if (upstream->Next == rpQueryItNext) {
+      return rpQueryItNextImpl(upstream, self->pooledResult, false, false, view);
+    }
+    if (upstream->Next == rpscoreNext && upstream->upstream->Next == rpQueryItNext) {
+      return scoreNext(upstream, self->pooledResult, view);
+    }
+    // A memory stop can replace the root Next while the heap is filling.
+  }
   return upstream->Next(upstream, self->pooledResult);
 }
 
-static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+static bool canDeferSorterMetadata(const RPSorter *self) {
+  ResultProcessor *src = self->base.upstream;
+  if (!src) return false;
+  if (!self->fieldcmp.nkeys) {
+    if (src->Next != rpscoreNext || self->scoreTieBreakKey) return false;
+    RPScorer *scorer = (RPScorer *)src;
+    if (scorer->scorerCtx.scrExp || !IsBM25StdScorer(scorer->scorer)) return false;
+    src = src->upstream;
+  }
+  return src && src->Next == rpQueryItNext && !((RPQueryIterator *)src)->sctx->spec->diskSpec;
+}
+
+static void bufferSorterCandidate(RPSorter *self, const RSDocumentMetadata *view) {
+  if (view) {
+    DMD_Incref(((RSDocumentMetadata *)view));
+    SearchResult_SetDocumentMetadata(self->pooledResult, view);
+    RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(self->pooledResult), &view->sortVector);
+  }
+  SearchResult_BufferIndexResult(&self->base, self->pooledResult);
+}
+
+static int compareSorterCandidate(RPSorter *self, const SearchResult *minimum,
+                                  const RSDocumentMetadata *view) {
+  if (!view || !self->fieldcmp.nkeys) {
+    return self->cmp(self->pooledResult, minimum, self->cmpCtx);
+  }
+  // A direct index row has only a doc ID and a sorting vector for field comparison.
+  // Keep the borrowed vector out of the pooled row until it owns the metadata.
+  SearchResult candidate = SearchResult_New();
+  SearchResult_SetDocId(&candidate, view->id);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(&candidate), &view->sortVector);
+  int cmp = self->cmp(&candidate, minimum, self->cmpCtx);
+  SearchResult_Destroy(&candidate);
+  return cmp;
+}
+
+static inline int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, bool defer) {
   RPSorter *self = (RPSorter *)rp;
 
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
-  int rc = pullCandidate(self);
+  const RSDocumentMetadata *view = NULL;
+  int rc = pullCandidate(self, defer ? &view : NULL);
 
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
@@ -1114,7 +1179,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     // dangle once the SearchResult lives in the heap across reads. Preserve it
     // as an owned deep copy when something downstream needs it, otherwise drop
     // the borrow.
-    SearchResult_BufferIndexResult(rp, self->pooledResult);
+    bufferSorterCandidate(self, view);
     mmh_insert(self->pq, self->pooledResult);
     if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
       rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
@@ -1136,10 +1201,10 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     }
 
     // if needed - pop it and insert a new result
-    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
+    if (compareSorterCandidate(self, minh, view) > 0) {
       // Preserve or drop the borrowed RSIndexResult before the SearchResult
       // enters the heap; see the matching insert path above for the rationale.
-      SearchResult_BufferIndexResult(rp, self->pooledResult);
+      bufferSorterCandidate(self, view);
       self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
     }
     // clear the result in preparation for the next iteration
@@ -1152,7 +1217,8 @@ static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
-  while ((rc = rpsortNext_innerLoop(rp, r)) == RESULT_QUEUED) {
+  bool defer = canDeferSorterMetadata((RPSorter *)rp);
+  while ((rc = rpsortNext_innerLoop(rp, r, defer)) == RESULT_QUEUED) {
     // Do nothing.
   }
   rp->parent->resultLimit = chunkLimit; // restore the limit
@@ -2205,7 +2271,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   self->maxValue = MAX(self->maxValue, SearchResult_GetScore(self->pooledResult));
   // The pooled result outlives the upstream iterator's `it->current` slot;
   // preserve or drop the borrowed RSIndexResult before storing in the pool.
-  SearchResult_BufferIndexResult(rp, self->pooledResult);
+  bufferSorterCandidate(self, view);
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
