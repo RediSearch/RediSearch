@@ -1048,6 +1048,7 @@ REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
+REPLY_FUNC(WithBufferedReply, RedisModuleCtx *)
 REPLY_FUNC(WithString, RedisModuleString *)
 
 int RMCK_ReplyWithNull(RedisModuleCtx *) {
@@ -1127,6 +1128,10 @@ RedisModuleCtx *RMCK_GetThreadSafeContext(RedisModuleBlockedClient *bc) {
 
 RedisModuleCtx *RMCK_GetDetachedThreadSafeContext(RedisModuleCtx *ctx) {
   return RMCK_GetThreadSafeContext(NULL);
+}
+
+RedisModuleCtx *RMCK_CreateReplyBufferContext(RedisModuleCtx *ctx) {
+  return RMCK_GetDetachedThreadSafeContext(ctx);
 }
 
 void RMCK_FreeThreadSafeContext(RedisModuleCtx *ctx) {
@@ -1887,6 +1892,8 @@ static void registerApis() {
   REGISTER_API(StringToULongLong);
 
   REGISTER_API(GetThreadSafeContext);
+  REGISTER_API(CreateReplyBufferContext);
+  REGISTER_API(ReplyWithBufferedReply);
   REGISTER_API(GetDetachedThreadSafeContext);
   REGISTER_API(FreeThreadSafeContext);
   REGISTER_API(ThreadSafeContextLock);

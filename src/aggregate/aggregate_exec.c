@@ -756,7 +756,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   const bool softError = !timedOut && rc == RS_RESULT_ERROR;
   const bool maxPrefixExpansions = QueryError_HasReachedMaxPrefixExpansionsWarning(qctx->err);
   const bool asmInaccurate = req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT;
-  const bool timeoutCapped = req->stateflags & QEXEC_S_MAX_TIMEOUT_CAPPED;
+  const bool timeoutCapped = req->replyflags & QUERY_REPLY_F_TIMEOUT_CAPPED;
   RedisModule_ReplyKV_ArrayWithLen(reply, "warning", bgScanOOM + queryOOM + timedOut + softError + maxPrefixExpansions + asmInaccurate + timeoutCapped);
   if (bgScanOOM) {
     RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);

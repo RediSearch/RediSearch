@@ -3116,7 +3116,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
      }
      self->iterator = dictGetIterator(self->hybridResults);
      rp->parent->totalResults = dictSize(self->hybridResults);
-     rp->parent->skippedResults = 0;
    }
    int rc = hybridMergerYield(rp, r, true);
    return rc == RS_RESULT_OK ? RP_DRAIN_OK : rc == RS_RESULT_EOF ? RP_DRAIN_EOF : RP_DRAIN_ERROR;
@@ -3189,9 +3188,6 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 
    // Update total results to reflect the number of unique documents we'll yield
    rp->parent->totalResults = dictSize(self->hybridResults);
-   // Merged-doc count excludes upstream loader drops; clear the skip correction
-   // (same invariant as the grouper).
-   rp->parent->skippedResults = 0;
 
    // Switch to yield phase
    rp->Next = RPHybridMerger_Yield;

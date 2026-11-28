@@ -1812,6 +1812,7 @@ void ChunkReplyState_OpenBuffer(ChunkReplyState *state, RedisModuleCtx *ctx) {
   RS_ASSERT(!state->rows.ctx);
   state->rows = RedisModule_NewReply(RedisModule_CreateReplyBufferContext(ctx));
   state->bufferedElements = 0;
+  state->rowsWritten = 0;
 }
 
 void ChunkReplyState_CloseBuffer(ChunkReplyState *state) {
