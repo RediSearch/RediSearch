@@ -337,6 +337,7 @@ class OwnedLoaderDrainTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
   IndexSpec spec = {};
+  SchemaRule rule = {};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, &spec);
   QueryProcessingCtx qctx = {};
   RLookup lookup = RLookup_New();
@@ -345,6 +346,8 @@ class OwnedLoaderDrainTest : public ::testing::Test {
   SearchResult row = SearchResult_New();
 
   void SetUp() override {
+    rule.type = DocumentType_Hash;
+    spec.rule = &rule;
     spec.docs = DocTable_New(1);
   }
 
@@ -395,7 +398,7 @@ TEST_F(OwnedLoaderDrainTest, SequentialLoadDropsMissingRowsAndTransfersOwnership
   ASSERT_EQ(RS_RESULT_TIMEDOUT, loader->Next(loader, &row));
   ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
   expectValue(key, "value");
-  EXPECT_EQ(1, qctx.skippedResults);
+  EXPECT_EQ(live->id, SearchResult_GetDocId(&row));
   EXPECT_EQ(1, missing->ref_count);
   EXPECT_EQ(2, live->ref_count);
   loader->Free(loader);
@@ -731,7 +734,7 @@ TEST_F(OwnedSafeLoaderDrainTest, SkipsLoadedTombstonesAndPreservesReturnedRowOwn
   ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
   SearchResult_Clear(&row);
   ASSERT_EQ(RP_DRAIN_OK, loader->Drain(loader, &row));
-  EXPECT_EQ(1, qctx.skippedResults);
+  EXPECT_EQ(last->id, SearchResult_GetDocId(&row));
   EXPECT_EQ(1, missing->ref_count);
   EXPECT_EQ(2, last->ref_count);
   loader->Free(loader);

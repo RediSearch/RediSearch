@@ -141,7 +141,7 @@ class TestAggregate():
         _test_withcount(self.env, cmd)
 
         # Same as above, but for the approximate COUNT_DISTINCTISH reducer. COUNT_DISTINCTISH
-        # is a HyperLogLog estimate (HLL_PRECISION_BITS == 8, i.e. 256 registers, so a
+        # is a HyperLogLog estimate (8 bits, i.e. 256 registers, so a
         # standard error of ~1/sqrt(256) == ~6.5% per estimate), and its exact value depends
         # on the hash function used internally; allow ~3 standard errors of slack and just
         # check that it is close to the exact count above.
@@ -1033,7 +1033,7 @@ def testStartsWith(env):
     conn.execute_command('hset', 'doc3', 't', 'ab')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'startswith(@t, "aa")', 'as', 'prefix')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'prefix', '1'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([3, ['t', 'aa', 'prefix', '1'], \
                                                                 ['t', 'aaa', 'prefix', '1'], \
                                                                 ['t', 'ab', 'prefix', '0']]))
 
@@ -1069,7 +1069,7 @@ def testContains(env):
 
     # check count of contains
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "bb")', 'as', 'substring')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'substring', '0'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([6, ['t', 'aa', 'substring', '0'], \
                                                                 ['t', 'bba', 'substring', '1'], \
                                                                 ['t', 'aba', 'substring', '0'], \
                                                                 ['t', 'abb', 'substring', '1'], \
@@ -1085,7 +1085,7 @@ def testContains(env):
 
     # check count of contains with empty string. (returns length of string + 1)
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'contains(@t, "")', 'as', 'substring')
-    env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, ['t', 'aa', 'substring', '3'], \
+    env.assertEqual(toSortedFlatList(res), toSortedFlatList([6, ['t', 'aa', 'substring', '3'], \
                                                              ['t', 'bba', 'substring', '4'], \
                                                              ['t', 'aba', 'substring', '4'], \
                                                              ['t', 'abb', 'substring', '4'], \
@@ -1109,7 +1109,7 @@ def testStrLen(env):
     conn.execute_command('hset', 'doc3', 't', '')
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'load', 1, 't', 'apply', 'strlen(@t)', 'as', 'length')
-    exp = [1, ['t', 'aa', 'length', '2'],
+    exp = [3, ['t', 'aa', 'length', '2'],
               ['t', 'aaa', 'length', '3'],
               ['t', '', 'length', '0']]
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
@@ -1150,7 +1150,7 @@ def testLoadAll(env):
     conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
     conn.execute_command('HSET', 'doc3', 't', 'hello world', 'n', 17.8, 'notIndexed', 'aaa')
     # without LOAD
-    env.expect('FT.AGGREGATE', 'idx', '*').equal([1, [], [], []])
+    env.expect('FT.AGGREGATE', 'idx', '*').equal([3, [], [], []])
     # use LOAD with narg or ALL
     res = [3, ['__key', 'doc1', 't', 'hello', 'n', '42', 'notIndexed', 'ccc'],
               ['__key', 'doc2', 't', 'world', 'n', '3.141', 'notIndexed', 'bbb'],
@@ -1712,6 +1712,29 @@ def testSortByNumericField(env):
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC')
     env.assertEqual(res, [3, ['n', '123'], ['n', '678'], ['n', '1023']])
+
+
+@skip(cluster=True)
+def testAggregateNumericSortByAllDialects(env):
+    """Exercise numeric aggregate sorting without an explicit LIMIT."""
+    conn = getConnectionByEnv(env)
+    max_dialect = set_max_dialect(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'f', 'TEXT', 'n', 'NUMERIC', 'm', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'f', 'x', 'n', 1, 'm', 1)
+    conn.execute_command('HSET', 'doc:2', 'f', 'x', 'n', 1, 'm', 3)
+    conn.execute_command('HSET', 'doc:3', 'f', 'x', 'n', 2, 'm', 2)
+
+    for dialect in range(1, max_dialect + 1):
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'ASC', 'DIALECT', dialect).equal(
+            [3, ['n', '1'], ['n', '1'], ['n', '2']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '2'], ['n', '1'], ['n', '1']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '4', '@n', 'ASC', '@m', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '1', 'm', '3'], ['n', '1', 'm', '1'], ['n', '2', 'm', '2']])
 
 @skip(cluster=False)
 def testErrorStatsResp2():

@@ -226,7 +226,7 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     }
 
     // Create parameter dictionary and populate
-    dict *params = Param_DictCreate();
+    dict *params = Param_DictCreate(paramsArgs->argc / 2);
     if (!params) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create parameter dictionary");
         return;

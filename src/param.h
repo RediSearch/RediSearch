@@ -36,7 +36,7 @@ typedef enum {
 } ParamType;
 
 typedef struct Param {
-  // Parameter name, borrowed from the parsed query text; not NUL-terminated
+  // Parameter name, borrowed from the request (query text or argv); not NUL-terminated
   const char *name;
   // Length of the parameter name
   size_t len;
@@ -53,7 +53,8 @@ typedef struct Param {
 
 /* The params dict borrows its names and values; both must outlive the dict and anything that
  * resolved a parameter from it. Query requests satisfy this with their held argv. */
-dict *Param_DictCreate();
+// `capacity` is the exact number of parameters that will be added.
+dict *Param_DictCreate(size_t capacity);
 int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status);
 const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);

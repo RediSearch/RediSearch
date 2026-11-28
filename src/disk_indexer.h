@@ -24,7 +24,7 @@ extern "C" {
 #endif
 
 /**
- * Disk-mode doc-id assignment for a single document, called from `doAssignIds`.
+ * Disk-mode doc-id assignment for a single document, called from `assignDocId`.
  *
  * Opens a fresh per-document write batch, stages the doc-table write onto it,
  * and assigns the new doc-id synchronously. The matching in-memory updates

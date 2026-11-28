@@ -20,20 +20,26 @@ use vecsim::ReplyResults;
 /// [`VectorScoreSource::is_expired`](crate::VectorScoreSource)).
 pub struct VecSimScoreBatch {
     results: ReplyResults,
+    max_doc_id: DocId,
 }
 
 impl VecSimScoreBatch {
-    pub(crate) fn new(results: ReplyResults) -> Self {
-        Self { results }
+    pub(crate) fn new(results: ReplyResults, max_doc_id: DocId) -> Self {
+        Self {
+            results,
+            max_doc_id,
+        }
     }
 }
 
 impl ScoreBatch for VecSimScoreBatch {
     fn next(&mut self) -> Option<(DocId, f64)> {
-        self.results.next()
+        self.results.find(|(id, _)| *id <= self.max_doc_id)
     }
 
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-        self.results.skip_to(target)
+        self.results
+            .skip_to(target)
+            .filter(|(id, _)| *id <= self.max_doc_id)
     }
 }

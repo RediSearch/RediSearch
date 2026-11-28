@@ -94,30 +94,6 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
-// Result count to report to the client: matches minus the rows a loader dropped
-// (deleted/re-indexed/expired mid-load). Saturates at zero.
-//
-// `skippedResults <= totalResults` reads like an invariant — drops are a subset of counted
-// matches, and any stage that transforms or replaces totalResults (grouper, hybrid merge,
-// optimizer offset/limit) folds in and clears skippedResults first. It does not hold across a
-// cursor chunk boundary. A read without WITHCOUNT resets both counters when it finishes, while
-// a buffering stage upstream — `SORTBY` with `MAX`, which accumulates every row before
-// yielding any — hands rows counted during one read to the loader during a later one. A
-// document that vanished in between is counted in `skippedResults` for a read whose
-// `totalResults` no longer includes it.
-//
-// Both counters are unsigned, so subtracting then wrapped: five such rows reported 4294967291
-// as the result count, and the assert this used to carry aborted an assert-enabled build
-// rather than catching anything a caller could act on. Same reasoning, and the same remedy, as
-// the clamp in `rpevalNext_filter` — and needed alongside it, since with both a filter and
-// dropped documents that clamp pins `totalResults` at zero and leaves this subtraction to wrap.
-static inline uint32_t QITR_ReportedTotal(const QueryProcessingCtx *qctx) {
-  if (qctx->skippedResults >= qctx->totalResults) {
-    return 0;
-  }
-  return qctx->totalResults - qctx->skippedResults;
-}
-
 /* Result processor return codes */
 
 /** Possible return values from Next() */
@@ -195,7 +171,7 @@ typedef struct ResultProcessor {
 RPDrainStatus RPDrain_EOF(ResultProcessor *self, SearchResult *res);
 
 /** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx, bool failOnRevalidateAbort);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -403,19 +379,14 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Launches all the safe depleters in the array and resolves the lock handshake, without waiting
-* for depletion to finish: on RS_RESULT_OK, depletion is still in flight, and each depleter's Next
-* waits for its own completion, so consumers observe results in completion order. A lock failure
-* returns RS_RESULT_ERROR — only after draining the group, so no background thread outlives the
-* error return.
+* Launches all the safe depleters in the array, without waiting for depletion to finish: on
+* RS_RESULT_OK, depletion is still in flight, and each depleter's Next waits for its own
+* completion, so consumers observe results in completion order.
 * @param safeDepleters Array of safe depleter processors
-* @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
-*                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
-*                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
-* @return RS_RESULT_OK if all safe depleters launched and locked successfully, otherwise an error code
+* @return RS_RESULT_OK if all safe depleters launched successfully, otherwise an error code
 */
-int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Blocks until every safe depleter's background job has finished (successfully or not); after it
@@ -430,16 +401,15 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 *         (errors take priority over timeouts)
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * safe depleters to coordinate their background threads and wake each other when depleting completes.
 * @param num_depleters Number of RPSafeDepleter processors that will share this sync object
-* @param take_index_lock Whether the safe depleters should participate in index locking coordination
 */
-StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
+StrongRef DepleterSync_New(unsigned int num_depleters);
 
 /*******************************************************************************************************************
  *  Hybrid Merger Result Processor

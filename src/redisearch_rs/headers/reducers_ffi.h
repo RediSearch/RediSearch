@@ -168,6 +168,20 @@ bool CollectReducer_IsLocalLoadAll(const Reducer *r);
 Reducer *CountDistinctReducer_Create(const RLookupKey *srckey);
 
 /**
+ * Creates a `COUNT_DISTINCTISH` reducer of `srckey`, or an `HLL` one yielding the
+ * serialized registers if `raw`, and returns its base [`ffi::Reducer`], which the
+ * caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *CountDistinctishReducer_Create(const RLookupKey *srckey, bool raw);
+
+/**
  * Creates a `COUNT` reducer and returns its base [`ffi::Reducer`], which the
  * caller frees through its `Free` callback.
  */
@@ -187,6 +201,19 @@ Reducer *CountReducer_Create(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *FirstValueReducer_Create(const RLookupKey *retkey, const RLookupKey *sortkey, bool ascending);
+
+/**
+ * Creates an `HLL_SUM` reducer of `srckey` and returns its base [`ffi::Reducer`],
+ * which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *HllSumReducer_Create(const RLookupKey *srckey);
 
 /**
  * Creates a `MIN` reducer of `srckey`, or a `MAX` one if `max`, and returns its

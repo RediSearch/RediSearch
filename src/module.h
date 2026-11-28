@@ -46,6 +46,9 @@ int RediSearch_Init(RedisModuleCtx *ctx);
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
+// Whether the Redis core provides every module API Search cannot run without.
+bool RediSearch_HasRequiredRedisAPIs(void);
+
 extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
@@ -133,6 +136,7 @@ typedef struct {
   int profileLimited;
   rs_wall_clock profileClock;
   rs_wall_clock_ns_t coordQueueTime;  // Time spent waiting in coordinator thread pool queue
+  rs_wall_clock_ns_t rowSerializationTime;
   void *reducer;
   bool queryOOM;
   bool timedOut;
@@ -168,7 +172,8 @@ void searchRequestCtx_Free(searchRequestCtx *r);
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status);
+// `params` is the request's parsed PARAMS dict (NULL if none); it is only read.
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

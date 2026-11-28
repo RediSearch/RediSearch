@@ -58,9 +58,10 @@ void BlkAlloc_FreeAll(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_
 
 /**
  * Like FreeAll, except the blocks are recycled and placed inside the 'avail'
- * pool instead.
+ * pool instead. Blocks larger than maxBlockSize are freed rather than recycled,
+ * so a single oversized allocation is not retained.
  */
-void BlkAlloc_Clear(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t elemSize);
+void BlkAlloc_Clear(BlkAlloc *alloc, BlkAllocCleaner cleaner, void *arg, size_t elemSize, size_t maxBlockSize);
 
 #ifdef __cplusplus
 }

@@ -131,7 +131,7 @@ struct TestParamsDict {
 
   TestParamsDict(const std::vector<std::string>& paramsKV, ParamList &expectedPairs) : kv(paramsKV) {
     if (kv.empty()) return;
-    d = Param_DictCreate();
+    d = Param_DictCreate(kv.size() / 2);
     QueryError status = QueryError_Default();
     for (size_t i = 0; i + 1 < kv.size(); i += 2) {
       values.push_back(RedisModule_CreateString(NULL, kv[i + 1].data(), kv[i + 1].size()));

@@ -12,7 +12,7 @@
 #include "rmutil/rm_assert.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
-                       int reuse) {
+                       int reuse, size_t maxBlockSize) {
   BlkAllocBlock *cur = blocks->root;
   while (cur) {
     if (cleaner) {
@@ -21,7 +21,10 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
       }
     }
     BlkAllocBlock *curNext = cur->next;
-    if (reuse) {
+    if (reuse && cur->capacity <= maxBlockSize) {
+      // getNewBlock only looks at the head of the free list, which is as good a fit as any only while
+      // every recycled block has the same capacity.
+      RS_LOG_ASSERT(!blocks->avail || blocks->avail->capacity == cur->capacity, "recycled blocks must share one capacity");
       cur->next = blocks->avail;
       blocks->avail = cur;
     } else {
@@ -43,36 +46,21 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
 }
 
 void BlkAlloc_FreeAll(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize) {
-  freeCommon(blocks, cleaner, arg, elemSize, 0);
+  freeCommon(blocks, cleaner, arg, elemSize, 0, 0);
 }
 
-void BlkAlloc_Clear(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize) {
-  freeCommon(blocks, cleaner, arg, elemSize, 1);
+void BlkAlloc_Clear(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize, size_t maxBlockSize) {
+  freeCommon(blocks, cleaner, arg, elemSize, 1, maxBlockSize);
   blocks->root = blocks->last = NULL;
 }
 
 static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
   BlkAllocBlock *block = NULL;
-  if (alloc->avail) {
-    BlkAllocBlock *prev = NULL;
-    for (BlkAllocBlock *cur = alloc->avail; cur; cur = cur->next) {
-      if (cur->capacity >= blockSize) {
-        // Set our block
-        block = cur;
-        if (cur == alloc->avail) {
-          alloc->avail = cur->next;
-        } else {
-          RS_ASSERT(prev != NULL);
-          prev->next = cur->next;
-        }
-        break;
-      } else {
-        prev = cur;
-      }
-    }
-  }
-
-  if (!block) {
+  // Only the head is considered so that allocation never walks the free list (see freeCommon).
+  if (alloc->avail && alloc->avail->capacity >= blockSize) {
+    block = alloc->avail;
+    alloc->avail = block->next;
+  } else {
     block = rm_malloc(sizeof(*alloc->root) + blockSize);
     block->capacity = blockSize;
   }

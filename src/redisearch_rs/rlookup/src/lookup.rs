@@ -12,6 +12,7 @@ mod key_list;
 
 use crate::HashDocumentFormat;
 use crate::JsonDocumentFormat;
+use crate::JsonPathCache;
 use crate::LoadFieldError;
 use crate::{
     IndexSpec, RLookupRow,
@@ -662,10 +663,18 @@ impl<'a> RLookup<'a> {
                 // Safety: this function will be called long after module initialization
                 let japi = unsafe { RedisJsonApi::get().ok_or(LoadFieldError::JsonUnsupported) }?;
 
+                let paths = self
+                    .keys
+                    .iter()
+                    .skip(first_new_slot)
+                    .map(|key| key.path().as_deref());
+                // SAFETY: the lookup owns or borrows these path bytes and outlives this local cache.
+                let path_cache = unsafe { JsonPathCache::new(&japi, paths) };
                 let format = JsonDocumentFormat::new(
                     NonNull::new(search_ctx.redisCtx).unwrap(),
                     &japi,
                     search_ctx.apiVersion,
+                    &path_cache,
                 );
 
                 load_document::load_specific_keys(

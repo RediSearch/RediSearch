@@ -96,7 +96,7 @@ def testRDBCompatibility(env):
 @skip(cluster=True)
 def testRDBCompatibility_vecsim():
     # No workers at all, so loading indexes vectors synchronously.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     skipOnExistingEnv(env)
     dbFileName = env.cmd('config', 'get', 'dbfilename')[1]
     dbDir = env.cmd('config', 'get', 'dir')[1]

@@ -32,7 +32,7 @@ on:
       redis_ref:
         type: string
         # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
-        default: "d3abc02fed6664cc0afaf9ffe4e172a99e274f44"
+        default: "559d143b4e0409c452f7d229ba420954b6b647a2"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
   workflow_call:
     inputs:
@@ -57,7 +57,7 @@ on:
       redis_ref:
         type: string
         # Keep benchmarks independent of the Redis version preinstalled on the DB hosts.
-        default: "d3abc02fed6664cc0afaf9ffe4e172a99e274f44"
+        default: "559d143b4e0409c452f7d229ba420954b6b647a2"
         description: "redis/redis git ref (sha/branch/tag) to build and run the benchmarks against, instead of the redis preinstalled on the DB hosts. Empty uses the preinstalled default."
 
 jobs:
@@ -401,21 +401,21 @@ jobs:
       contents: read
       actions: read
       id-token: write
-    if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
+    if: ${{ inputs.allowed_setup == '' || contains(fromJSON('["oss-standalone","oss-standalone-threads-1","oss-standalone-threads-2"]'), inputs.allowed_setup) }}
     needs: build-redisearch
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1]
+        setup: ${{ fromJSON(inputs.allowed_setup == '' && '["oss-standalone","oss-standalone-threads-1","oss-standalone-threads-2"]' || format('["{0}"]', inputs.allowed_setup)) }}
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
       benchmark_glob: "hybrid*.yml"
       benchmark_filter: ${{ inputs.benchmark_filter }}
       allowed_envs: oss-standalone
-      allowed_setups: oss-standalone
-      benchmark_runner_group_member_id: ${{ matrix.member_id }}
-      benchmark_runner_group_total: ${{ strategy.job-total }}
+      allowed_setups: ${{ matrix.setup }}
+      benchmark_runner_group_member_id: 1
+      benchmark_runner_group_total: 1
       binary_artifact_name: redisearch-bin-${{ github.run_id }}-${{ github.run_attempt }}
       base_branch: ${{ inputs.base_branch }}
       redis_ref: ${{ inputs.redis_ref }}

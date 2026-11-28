@@ -79,6 +79,6 @@ index locks held by the worker; and SVS indexes.
    one core per database.
 3. Bound: is an unbounded backlog acceptable, as with `WORKERS > 0`, or is a hard bound
    required first.
-4. Config surface: module config only, or also the `FT.CONFIG` name `MIN_MAINTENANCE_WORKERS`
-   like the sibling worker settings. The deprecated `MT_MODE` handling currently relies on
-   the latter.
+4. Config surface: resolved as module config only (`search-min-maintenance-workers`), with
+   no `FT.CONFIG` name or module argument. The deprecated `MT_MODE` values leave it at its
+   default, so only an explicit 0 disables the floor.

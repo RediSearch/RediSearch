@@ -13,6 +13,7 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{QueryIterator, QueryRequestTimeout, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
 use field::FieldFilterContext;
+use rqe_core::DocId;
 use rqe_iterators::{
     ExpirationChecker, FieldExpirationChecker,
     c2rust::CRQEIterator,
@@ -36,6 +37,8 @@ use vector_score_source::{NewVectorTopK, new_vector_top_k};
 /// pipeline needs no rich results, so each match yields a metric-only result
 /// carrying just the vector score instead of a deep copy of the child's scoring
 /// subtree. It has no effect on a pure KNN query, which is metric-only anyway.
+///
+/// A set `sctx->maxVisibleDocId` keeps later documents out of the k results.
 ///
 /// # Safety
 ///
@@ -95,6 +98,13 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // check uses `FieldMaskOrIndex::Index`, not the mask path.
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
+    // SAFETY: guaranteed by 6.
+    let sctx = unsafe { sctx_nn.as_ref() };
+    let max_doc_id = if sctx.hasMaxVisibleDocId {
+        sctx.maxVisibleDocId
+    } else {
+        DocId::MAX
+    };
     // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
     let reduced = unsafe {
         new_vector_top_k(
@@ -106,6 +116,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
             can_trim_deep_results,
             checker,
             child,
+            max_doc_id,
         )
     };
     box_reduced(reduced)

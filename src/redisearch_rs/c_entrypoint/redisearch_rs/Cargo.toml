@@ -56,6 +56,7 @@ trie_rdb_ffi = { path = "../trie_rdb_ffi" }
 ttl_table_ffi = { path = "../ttl_table_ffi" }
 types_ffi = { path = "../types_ffi" }
 numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
+over_aligned_alloc = { workspace = true }
 varint_ffi = { path = "../varint_ffi" }
 value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true

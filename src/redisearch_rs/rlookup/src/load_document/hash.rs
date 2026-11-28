@@ -286,7 +286,12 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
 }
 
 impl FieldLoader for HashFieldLoader<'_> {
-    fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
+    fn load_field_at(
+        &self,
+        _index: usize,
+        kk: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
         let path = match kk.path() {
             Some(p) => p.as_ref(),
             // No path set — nothing to load.

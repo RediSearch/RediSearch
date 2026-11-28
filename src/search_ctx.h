@@ -47,6 +47,8 @@ typedef struct RedisSearchCtx {
   // so all iterators created during one query observe a consistent on-disk view.
   // Owned by the query setup that took the snapshot; iterators borrow it.
   RedisSearchDiskSnapshot *diskSnapshot;
+  t_docId maxVisibleDocId;
+  bool hasMaxVisibleDocId;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -67,12 +69,18 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .timeout = NULL,
-                          .diskSnapshot = NULL,};
+                          .diskSnapshot = NULL,
+                          .maxVisibleDocId = 0,};
   return sctx;
 }
 
 // Refreshes the real-clock snapshot used for document, field, and disk TTL checks.
 void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
+
+// Whether `docId` is within the query's `maxVisibleDocId` bound.
+static inline bool SearchCtx_IsDocVisible(const RedisSearchCtx *sctx, t_docId docId) {
+  return !sctx->hasMaxVisibleDocId || docId <= sctx->maxVisibleDocId;
+}
 
 typedef struct QueryError QueryError;
 

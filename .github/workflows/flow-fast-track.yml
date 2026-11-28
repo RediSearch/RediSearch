@@ -1,0 +1,25 @@
+name: Request Fast-Track Approval
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to evaluate (must be your PR)'
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  evaluate:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/task-fast-track.yml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+    secrets:
+      FAST_TRACK_APP_PRIVATE_KEY: ${{ secrets.FAST_TRACK_APP_PRIVATE_KEY }}
+      JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}

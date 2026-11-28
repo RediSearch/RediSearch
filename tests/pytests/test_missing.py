@@ -726,3 +726,50 @@ def testMissingAlterAndReload():
     res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@te)', 'NOCONTENT')
     env.assertEqual(res[0], 3)
     env.assertEqual(set(res[1:]), {'before_alter', 'after_alter', 'after_reload'})
+
+@skip(cluster=True)
+def test_doc_with_only_sortable_noindex_values(env):
+    """A document whose only values are in SORTABLE NOINDEX fields must still be indexed."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA',
+               'indexed', 'TAG', 'INDEXMISSING',
+               'sortable_noindex', 'TAG', 'SORTABLE', 'UNF', 'NOINDEX',
+               'plain_noindex', 'TAG', 'NOINDEX').ok()
+    conn.execute_command('HSET', 'doc:1', 'indexed', 'red')
+    conn.execute_command('HSET', 'doc:2', 'sortable_noindex', 'x')
+    conn.execute_command('HSET', 'doc:3', 'plain_noindex', 'p')
+
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_docs']), 3)
+    env.assertEqual(int(info['hash_indexing_failures']), 0)
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'NOCONTENT')
+    env.assertEqual(sorted(res[1:]), ['doc:1', 'doc:2', 'doc:3'])
+    res = conn.execute_command('FT.SEARCH', 'idx', 'ismissing(@indexed)', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['doc:2', 'doc:3'])
+    # The sorting vector is stored even though the field is not indexed.
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
+               'RETURN', '1', 'sortable_noindex').equal([3, 'doc:2', ['sortable_noindex', 'x']])
+
+    # Updating an indexed document in place into a sortable-only one keeps it in the index.
+    conn.execute_command('HSET', 'doc:1', 'sortable_noindex', 'y')
+    conn.execute_command('HDEL', 'doc:1', 'indexed')
+    env.assertEqual(int(index_info(env, 'idx')['num_docs']), 3)
+    env.expect('FT.SEARCH', 'idx', '@indexed:{red}', 'NOCONTENT', 'DIALECT', '2').equal([0])
+    res = conn.execute_command('FT.SEARCH', 'idx', 'ismissing(@indexed)', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['doc:1', 'doc:2', 'doc:3'])
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
+               'RETURN', '1', 'sortable_noindex').equal([3, 'doc:1', ['sortable_noindex', 'y']])
+
+@skip(cluster=True)
+def test_alter_add_sortable_noindex_field_indexes_existing_docs(env):
+    """FT.ALTER rescans existing keys; ones holding only the new SORTABLE NOINDEX field keep its value."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'doc:', 'SCHEMA', 'indexed', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 'indexed', 'red')
+    conn.execute_command('HSET', 'doc:2', 'sortable_noindex', 'x')
+
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'sortable_noindex', 'TAG', 'SORTABLE', 'UNF', 'NOINDEX').ok()
+    waitForIndex(env, 'idx')
+    env.assertEqual(int(index_info(env, 'idx')['num_docs']), 2)
+    env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
+               'RETURN', '1', 'sortable_noindex').equal([2, 'doc:2', ['sortable_noindex', 'x']])

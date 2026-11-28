@@ -852,8 +852,8 @@ mod via_resume {
     }
 
     /// A child whose resume *fails* takes the union down the
-    /// `FreeSuspendedShell` teardown, the most delicate unsafe in this
-    /// file: it drops the compacted resumed prefix, leaves the consumed slot
+    /// `FreeSuspendedShell` teardown, the most delicate unsafe in the union
+    /// resume: it drops the compacted resumed prefix, leaves the consumed slot
     /// alone, and drops the still-suspended tail. Get the `kept`/`cursor`
     /// boundary wrong and it is a double free or a leak, both of which miri
     /// sees through the mocks' reference-counted state.
@@ -1360,9 +1360,35 @@ mod via_resume {
         Failed,
     }
 
+    /// What a union publishes as its `current()` right after the transition —
+    /// the result a parent emits on `Moved` or keeps on `Ok` without reading.
+    ///
+    /// Entries are counted rather than identified: the two paths remove an
+    /// aborted child differently, so the same contributor can sit in a
+    /// different slot on each.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Published {
+        doc_id: DocId,
+        freq: u32,
+        field_mask: rqe_core::FieldMask,
+        entries: usize,
+        metrics: usize,
+    }
+
+    fn published<'index>(it: &mut impl RQEIterator<'index>) -> Option<Published> {
+        it.current().map(|r| Published {
+            doc_id: r.doc_id,
+            freq: r.freq,
+            field_mask: r.field_mask,
+            entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
+            metrics: r.metrics.len(),
+        })
+    }
+
     /// Drive `build()` through the legacy `revalidate` and through
-    /// `suspend`/`resume`, and require both to agree on the outcome *and* on
-    /// everything read afterwards. `what` names the scenario in the failure.
+    /// `suspend`/`resume`, and require both to agree on the outcome, on the
+    /// result published at the new position, *and* on everything read
+    /// afterwards. `what` names the scenario in the failure.
     #[track_caller]
     fn assert_paths_agree<'index, const QUICK_EXIT: bool>(
         what: &str,
@@ -1378,21 +1404,30 @@ mod via_resume {
         };
         // An aborted or failed iterator is dropped rather than used, so there is
         // nothing left to read on either path.
-        let legacy_tail = match legacy_outcome {
-            Outcome::Ok | Outcome::Moved => drain(&mut *legacy),
-            Outcome::Aborted | Outcome::Failed => Vec::new(),
+        let (legacy_published, legacy_tail) = match legacy_outcome {
+            Outcome::Ok | Outcome::Moved => (published(&mut *legacy), drain(&mut *legacy)),
+            Outcome::Aborted | Outcome::Failed => (None, Vec::new()),
         };
 
-        let (resumed_outcome, resumed_tail) = match build().suspend().resume(guard) {
-            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, drain(&mut *it)),
-            Ok(ResumeOutcome::Moved(mut it)) => (Outcome::Moved, drain(&mut *it)),
-            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, Vec::new()),
-            Err(_) => (Outcome::Failed, Vec::new()),
+        let (resumed_outcome, resumed_published, resumed_tail) = match build()
+            .suspend()
+            .resume(guard)
+        {
+            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, published(&mut *it), drain(&mut *it)),
+            Ok(ResumeOutcome::Moved(mut it)) => {
+                (Outcome::Moved, published(&mut *it), drain(&mut *it))
+            }
+            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, None, Vec::new()),
+            Err(_) => (Outcome::Failed, None, Vec::new()),
         };
 
         assert_eq!(
             legacy_outcome, resumed_outcome,
             "{what}: the two paths disagree on the outcome",
+        );
+        assert_eq!(
+            legacy_published, resumed_published,
+            "{what}: the two paths disagree on the published result",
         );
         assert_eq!(
             legacy_tail, resumed_tail,

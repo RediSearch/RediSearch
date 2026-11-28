@@ -285,8 +285,8 @@ TEST_F(CursorsTest, DeferredCycleClearsModeBeforeInlineCursorRead) {
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cursor);
   EXPECT_FALSE(QueryRequest_UsesReplyCallback(&req->base));
   EXPECT_FALSE(req->base.blockedClientCycleActive);
-  EXPECT_FALSE(req->base.reply.hasStoredResults);
-  EXPECT_EQ(req->base.reply.results, nullptr);
+  EXPECT_EQ(req->base.reply.rows.ctx, nullptr);
+  EXPECT_EQ(req->base.reply.bufferedElements, 0);
 
   // The next blocked inline read starts with an independent reply count.
   req->base.blockedClientCycleActive = true;
@@ -304,10 +304,6 @@ TEST_F(CursorsTest, ReplyContractRejectsMissingDuplicateAndMixedReplies) {
 
   QueryRequest_RecordInlineReply(&req->base);
   EXPECT_THROW(QueryRequest_RecordInlineReply(&req->base), std::runtime_error);
-
-  req->base.reply.hasStoredResults = true;
-  EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
-  req->base.reply.hasStoredResults = false;
 
   req->base.replyDeferred = true;
   EXPECT_THROW(QueryRequest_OnFree(nullptr, &req->base), std::runtime_error);
