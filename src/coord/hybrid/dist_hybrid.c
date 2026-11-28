@@ -1009,7 +1009,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     CurrentThread_SetIndexSpec(dispatch->indexSpecRef);
 
 #ifdef ENABLE_ASSERT
-    SyncPoint_Wait(SYNC_POINT_AFTER_SCHEDULE_DEPLETERS);
+    SyncPoint_Wait(SYNC_POINT_BEFORE_HYBRID_TAIL_EXECUTION);
 #endif
     if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
         CurrentThread_ClearIndexSpec();
