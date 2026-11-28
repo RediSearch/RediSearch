@@ -6,6 +6,8 @@ metadata:
 timeout_seconds: 1800
 setups:
   - oss-standalone
+  - oss-standalone-threads-1
+  - oss-standalone-threads-2
 
 dbconfig:
   dataset_name: "arxiv-titles-384-angular-filters-m16-ef-128"

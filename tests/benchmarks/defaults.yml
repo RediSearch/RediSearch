@@ -49,6 +49,45 @@ spec:
         cpus: "1"
         memory: "25g"
 
+  # Hold server CPU allocation constant for the low-worker comparison.
+  - name: oss-standalone-threads-1
+    type: oss-standalone
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "3"
+        memory: "25g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 1
+          MIN_OPERATION_WORKERS: 1
+        module-oss:
+          WORKERS: 1
+          MIN_OPERATION_WORKERS: 1
+
+  - name: oss-standalone-threads-2
+    type: oss-standalone
+    redis_topology:
+      primaries: 1
+      replicas: 0
+      placement: "sparse"
+    resources:
+      requests:
+        cpus: "3"
+        memory: "25g"
+    dbconfig:
+      module-configuration-parameters:
+        redisearch:
+          WORKERS: 2
+          MIN_OPERATION_WORKERS: 2
+        module-oss:
+          WORKERS: 2
+          MIN_OPERATION_WORKERS: 2
+
   - name: oss-standalone-threads-6
     type: oss-standalone
     redis_topology:
