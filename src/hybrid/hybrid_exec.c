@@ -13,9 +13,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef ENABLE_ASSERT
-#include "debug_commands.h" // IWYU pragma: keep
-#endif
+#include "debug_commands.h"
 
 #include "search_result_ffi.h"
 #include "parse_hybrid.h"
