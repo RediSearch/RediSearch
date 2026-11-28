@@ -2554,6 +2554,7 @@ static RPDrainStatus RPSafeDepleter_Drain(ResultProcessor *base, SearchResult *r
 // Sets `depletion_scheduled = true` before submitting so the flag is visible
 // even if the BG worker preempts us and completes immediately after submit.
 static inline void RPSafeDepleter_StartDepletionThread(RPSafeDepleter *self) {
+  RS_ASSERT_ALWAYS(self->pool);
   RPSafeDepleter_PrepareJob(&self->base);
   int rc = redisearch_thpool_add_work(self->pool, RPSafeDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
   RS_ASSERT_ALWAYS(rc == 0);
@@ -2637,7 +2638,6 @@ ResultProcessor *RPSafeDepleter_New(StrongRef sync_ref, RedisSearchCtx *depletin
   ret->pool = pool;
   // Make sure the sync reference is valid
   RS_LOG_ASSERT(StrongRef_Get(sync_ref), "Invalid sync reference");
-  RS_LOG_ASSERT(pool, "Invalid thread pool");
   return &ret->base;
 }
 
@@ -2780,6 +2780,10 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryErro
 
   RPSafeDepleter_JoinAll(safeDepleters);
 
+  return RPSafeDepleter_CompletedStatus(safeDepleters);
+}
+
+int RPSafeDepleter_CompletedStatus(arrayof(ResultProcessor *) safeDepleters) {
   // Check each depleter's final status for errors or timeouts.
   // Errors take priority over timeouts.
   const size_t count = array_len(safeDepleters);

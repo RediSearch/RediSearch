@@ -7,6 +7,9 @@
 
 import numpy as np
 import threading
+from concurrent.futures import ThreadPoolExecutor
+
+from redis.exceptions import ResponseError
 from RLTest import Env
 from common import *
 from utils.hybrid import *
@@ -78,14 +81,9 @@ def test_hybrid_multithread():
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
 
-    if env.isCluster():
-        # Expect 5 jobs done: 3 for the hybrid search + its depleters,
-        # 1 for the search equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 5)
-    else:
-        # Expect 3 jobs done: 1 for the hybrid search, 1 for the search
-        # equivalent, and 1 for the vector equivalent
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 3)
+    # At two workers hybrid submits one helper in addition to the request itself.
+    first_run = 6 if env.isCluster() else 4
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], first_run)
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 2)
 
@@ -96,12 +94,9 @@ def test_hybrid_multithread():
 
     # Drain the thread pool to make sure all jobs are done.
     env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-    if env.isCluster():
-        # Expect 10 jobs done: 5 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 10)
-    else:
-        # Expect 6 jobs done: 3 more once the scenario is run again
-        env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 6)
+    # At one worker all children and the continuation run on the caller.
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'],
+                    first_run + (5 if env.isCluster() else 3))
 
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 
@@ -361,3 +356,69 @@ def test_hybrid_filtered_knn_keeps_k_with_late_document():
     env.assertEqual(len(keys), k, message=f'expected {k} KNN results, got: {sorted(keys)}')
     # The late document is a top match, so its absence above comes from the bound.
     env.assertContains('late:vector', hybrid_reply_keys(env.cmd(*query)))
+
+def test_hybrid_one_worker_completes_concurrent_requests():
+    """A busy search pool and a single coordinator worker can finish every client's fusion."""
+    env = Env(moduleArgs='WORKERS 1 MIN_OPERATION_WORKERS 1 SEARCH_THREADS 1', protocol=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    blob = np.array([1, 2], dtype=np.float32).tobytes()
+    conn = getConnectionByEnv(env)
+    clients = 8
+    for i in range(clients):
+        conn.execute_command('HSET', f'doc:{{text{i}}}', 't', f'token{i}')
+    conn.execute_command('HSET', 'doc:{vector}', 'v', blob)
+    start = threading.Barrier(clients, timeout=15)
+
+    def query(i):
+        with env.getConnection() as client:
+            client.connection_pool.connection_kwargs['socket_timeout'] = 15
+            start.wait()
+            return client.execute_command('FT.HYBRID', 'idx', 'SEARCH', f'token{i}', 'VSIM',
+                                          '@v', '$blob', 'PARAMS', '2', 'blob', blob, 'TIMEOUT', '0')
+
+    with ThreadPoolExecutor(max_workers=clients) as pool:
+        for i, response in enumerate(pool.map(query, range(clients))):
+            rows, total = get_results_from_hybrid_response(response)
+            env.assertEqual(total, 2, message=response)
+            env.assertEqual(set(rows), {f'doc:{{text{i}}}', 'doc:{vector}'}, message=response)
+            env.assertEqual(response['warnings'], [])
+
+
+def test_hybrid_initial_dispatch_rejection():
+    """A refused first job replies once and releases the blocked request and reserved cursors."""
+    env = Env(moduleArgs='WORKERS 1', protocol=3, enableDebugCommand=True)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'v', 'VECTOR', 'FLAT', '6',
+               'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    public_query = ('FT.HYBRID', 'idx', *hybrid_numeric_query())
+    internal_query = ('_FT.HYBRID', 'idx', *hybrid_numeric_query('WITHCURSOR'),
+                      '_COORD_DISPATCH_TIME', '1000000')
+    def free_count():
+        return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
+
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        with env.getConnection() as client, env.getConnection() as shard:
+            shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            for policy in ('return', 'fail', 'return-strict'):
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RejectHybridDispatch').ok()
+                try:
+                    for connection, query in ((client, public_query), (shard, internal_query)):
+                        before = free_count()
+                        try:
+                            connection.execute_command(*query)
+                            env.assertTrue(False, message=f'{policy} accepted a refused dispatch')
+                        except ResponseError as error:
+                            env.assertContains('Unable to schedule hybrid query', str(error))
+                        wait_for_condition(lambda: (free_count() == before + 1, {}),
+                                           'refused request did not finish exactly once')
+                        env.assertTrue(connection.ping())
+                    stats = shard.execute_command('_FT.INFO', 'idx')['cursor_stats']
+                    env.assertEqual(stats['index_total'], 0)
+                finally:
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+                env.assertEqual(client.execute_command(*public_query)['warnings'], [])
+    finally:
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()

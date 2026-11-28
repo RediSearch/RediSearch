@@ -7478,7 +7478,6 @@ class TestShardTimeout:
     def _owned_hybrid_profile_recovery(self, loader_point, loaded=False):
         env = self.env
         skipIfNoEnableAssert(env)
-        tail_point = 'AfterHybridPipelinePublished'
         previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
         query = self._standalone_hybrid_full_result_query(['LOAD', '1', '@name'])
@@ -7487,18 +7486,15 @@ class TestShardTimeout:
         worker = threading.Thread(target=call_and_store, args=(env.cmd, query, replies), daemon=True)
         freed_before = _get_blocked_request_onfree_count(env)
         try:
-            for point in (tail_point, loader_point):
-                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', loader_point).ok()
             worker.start()
-            for point in (tail_point, loader_point):
-                wait_for_condition(
-                    lambda point=point: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
-                    f'worker did not reach {point}')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', loader_point) == 1, {}),
+                f'worker did not reach {loader_point}')
             client = wait_for_blocked_query_client(env, 'FT.PROFILE')
             env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
             worker.join(timeout=5)
             env.assertFalse(worker.is_alive(), message='profile recovery waited for the parked tail')
-            env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', tail_point).equal(1)
             env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', loader_point).equal(1)
             env.assertEqual(_get_blocked_request_onfree_count(env), freed_before)
             env.assertEqual(len(replies), 1, message=replies)
@@ -7518,13 +7514,13 @@ class TestShardTimeout:
                     env.assertGreaterEqual(processor['Results processed'], 0, message=result)
                 if loaded:
                     loader = next(p for p in processors if p['Type'] == 'Threadsafe-Loader')
-                    env.assertEqual(loader['Results processed'], self.n_docs, message=result)
+                    expected_loaded = self.n_docs if source == 'SEARCH' else 0
+                    env.assertEqual(loader['Results processed'], expected_loaded, message=result)
             for processor in result['Profile']['Coordinator']['Result processors profile']:
                 env.assertEqual(processor['Results processed'], len(expected_rows), message=result)
                 env.assertGreaterEqual(processor['Time'], 0, message=result)
         finally:
-            for point in (tail_point, loader_point):
-                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', loader_point).ok()
             env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             worker.join(timeout=5)
             env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()

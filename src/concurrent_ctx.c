@@ -30,8 +30,8 @@ void ConcurrentSearch_ThreadPoolDestroy(void) {
   coordinatorPool = NULL;
 }
 
-void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
-  redisearch_thpool_add_work(ConcurrentSearch_GetPool(), func, arg, THPOOL_PRIORITY_HIGH);
+int ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
+  return redisearch_thpool_add_work(ConcurrentSearch_GetPool(), func, arg, THPOOL_PRIORITY_HIGH);
 }
 
 redisearch_thpool_t *ConcurrentSearch_GetPool(void) {

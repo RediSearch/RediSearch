@@ -289,6 +289,13 @@ void DebugBgIterator_Clear(struct MRIterator *it);
 
 #endif  // ENABLE_ASSERT
 
+static inline bool Debug_ShouldRejectHybridDispatch(void) {
+#ifdef ENABLE_ASSERT
+  return SyncPoint_IsArmed("RejectHybridDispatch");
+#else
+  return false;
+#endif
+}
 
 // Yield counter functions
 void IncrementLoadYieldCounter(void);

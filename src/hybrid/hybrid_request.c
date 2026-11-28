@@ -143,7 +143,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
           RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterPool);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, NULL);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)

@@ -49,8 +49,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 // Whether the Redis core provides every module API Search cannot run without.
 bool RediSearch_HasRequiredRedisAPIs(void);
 
-extern redisearch_thpool_t *depleterPool;
-
 int IsMaster();
 bool RS_IsEnterpriseServer(void);
 

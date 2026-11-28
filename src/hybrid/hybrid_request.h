@@ -114,6 +114,10 @@ typedef struct blockedClientHybridCtx {
   HybridPipelineParams *hybridParams;
   RedisModuleBlockedClient *blockedClient;
   WeakRef spec_ref;
+  size_t runners;
+  StrongRef executionRef;
+  RedisModuleCtx *replyCtx;
+  ResultProcessor **depleters;
   // We need to know what kind of cursor to open, either multiple cursors if it is an internal command(shard) or single if it is a user command(coordinator)
   bool internal;
 } blockedClientHybridCtx;
