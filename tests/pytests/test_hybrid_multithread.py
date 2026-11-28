@@ -414,7 +414,7 @@ def test_hybrid_initial_dispatch_rejection():
                                        'refused request did not finish exactly once')
                     env.assertTrue(connection.ping())
                 stats = shard.execute_command('_FT.INFO', 'idx')['cursor_stats']
-                env.assertEqual(stats['index_total_internal'], 0)
+                env.assertEqual(stats['index_total'], 0)
             finally:
                 env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
             env.assertEqual(client.execute_command(*public_query)['warnings'], [])
