@@ -1,6 +1,6 @@
 # FT.HYBRID execution with a variable number of workers
 
-Design proposal, 2026-11-28. The implementation baseline is RediSearch master at `14a608df5b`. The target recovery model is the [pipeline ownership stack #11743](https://github.com/RediSearch/RediSearch/stack/11743), checked at its coordinator head `f19e6cbdb5`. Reply encoding follows [#11365](https://github.com/RediSearch/RediSearch/pull/11365), checked at `79e50a1b7a`. These are separate development heads. Their integration and the performance results below are proposed work.
+Design proposal, 2026-11-28. The implementation baseline is RediSearch master at `14a608df5b`. The target recovery model is the [coordinator head of pipeline ownership stack #11743](https://github.com/RediSearch/RediSearch/pull/11746), checked at its coordinator head `f19e6cbdb5`. Reply encoding follows [#11365](https://github.com/RediSearch/RediSearch/pull/11365), checked at `79e50a1b7a`. These are separate development heads. Their integration and the performance results below are proposed work.
 
 ## Objective and scope
 
