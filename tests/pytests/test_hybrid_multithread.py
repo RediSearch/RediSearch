@@ -375,7 +375,7 @@ def test_hybrid_one_worker_completes_concurrent_requests():
             client.connection_pool.connection_kwargs['socket_timeout'] = 15
             start.wait()
             return client.execute_command('FT.HYBRID', 'idx', 'SEARCH', f'token{i}', 'VSIM',
-                                          '@v', '$blob', 'PARAMS', '2', 'blob', blob)
+                                          '@v', '$blob', 'PARAMS', '2', 'blob', blob, 'TIMEOUT', '0')
 
     with ThreadPoolExecutor(max_workers=clients) as pool:
         for i, response in enumerate(pool.map(query, range(clients))):
@@ -397,24 +397,28 @@ def test_hybrid_initial_dispatch_rejection():
     def free_count():
         return env.cmd(debug_cmd(), 'QUERY_CONTROLLER', 'GET_BLOCKED_REQUEST_ONFREE_COUNT')
 
-    with env.getConnection() as client, env.getConnection() as shard:
-        shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
-        for policy in ('return', 'fail', 'return-strict'):
-            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RejectHybridDispatch').ok()
-            try:
-                for connection, query in ((client, public_query), (shard, internal_query)):
-                    before = free_count()
-                    try:
-                        connection.execute_command(*query)
-                        env.assertTrue(False, message=f'{policy} accepted a refused dispatch')
-                    except ResponseError as error:
-                        env.assertContains('Unable to schedule hybrid query', str(error))
-                    wait_for_condition(lambda: (free_count() == before + 1, {}),
-                                       'refused request did not finish exactly once')
-                    env.assertTrue(connection.ping())
-                stats = shard.execute_command('_FT.INFO', 'idx')['cursor_stats']
-                env.assertEqual(stats['index_total'], 0)
-            finally:
-                env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
-            env.assertEqual(client.execute_command(*public_query)['warnings'], [])
+    previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+    try:
+        with env.getConnection() as client, env.getConnection() as shard:
+            shard.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+            for policy in ('return', 'fail', 'return-strict'):
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, policy).ok()
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'RejectHybridDispatch').ok()
+                try:
+                    for connection, query in ((client, public_query), (shard, internal_query)):
+                        before = free_count()
+                        try:
+                            connection.execute_command(*query)
+                            env.assertTrue(False, message=f'{policy} accepted a refused dispatch')
+                        except ResponseError as error:
+                            env.assertContains('Unable to schedule hybrid query', str(error))
+                        wait_for_condition(lambda: (free_count() == before + 1, {}),
+                                           'refused request did not finish exactly once')
+                        env.assertTrue(connection.ping())
+                    stats = shard.execute_command('_FT.INFO', 'idx')['cursor_stats']
+                    env.assertEqual(stats['index_total'], 0)
+                finally:
+                    env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+                env.assertEqual(client.execute_command(*public_query)['warnings'], [])
+    finally:
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()
